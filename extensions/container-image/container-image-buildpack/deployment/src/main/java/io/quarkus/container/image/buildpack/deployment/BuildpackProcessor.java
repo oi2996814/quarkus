@@ -18,8 +18,9 @@ import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.model.AuthConfig;
 import com.github.dockerjava.api.model.PushResponseItem;
 
-import dev.snowdrop.buildpack.Buildpack;
-import dev.snowdrop.buildpack.BuildpackBuilder;
+import dev.snowdrop.buildpack.BuildConfig;
+import dev.snowdrop.buildpack.BuildConfigBuilder;
+import dev.snowdrop.buildpack.config.ImageReference;
 import dev.snowdrop.buildpack.docker.DockerClientUtils;
 import io.quarkus.container.image.deployment.ContainerImageConfig;
 import io.quarkus.container.image.deployment.util.NativeBinaryUtil;
@@ -33,7 +34,6 @@ import io.quarkus.deployment.IsNormalNotRemoteDev;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.MainClassBuildItem;
-import io.quarkus.deployment.pkg.PackageConfig;
 import io.quarkus.deployment.pkg.builditem.AppCDSResultBuildItem;
 import io.quarkus.deployment.pkg.builditem.ArtifactResultBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
@@ -63,7 +63,6 @@ public class BuildpackProcessor {
 
     @BuildStep(onlyIf = { IsNormalNotRemoteDev.class, BuildpackBuild.class }, onlyIfNot = NativeBuild.class)
     public void buildFromJar(ContainerImageConfig containerImageConfig, BuildpackConfig buildpackConfig,
-            PackageConfig packageConfig,
             ContainerImageInfoBuildItem containerImage,
             JarBuildItem sourceJar,
             MainClassBuildItem mainClass,
@@ -155,6 +154,24 @@ public class BuildpackProcessor {
         return result;
     }
 
+    private final String getDockerHost(BuildpackConfig buildpackConfig) {
+        String dockerHostVal = null;
+        //use config if present, else try to use env var.
+        //use of null indicates to buildpack lib to default the value itself.
+        if (buildpackConfig.dockerHost().isPresent()) {
+            dockerHostVal = buildpackConfig.dockerHost().get();
+        } else {
+            String dockerHostEnv = System.getenv("DOCKER_HOST");
+            if (dockerHostEnv != null && !dockerHostEnv.isEmpty()) {
+                dockerHostVal = dockerHostEnv;
+            }
+        }
+        if (dockerHostVal != null) {
+            log.info("Using dockerHost of " + dockerHostVal);
+        }
+        return dockerHostVal;
+    }
+
     private String runBuildpackBuild(BuildpackConfig buildpackConfig,
             ContainerImageInfoBuildItem containerImage,
             ContainerImageConfig containerImageConfig,
@@ -172,7 +189,7 @@ public class BuildpackProcessor {
         String targetImageName = containerImage.getImage();
         log.debug("Using Destination image of " + targetImageName);
 
-        Map<String, String> envMap = new HashMap<>(buildpackConfig.builderEnv);
+        Map<String, String> envMap = new HashMap<>(buildpackConfig.builderEnv());
         if (!envMap.isEmpty()) {
             log.info("Using builder environment of " + envMap);
         }
@@ -183,33 +200,46 @@ public class BuildpackProcessor {
 
         if (buildContainerImage) {
             log.info("Initiating Buildpack build");
-            Buildpack buildpack = Buildpack.builder()
-                    .addNewFileContent(dirs.get(ProjectDirs.ROOT).toFile())
-                    .withFinalImage(targetImageName)
+            int exitCode = BuildConfig.builder()
+                    .addNewFileContentApplication(dirs.get(ProjectDirs.ROOT).toFile())
+                    .withOutputImage(new ImageReference(targetImageName))
+                    .withNewPlatformConfig()
                     .withEnvironment(envMap)
-                    .withLogLevel(buildpackConfig.logLevel)
-                    .withPullTimeoutSeconds(buildpackConfig.pullTimeoutSeconds)
+                    .endPlatformConfig()
+                    .withNewLogConfig()
                     .withLogger(new BuildpackLogger())
-                    .accept(BuildpackBuilder.class, b -> {
-
+                    .withLogLevel(buildpackConfig.logLevel())
+                    .endLogConfig()
+                    .withNewDockerConfig()
+                    .withPullRetryIncreaseSeconds(buildpackConfig.pullTimeoutIncreaseSeconds())
+                    .withPullTimeoutSeconds(buildpackConfig.pullTimeoutSeconds())
+                    .withPullRetryCount(buildpackConfig.pullRetryCount())
+                    .withDockerHost(getDockerHost(buildpackConfig))
+                    .withDockerNetwork(buildpackConfig.dockerNetwork().orElse(null))
+                    .withUseDaemon(buildpackConfig.useDaemon())
+                    .endDockerConfig()
+                    .accept(BuildConfigBuilder.class, b -> {
                         if (isNativeBuild) {
-                            buildpackConfig.nativeBuilderImage.ifPresent(i -> b.withBuilderImage(i));
+                            buildpackConfig.nativeBuilderImage().ifPresent(i -> b.withBuilderImage(new ImageReference(i)));
                         } else {
-                            buildpackConfig.jvmBuilderImage.ifPresent(i -> b.withBuilderImage(i));
+                            b.withBuilderImage(new ImageReference(buildpackConfig.jvmBuilderImage()));
                         }
 
-                        if (buildpackConfig.runImage.isPresent()) {
-                            log.info("Using Run image of " + buildpackConfig.runImage.get());
-                            b.withRunImage(buildpackConfig.runImage.get());
-                        }
-                        if (buildpackConfig.dockerHost.isPresent()) {
-                            log.info("Using DockerHost of " + buildpackConfig.dockerHost.get());
-                            b.withDockerHost(buildpackConfig.dockerHost.get());
+                        if (buildpackConfig.runImage().isPresent()) {
+                            log.info("Using Run image of " + buildpackConfig.runImage().get());
+                            b.withRunImage(new ImageReference(buildpackConfig.runImage().get()));
                         }
 
-                    }).build();
+                        if (buildpackConfig.trustBuilderImage().isPresent()) {
+                            log.info("Setting trusted image to " + buildpackConfig.trustBuilderImage().get());
+                            b.editPlatformConfig().withTrustBuilder(buildpackConfig.trustBuilderImage().get())
+                                    .endPlatformConfig();
+                        }
+                    })
+                    .build()
+                    .getExitCode();
 
-            if (buildpack.getExitCode() != 0) {
+            if (exitCode != 0) {
                 throw new IllegalStateException("Buildpack build failed");
             }
 
@@ -229,9 +259,8 @@ public class BuildpackProcessor {
 
             log.info("Pushing image to " + authConfig.getRegistryAddress());
             Stream.concat(Stream.of(containerImage.getImage()), containerImage.getAdditionalImageTags().stream()).forEach(i -> {
-                //If no dockerHost is specified use empty String. The util will take care of the rest.
-                String dockerHost = buildpackConfig.dockerHost.orElse("");
-                ResultCallback.Adapter<PushResponseItem> callback = DockerClientUtils.getDockerClient(dockerHost)
+                ResultCallback.Adapter<PushResponseItem> callback = DockerClientUtils
+                        .getDockerClient(getDockerHost(buildpackConfig))
                         .pushImageCmd(i).start();
                 try {
                     callback.awaitCompletion();

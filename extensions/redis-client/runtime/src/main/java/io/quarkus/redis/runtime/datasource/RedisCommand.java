@@ -13,6 +13,7 @@ public class RedisCommand {
     private final Request request;
 
     private RedisCommand(Command command) {
+        command = CommandMap.normalize(command);
         this.request = Request.cmd(command);
     }
 
@@ -66,7 +67,7 @@ public class RedisCommand {
         return this;
     }
 
-    public RedisCommand putArgs(RedisCommandExtraArguments arguments, Codec<?> codec) {
+    public RedisCommand putArgs(RedisCommandExtraArguments arguments, Codec codec) {
         putAll(arguments.toArgs(codec));
         return this;
     }

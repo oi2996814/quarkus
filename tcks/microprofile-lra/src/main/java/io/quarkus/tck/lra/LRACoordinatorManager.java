@@ -4,30 +4,38 @@ import java.io.IOException;
 import java.net.ServerSocket;
 
 import org.jboss.arquillian.core.api.annotation.Observes;
-import org.jboss.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 public class LRACoordinatorManager {
 
     private static final int DEFAULT_PRECEDENCE = -100;
-    private static final Logger LOGGER = Logger.getLogger(LRACoordinatorManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LRACoordinatorManager.class);
     private final int coordinatorPort = getFreePort(50000, 60000);
 
     private GenericContainer coordinatorContainer;
 
     public void beforeClass(
             @Observes(precedence = DEFAULT_PRECEDENCE) org.jboss.arquillian.test.spi.event.suite.BeforeSuite event) {
-        LOGGER.debug("Starting LRA coordinator on port " + coordinatorPort);
-        coordinatorContainer = new GenericContainer<>(DockerImageName.parse("jbosstm/lra-coordinator:latest"))
-                // lra-coordinator is a Quarkus service
-                .withEnv("QUARKUS_HTTP_PORT", String.valueOf(coordinatorPort))
-                // need to run with host network because coordinator calls the TCK services from the container
-                .withNetworkMode("host");
+        Slf4jLogConsumer logConsumer = new Slf4jLogConsumer(LOGGER);
+        if (System.getProperty("lra.coordinator.url") == null) {
+            LOGGER.debug("Starting LRA coordinator on port " + coordinatorPort);
+            coordinatorContainer = new GenericContainer<>(DockerImageName.parse("quay.io/jbosstm/lra-coordinator:latest"))
+                    // lra-coordinator is a Quarkus service
+                    .withEnv("QUARKUS_HTTP_PORT", String.valueOf(coordinatorPort))
+                    // need to run with host network because coordinator calls the TCK services from the container
+                    .withNetworkMode("host")
+                    .waitingFor(Wait.forLogMessage(".*lra-coordinator-quarkus.*", 1));
+            ;
 
-        coordinatorContainer.start();
-
-        System.setProperty("lra.coordinator.url", String.format("http://localhost:%d/lra-coordinator", coordinatorPort));
+            coordinatorContainer.start();
+            coordinatorContainer.followOutput(logConsumer);
+            System.setProperty("lra.coordinator.url", String.format("http://localhost:%d/lra-coordinator", coordinatorPort));
+        }
     }
 
     public void afterClass(

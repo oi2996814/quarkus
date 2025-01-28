@@ -5,8 +5,8 @@ import static io.restassured.config.HeaderConfig.headerConfig;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 
 import org.hamcrest.Matcher;
 import org.junit.jupiter.api.Test;
@@ -242,7 +242,8 @@ public class UnhandledExceptionTest {
                 containsString("<!doctype html>"),
                 containsString("<title>Internal Server Error"),
                 containsString("java.lang.RuntimeException: Simulated failure"),
-                containsString("at " + BeanRegisteringRouteThatThrowsException.class.getName() + "$1.handle"));
+                containsString(BeanRegisteringRouteThatThrowsException.class.getName() + "$1"),
+                containsString(".handle"));
     }
 
     @ApplicationScoped

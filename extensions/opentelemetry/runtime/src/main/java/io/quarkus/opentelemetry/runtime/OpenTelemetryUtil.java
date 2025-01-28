@@ -2,21 +2,15 @@ package io.quarkus.opentelemetry.runtime;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
+import java.util.Map.Entry;
 import java.util.Set;
 
-import io.opentelemetry.api.baggage.propagation.W3CBaggagePropagator;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
-import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
-import io.opentelemetry.context.propagation.ContextPropagators;
-import io.opentelemetry.context.propagation.TextMapPropagator;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigurablePropagatorProvider;
 import io.opentelemetry.sdk.trace.ReadableSpan;
 import io.quarkus.vertx.core.runtime.VertxMDC;
 
@@ -25,43 +19,9 @@ public final class OpenTelemetryUtil {
     public static final String SPAN_ID = "spanId";
     public static final String SAMPLED = "sampled";
     public static final String PARENT_ID = "parentId";
+    private static final Set<String> SPAN_DATA_KEYS = Set.of(TRACE_ID, SPAN_ID, SAMPLED, PARENT_ID);
 
     private OpenTelemetryUtil() {
-    }
-
-    private static TextMapPropagator getPropagator(
-            String name, Map<String, TextMapPropagator> spiPropagators) {
-        if ("tracecontext".equals(name)) {
-            return W3CTraceContextPropagator.getInstance();
-        }
-        if ("baggage".equals(name)) {
-            return W3CBaggagePropagator.getInstance();
-        }
-
-        TextMapPropagator spiPropagator = spiPropagators.get(name);
-        if (spiPropagator != null) {
-            return spiPropagator;
-        }
-        throw new IllegalArgumentException(
-                "Unrecognized value for propagator: " + name
-                        + ". Make sure the artifact including the propagator is on the classpath.");
-    }
-
-    public static ContextPropagators mapPropagators(List<String> propagators) {
-        Map<String, TextMapPropagator> spiPropagators = new HashMap<>();
-        for (var provider : ServiceLoader.load(ConfigurablePropagatorProvider.class)) {
-            // Even though this param was added, propagators currently don't use any config properties
-            // when the time arrives, and they do use it, we will need to implement a Quarkus
-            // backed `ConfigProperties` class
-            spiPropagators.put(provider.getName(), provider.getPropagator(null));
-        }
-
-        Set<TextMapPropagator> selectedPropagators = new HashSet<>(propagators.size());
-        for (String propagator : propagators) {
-            selectedPropagators.add(getPropagator(propagator.trim(), spiPropagators));
-        }
-
-        return ContextPropagators.create(TextMapPropagator.composite(selectedPropagators));
     }
 
     /**
@@ -98,22 +58,45 @@ public final class OpenTelemetryUtil {
      * @param vertxContext vertx context
      */
     public static void setMDCData(Context context, io.vertx.core.Context vertxContext) {
+        setMDCData(getSpanData(context), vertxContext);
+    }
+
+    public static void setMDCData(Map<String, String> spanData, io.vertx.core.Context vertxContext) {
+        if (spanData == null) {
+            return;
+        }
+
+        for (Entry<String, String> entry : spanData.entrySet()) {
+            if (SPAN_DATA_KEYS.contains(entry.getKey())) {
+                VertxMDC.INSTANCE.put(entry.getKey(), entry.getValue(), vertxContext);
+            }
+        }
+    }
+
+    /**
+     * Gets current span data from the MDC context.
+     *
+     * @param context opentelemetry context
+     */
+    public static Map<String, String> getSpanData(Context context) {
+        if (context == null) {
+            return Collections.emptyMap();
+        }
         Span span = Span.fromContextOrNull(context);
+        Map<String, String> spanData = new HashMap<>();
         if (span != null) {
             SpanContext spanContext = span.getSpanContext();
-            VertxMDC vertxMDC = VertxMDC.INSTANCE;
-            vertxMDC.put(SPAN_ID, spanContext.getSpanId(), vertxContext);
-            vertxMDC.put(TRACE_ID, spanContext.getTraceId(), vertxContext);
-            vertxMDC.put(SAMPLED, Boolean.toString(spanContext.isSampled()), vertxContext);
+            spanData.put(SPAN_ID, spanContext.getSpanId());
+            spanData.put(TRACE_ID, spanContext.getTraceId());
+            spanData.put(SAMPLED, Boolean.toString(spanContext.isSampled()));
             if (span instanceof ReadableSpan) {
                 SpanContext parentSpanContext = ((ReadableSpan) span).getParentSpanContext();
-                if (parentSpanContext.isValid()) {
-                    vertxMDC.put(PARENT_ID, parentSpanContext.getSpanId(), vertxContext);
-                } else {
-                    vertxMDC.remove(PARENT_ID, vertxContext);
+                if (parentSpanContext != null && parentSpanContext.isValid()) {
+                    spanData.put(PARENT_ID, parentSpanContext.getSpanId());
                 }
             }
         }
+        return spanData;
     }
 
     /**

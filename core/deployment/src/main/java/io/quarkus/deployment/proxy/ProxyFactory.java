@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import io.quarkus.gizmo.ClassCreator;
 import io.quarkus.gizmo.FieldDescriptor;
@@ -77,6 +77,10 @@ public class ProxyFactory<T> {
         if (!configuration.getAdditionalInterfaces().isEmpty()) {
             this.classBuilder.interfaces(configuration.getAdditionalInterfaces().toArray(new Class[0]));
         }
+    }
+
+    public ClassLoader getClassLoader() {
+        return classLoader;
     }
 
     private boolean findConstructor(Class<?> clazz, boolean allowPackagePrivate, boolean allowInject) {

@@ -1,10 +1,9 @@
 package io.quarkus.reactive.oracle.client;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -41,10 +40,8 @@ public class OraclePoolProducerTest {
         @Inject
         OraclePool oracleClient;
 
-        public CompletionStage<Void> verify() {
-            CompletableFuture<Void> cf = new CompletableFuture<>();
-            oracleClient.query("SELECT 1 FROM DUAL").execute(ar -> cf.complete(null));
-            return cf;
+        public CompletionStage<?> verify() {
+            return oracleClient.query("SELECT 1 FROM DUAL").execute().toCompletionStage();
         }
     }
 
@@ -57,7 +54,6 @@ public class OraclePoolProducerTest {
         public CompletionStage<Void> verify() {
             return oracleClient.query("SELECT 1 FROM DUAL").execute()
                     .onItem().ignore().andContinueWithNull()
-                    .onFailure().recoverWithItem((Void) null)
                     .subscribeAsCompletionStage();
         }
     }

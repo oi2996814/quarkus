@@ -3,8 +3,8 @@ package io.quarkus.oidc.test;
 import java.util.Collections;
 import java.util.Map;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Named;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Named;
 
 import io.quarkus.credentials.CredentialsProvider;
 
@@ -14,7 +14,11 @@ public class SecretProvider implements CredentialsProvider {
 
     @Override
     public Map<String, String> getCredentials(String credentialsProviderName) {
-        return Collections.singletonMap("secret-from-vault", "secret");
+        if ("oidc".equals(credentialsProviderName)) {
+            return Collections.singletonMap("secret-from-vault", "secret");
+        } else {
+            return Map.of();
+        }
     }
 
 }

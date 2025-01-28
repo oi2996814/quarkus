@@ -10,7 +10,7 @@ import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
@@ -32,6 +32,7 @@ public class UnknownConfigTest {
                         .map(Object::toString).collect(Collectors.toSet());
                 assertTrue(properties.contains("quarkus.unknown.prop"));
                 assertFalse(properties.contains("quarkus.build.unknown.prop"));
+                assertFalse(properties.contains("proprietary.should.not.report.unknown"));
             });
 
     @Inject

@@ -1,29 +1,45 @@
 package io.quarkus.vertx.http.runtime.security;
 
-import java.security.SecureRandom;
-import java.util.Base64;
+import static io.quarkus.vertx.http.runtime.security.HttpSecurityUtils.setRoutingContextAttribute;
+import static io.quarkus.vertx.http.runtime.security.RolesMapping.ROLES_MAPPING_KEY;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.enterprise.inject.spi.CDI;
+import jakarta.enterprise.inject.spi.CDI;
 
 import org.jboss.logging.Logger;
 
-import io.quarkus.arc.runtime.BeanContainer;
-import io.quarkus.arc.runtime.BeanContainerListener;
+import io.quarkus.arc.Arc;
+import io.quarkus.arc.InstanceHandle;
+import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
+import io.quarkus.runtime.configuration.ConfigurationException;
 import io.quarkus.security.AuthenticationCompletionException;
+import io.quarkus.security.AuthenticationException;
 import io.quarkus.security.AuthenticationFailedException;
 import io.quarkus.security.AuthenticationRedirectException;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.identity.request.AnonymousAuthenticationRequest;
-import io.quarkus.vertx.http.runtime.FormAuthConfig;
-import io.quarkus.vertx.http.runtime.HttpBuildTimeConfig;
+import io.quarkus.security.spi.runtime.MethodDescription;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.quarkus.vertx.http.runtime.HttpConfiguration;
 import io.smallrye.mutiny.CompositeException;
 import io.smallrye.mutiny.Uni;
@@ -38,161 +54,19 @@ import io.vertx.ext.web.RoutingContext;
 public class HttpSecurityRecorder {
 
     private static final Logger log = Logger.getLogger(HttpSecurityRecorder.class);
-    protected static final Consumer<Throwable> NOOP_CALLBACK = new Consumer<Throwable>() {
-        @Override
-        public void accept(Throwable throwable) {
 
-        }
-    };
-
-    final RuntimeValue<HttpConfiguration> httpConfiguration;
-    final HttpBuildTimeConfig buildTimeConfig;
-
-    //the temp encryption key, persistent across dev mode restarts
-    static volatile String encryptionKey;
-
-    public HttpSecurityRecorder(RuntimeValue<HttpConfiguration> httpConfiguration, HttpBuildTimeConfig buildTimeConfig) {
-        this.httpConfiguration = httpConfiguration;
-        this.buildTimeConfig = buildTimeConfig;
+    public RuntimeValue<AuthenticationHandler> authenticationMechanismHandler(boolean proactiveAuthentication) {
+        return new RuntimeValue<>(new AuthenticationHandler(proactiveAuthentication));
     }
 
-    public Handler<RoutingContext> authenticationMechanismHandler(boolean proactiveAuthentication) {
-        return new Handler<RoutingContext>() {
+    public Handler<RoutingContext> getHttpAuthenticatorHandler(RuntimeValue<AuthenticationHandler> handlerRuntimeValue) {
+        return handlerRuntimeValue.getValue();
+    }
 
-            volatile HttpAuthenticator authenticator;
-
-            @Override
-            public void handle(RoutingContext event) {
-                if (authenticator == null) {
-                    authenticator = CDI.current().select(HttpAuthenticator.class).get();
-                }
-                //we put the authenticator into the routing context so it can be used by other systems
-                event.put(HttpAuthenticator.class.getName(), authenticator);
-
-                //register the default auth failure handler
-                if (proactiveAuthentication) {
-                    //if proactive auth is used this is the only one
-                    event.put(QuarkusHttpUser.AUTH_FAILURE_HANDLER, new DefaultAuthFailureHandler() {
-                        @Override
-                        protected void proceed(Throwable throwable) {
-
-                            if (!event.failed()) {
-                                //failing event makes it possible to customize response via failure handlers
-                                //QuarkusErrorHandler will send response if no other failure handler did
-                                event.fail(throwable);
-                            }
-                        }
-                    });
-                } else {
-                    //if using lazy auth this can be modified downstream, to control authentication behaviour
-                    event.put(QuarkusHttpUser.AUTH_FAILURE_HANDLER, new DefaultAuthFailureHandler() {
-                        @Override
-                        protected void proceed(Throwable throwable) {
-                            //we can't fail event here as request processing has already begun (e.g. in RESTEasy Reactive)
-                            //and extensions may have their ways to handle failures
-                            event.end();
-                        }
-                    });
-                }
-
-                if (proactiveAuthentication) {
-                    Uni<SecurityIdentity> potentialUser = authenticator.attemptAuthentication(event).memoize().indefinitely();
-                    potentialUser
-                            .subscribe().withSubscriber(new UniSubscriber<SecurityIdentity>() {
-                                @Override
-                                public void onSubscribe(UniSubscription subscription) {
-
-                                }
-
-                                @Override
-                                public void onItem(SecurityIdentity identity) {
-                                    if (event.response().ended()) {
-                                        return;
-                                    }
-                                    if (identity == null) {
-                                        Uni<SecurityIdentity> anon = authenticator.getIdentityProviderManager()
-                                                .authenticate(AnonymousAuthenticationRequest.INSTANCE);
-                                        anon.subscribe().withSubscriber(new UniSubscriber<SecurityIdentity>() {
-                                            @Override
-                                            public void onSubscribe(UniSubscription subscription) {
-
-                                            }
-
-                                            @Override
-                                            public void onItem(SecurityIdentity item) {
-                                                event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, anon);
-                                                event.setUser(new QuarkusHttpUser(item));
-                                                event.next();
-                                            }
-
-                                            @Override
-                                            public void onFailure(Throwable failure) {
-                                                BiConsumer<RoutingContext, Throwable> handler = event
-                                                        .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
-                                                if (handler != null) {
-                                                    handler.accept(event, failure);
-                                                }
-                                            }
-                                        });
-                                    } else {//when the result is evaluated we set the user, even if it is evaluated lazily
-                                        event.setUser(new QuarkusHttpUser(identity));
-                                        event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, potentialUser);
-                                        event.next();
-                                    }
-                                }
-
-                                @Override
-                                public void onFailure(Throwable failure) {
-                                    //this can be customised
-                                    BiConsumer<RoutingContext, Throwable> handler = event
-                                            .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
-                                    if (handler != null) {
-                                        handler.accept(event, failure);
-                                    }
-
-                                }
-                            });
-                } else {
-
-                    Uni<SecurityIdentity> lazyUser = Uni
-                            .createFrom()
-                            .nullItem()
-                            // Only attempt to authenticate if required
-                            .flatMap(n -> authenticator.attemptAuthentication(event))
-                            .memoize()
-                            .indefinitely()
-                            .flatMap(new Function<SecurityIdentity, Uni<? extends SecurityIdentity>>() {
-                                @Override
-                                public Uni<? extends SecurityIdentity> apply(SecurityIdentity securityIdentity) {
-                                    //if it is null we use the anonymous identity
-                                    if (securityIdentity == null) {
-                                        return authenticator.getIdentityProviderManager()
-                                                .authenticate(AnonymousAuthenticationRequest.INSTANCE);
-                                    }
-                                    return Uni.createFrom().item(securityIdentity);
-                                }
-                            }).onTermination().invoke(new Functions.TriConsumer<SecurityIdentity, Throwable, Boolean>() {
-                                @Override
-                                public void accept(SecurityIdentity identity, Throwable throwable, Boolean aBoolean) {
-                                    if (identity != null) {
-                                        //when the result is evaluated we set the user, even if it is evaluated lazily
-                                        event.setUser(new QuarkusHttpUser(identity));
-                                    } else if (throwable != null) {
-                                        //handle the auth failure
-                                        //this can be customised
-                                        BiConsumer<RoutingContext, Throwable> handler = event
-                                                .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
-                                        if (handler != null) {
-                                            handler.accept(event, throwable);
-                                        }
-                                    }
-                                }
-                            }).memoize().indefinitely();
-                    event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, lazyUser);
-                    event.next();
-                }
-            }
-        };
+    public void initializeHttpAuthenticatorHandler(RuntimeValue<AuthenticationHandler> handlerRuntimeValue,
+            HttpConfiguration httpConfig) {
+        handlerRuntimeValue.getValue().init(PathMatchingHttpSecurityPolicy.class,
+                RolesMapping.of(httpConfig.auth.rolesMapping));
     }
 
     public Handler<RoutingContext> permissionCheckHandler() {
@@ -205,79 +79,6 @@ public class HttpSecurityRecorder {
                     authorizer = CDI.current().select(HttpAuthorizer.class).get();
                 }
                 authorizer.checkPermission(event);
-            }
-        };
-    }
-
-    public BeanContainerListener initPermissions(HttpBuildTimeConfig permissions,
-            Map<String, Supplier<HttpSecurityPolicy>> policies) {
-        return new BeanContainerListener() {
-            @Override
-            public void created(BeanContainer container) {
-                container.beanInstance(PathMatchingHttpSecurityPolicy.class).init(permissions, policies);
-            }
-        };
-    }
-
-    public Supplier<FormAuthenticationMechanism> setupFormAuth() {
-
-        return new Supplier<FormAuthenticationMechanism>() {
-
-            @Override
-            public FormAuthenticationMechanism get() {
-                String key;
-                if (!httpConfiguration.getValue().encryptionKey.isPresent()) {
-                    if (encryptionKey != null) {
-                        //persist across dev mode restarts
-                        key = encryptionKey;
-                    } else {
-                        byte[] data = new byte[32];
-                        new SecureRandom().nextBytes(data);
-                        key = encryptionKey = Base64.getEncoder().encodeToString(data);
-                        log.warn("Encryption key was not specified for persistent FORM auth, using temporary key " + key);
-                    }
-                } else {
-                    key = httpConfiguration.getValue().encryptionKey.get();
-                }
-                FormAuthConfig form = buildTimeConfig.auth.form;
-                PersistentLoginManager loginManager = new PersistentLoginManager(key, form.cookieName, form.timeout.toMillis(),
-                        form.newCookieInterval.toMillis(), form.httpOnlyCookie);
-                String loginPage = startWithSlash(form.loginPage.orElse(null));
-                String errorPage = startWithSlash(form.errorPage.orElse(null));
-                String landingPage = startWithSlash(form.landingPage.orElse(null));
-                String postLocation = startWithSlash(form.postLocation);
-                String usernameParameter = form.usernameParameter;
-                String passwordParameter = form.passwordParameter;
-                String locationCookie = form.locationCookie;
-                boolean redirectAfterLogin = form.redirectAfterLogin;
-                return new FormAuthenticationMechanism(loginPage, postLocation, usernameParameter, passwordParameter,
-                        errorPage, landingPage, redirectAfterLogin, locationCookie, loginManager);
-            }
-        };
-    }
-
-    private static String startWithSlash(String page) {
-        if (page == null) {
-            return null;
-        }
-        return page.startsWith("/") ? page : "/" + page;
-    }
-
-    public Supplier<?> setupBasicAuth(HttpBuildTimeConfig buildTimeConfig) {
-        return new Supplier<BasicAuthenticationMechanism>() {
-            @Override
-            public BasicAuthenticationMechanism get() {
-                return new BasicAuthenticationMechanism(buildTimeConfig.auth.realm.orElse(null),
-                        buildTimeConfig.auth.form.enabled);
-            }
-        };
-    }
-
-    public Supplier<?> setupMtlsClientAuth() {
-        return new Supplier<MtlsAuthenticationMechanism>() {
-            @Override
-            public MtlsAuthenticationMechanism get() {
-                return new MtlsAuthenticationMechanism();
             }
         };
     }
@@ -311,7 +112,72 @@ public class HttpSecurityRecorder {
         };
     }
 
+    public Supplier<EagerSecurityInterceptorStorage> createSecurityInterceptorStorage(
+            Map<RuntimeValue<MethodDescription>, Consumer<RoutingContext>> endpointRuntimeValToInterceptor) {
+
+        final Map<MethodDescription, Consumer<RoutingContext>> endpointToInterceptor = new HashMap<>();
+        for (var entry : endpointRuntimeValToInterceptor.entrySet()) {
+            endpointToInterceptor.put(entry.getKey().getValue(), entry.getValue());
+        }
+
+        return new Supplier<EagerSecurityInterceptorStorage>() {
+            @Override
+            public EagerSecurityInterceptorStorage get() {
+                return new EagerSecurityInterceptorStorage(endpointToInterceptor);
+            }
+        };
+    }
+
+    public RuntimeValue<HttpSecurityPolicy> createNamedHttpSecurityPolicy(Supplier<HttpSecurityPolicy> policySupplier,
+            String name) {
+        return new RuntimeValue<>(new HttpSecurityPolicy() {
+            private final HttpSecurityPolicy delegate = policySupplier.get();
+
+            @Override
+            public Uni<CheckResult> checkPermission(RoutingContext request, Uni<SecurityIdentity> identity,
+                    AuthorizationRequestContext requestContext) {
+                return delegate.checkPermission(request, identity, requestContext);
+            }
+
+            @Override
+            public String name() {
+                return name;
+            }
+        });
+    }
+
+    public Supplier<Map<String, Object>> createAdditionalSecEventPropsSupplier() {
+        return new Supplier<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> get() {
+                if (Arc.container().requestContext().isActive()) {
+
+                    // if present, add RoutingContext from CDI request to the SecurityEvents produced in Security extension
+                    // it's done this way as Security extension is not Vert.x based, but users find RoutingContext useful
+                    var event = Arc.container().instance(CurrentVertxRequest.class).get().getCurrent();
+                    if (event != null) {
+
+                        if (event.user() instanceof QuarkusHttpUser user) {
+                            return Map.of(RoutingContext.class.getName(), event, SecurityIdentity.class.getName(),
+                                    user.getSecurityIdentity());
+                        }
+
+                        return Map.of(RoutingContext.class.getName(), event);
+                    }
+                }
+                return Map.of();
+            }
+        };
+    }
+
     public static abstract class DefaultAuthFailureHandler implements BiConsumer<RoutingContext, Throwable> {
+
+        /**
+         * A {@link RoutingContext#get(String)} key added for exceptions raised during authentication that are not
+         * the {@link io.quarkus.security.AuthenticationException}.
+         */
+        private static final String OTHER_AUTHENTICATION_FAILURE = "io.quarkus.vertx.http.runtime.security.other-auth-failure";
+        static final String DEV_MODE_AUTHENTICATION_FAILURE_BODY = "io.quarkus.vertx.http.runtime.security.dev-mode.auth-failure-body";
 
         protected DefaultAuthFailureHandler() {
         }
@@ -322,9 +188,12 @@ public class HttpSecurityRecorder {
                 return;
             }
             throwable = extractRootCause(throwable);
+            if (LaunchMode.isDev() && throwable instanceof AuthenticationException
+                    && throwable.getMessage() != null) {
+                event.put(DEV_MODE_AUTHENTICATION_FAILURE_BODY, throwable.getMessage());
+            }
             //auth failed
-            if (throwable instanceof AuthenticationFailedException) {
-                AuthenticationFailedException authenticationFailedException = (AuthenticationFailedException) throwable;
+            if (throwable instanceof AuthenticationFailedException authenticationFailedException) {
                 getAuthenticator(event).sendChallenge(event).subscribe().with(new Consumer<Boolean>() {
                     @Override
                     public void accept(Boolean aBoolean) {
@@ -342,14 +211,14 @@ public class HttpSecurityRecorder {
                 log.debug("Authentication has failed, returning HTTP status 401");
                 event.response().setStatusCode(401);
                 proceed(throwable);
-            } else if (throwable instanceof AuthenticationRedirectException) {
-                AuthenticationRedirectException redirectEx = (AuthenticationRedirectException) throwable;
+            } else if (throwable instanceof AuthenticationRedirectException redirectEx) {
                 event.response().setStatusCode(redirectEx.getCode());
                 event.response().headers().set(HttpHeaders.LOCATION, redirectEx.getRedirectUri());
                 event.response().headers().set(HttpHeaders.CACHE_CONTROL, "no-store");
                 event.response().headers().set("Pragma", "no-cache");
                 proceed(throwable);
             } else {
+                event.put(OTHER_AUTHENTICATION_FAILURE, Boolean.TRUE);
                 event.fail(throwable);
             }
         }
@@ -371,6 +240,293 @@ public class HttpSecurityRecorder {
             }
             return throwable;
         }
+
+        public static void markIfOtherAuthenticationFailure(RoutingContext event, Throwable throwable) {
+            if (!(throwable instanceof AuthenticationException)) {
+                event.put(OTHER_AUTHENTICATION_FAILURE, Boolean.TRUE);
+            }
+        }
+
+        public static void removeMarkAsOtherAuthenticationFailure(RoutingContext event) {
+            event.remove(OTHER_AUTHENTICATION_FAILURE);
+        }
+
+        public static boolean isOtherAuthenticationFailure(RoutingContext event) {
+            return Boolean.TRUE.equals(event.get(OTHER_AUTHENTICATION_FAILURE));
+        }
+    }
+
+    public static final class AuthenticationHandler implements Handler<RoutingContext> {
+        volatile HttpAuthenticator authenticator;
+        private final boolean proactiveAuthentication;
+        private AbstractPathMatchingHttpSecurityPolicy pathMatchingPolicy;
+        private RolesMapping rolesMapping;
+
+        public AuthenticationHandler(boolean proactiveAuthentication) {
+            this.proactiveAuthentication = proactiveAuthentication;
+        }
+
+        @Override
+        public void handle(RoutingContext event) {
+            if (authenticator == null) {
+                authenticator = CDI.current().select(HttpAuthenticator.class).get();
+            }
+            //we put the authenticator into the routing context so it can be used by other systems
+            event.put(HttpAuthenticator.class.getName(), authenticator);
+            if (pathMatchingPolicy != null) {
+                event.put(AbstractPathMatchingHttpSecurityPolicy.class.getName(), pathMatchingPolicy);
+            }
+            if (rolesMapping != null) {
+                event.put(ROLES_MAPPING_KEY, rolesMapping);
+            }
+
+            //register the default auth failure handler
+            if (proactiveAuthentication) {
+                //if proactive auth is used this is the only one
+                event.put(QuarkusHttpUser.AUTH_FAILURE_HANDLER, new DefaultAuthFailureHandler() {
+                    @Override
+                    protected void proceed(Throwable throwable) {
+
+                        if (!event.failed()) {
+                            //failing event makes it possible to customize response via failure handlers
+                            //QuarkusErrorHandler will send response if no other failure handler did
+                            event.fail(throwable);
+                        }
+                    }
+                });
+            } else {
+                //if using lazy auth this can be modified downstream, to control authentication behaviour
+                event.put(QuarkusHttpUser.AUTH_FAILURE_HANDLER, new DefaultAuthFailureHandler() {
+                    @Override
+                    protected void proceed(Throwable throwable) {
+                        //we can't fail event here as request processing has already begun (e.g. in RESTEasy Reactive)
+                        //and extensions may have their ways to handle failures
+                        if (throwable instanceof AuthenticationCompletionException
+                                && throwable.getMessage() != null
+                                && LaunchMode.current() == LaunchMode.DEVELOPMENT) {
+                            event.end(throwable.getMessage());
+                        } else {
+                            event.end();
+                        }
+                    }
+                });
+            }
+
+            if (proactiveAuthentication) {
+                Uni<SecurityIdentity> potentialUser = authenticator.attemptAuthentication(event).memoize().indefinitely();
+                potentialUser
+                        .subscribe().withSubscriber(new UniSubscriber<SecurityIdentity>() {
+                            @Override
+                            public void onSubscribe(UniSubscription subscription) {
+
+                            }
+
+                            @Override
+                            public void onItem(SecurityIdentity identity) {
+                                if (event.response().ended()) {
+                                    return;
+                                }
+                                if (identity == null) {
+                                    Uni<SecurityIdentity> anon = authenticator.getIdentityProviderManager()
+                                            .authenticate(
+                                                    setRoutingContextAttribute(new AnonymousAuthenticationRequest(), event));
+                                    anon.subscribe().withSubscriber(new UniSubscriber<SecurityIdentity>() {
+                                        @Override
+                                        public void onSubscribe(UniSubscription subscription) {
+
+                                        }
+
+                                        @Override
+                                        public void onItem(SecurityIdentity item) {
+                                            event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, anon);
+                                            event.setUser(new QuarkusHttpUser(item));
+                                            event.next();
+                                        }
+
+                                        @Override
+                                        public void onFailure(Throwable failure) {
+                                            BiConsumer<RoutingContext, Throwable> handler = event
+                                                    .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
+                                            if (handler != null) {
+                                                handler.accept(event, failure);
+                                            }
+                                        }
+                                    });
+                                } else {//when the result is evaluated we set the user, even if it is evaluated lazily
+                                    event.setUser(new QuarkusHttpUser(identity));
+                                    event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, potentialUser);
+                                    event.next();
+                                }
+                            }
+
+                            @Override
+                            public void onFailure(Throwable failure) {
+                                //this can be customised
+                                BiConsumer<RoutingContext, Throwable> handler = event
+                                        .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
+                                if (handler != null) {
+                                    handler.accept(event, failure);
+                                }
+
+                            }
+                        });
+            } else {
+
+                Uni<SecurityIdentity> lazyUser = Uni
+                        .createFrom()
+                        .nullItem()
+                        // Only attempt to authenticate if required
+                        .flatMap(n -> authenticator.attemptAuthentication(event))
+                        .memoize()
+                        .indefinitely()
+                        .flatMap(new Function<SecurityIdentity, Uni<? extends SecurityIdentity>>() {
+                            @Override
+                            public Uni<? extends SecurityIdentity> apply(SecurityIdentity securityIdentity) {
+                                //if it is null we use the anonymous identity
+                                if (securityIdentity == null) {
+                                    return authenticator.getIdentityProviderManager()
+                                            .authenticate(
+                                                    setRoutingContextAttribute(new AnonymousAuthenticationRequest(), event));
+                                }
+                                return Uni.createFrom().item(securityIdentity);
+                            }
+                        }).onTermination().invoke(new Functions.TriConsumer<SecurityIdentity, Throwable, Boolean>() {
+                            @Override
+                            public void accept(SecurityIdentity identity, Throwable throwable, Boolean aBoolean) {
+                                if (identity != null) {
+                                    //when the result is evaluated we set the user, even if it is evaluated lazily
+                                    event.setUser(new QuarkusHttpUser(identity));
+                                } else if (throwable != null) {
+                                    //handle the auth failure
+                                    //this can be customised
+                                    BiConsumer<RoutingContext, Throwable> handler = event
+                                            .get(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
+                                    if (handler != null) {
+                                        handler.accept(event, throwable);
+                                    }
+                                }
+                            }
+                        }).memoize().indefinitely();
+                event.put(QuarkusHttpUser.DEFERRED_IDENTITY_KEY, lazyUser);
+                event.next();
+            }
+        }
+
+        public void init(Class<? extends AbstractPathMatchingHttpSecurityPolicy> pathMatchingPolicyClass,
+                RolesMapping rolesMapping) {
+            if (pathMatchingPolicy == null) {
+                var pathMatchingPolicyInstance = CDI.current().select(pathMatchingPolicyClass);
+                if (pathMatchingPolicyInstance.isResolvable() && !pathMatchingPolicyInstance.get().hasNoPermissions()) {
+                    pathMatchingPolicy = pathMatchingPolicyInstance.get();
+                } else {
+                    pathMatchingPolicy = null;
+                }
+            }
+            if (this.rolesMapping == null) {
+                this.rolesMapping = rolesMapping;
+            }
+        }
+    }
+
+    public void setMtlsCertificateRoleProperties(HttpConfiguration config) {
+        InstanceHandle<MtlsAuthenticationMechanism> mtls = Arc.container().instance(MtlsAuthenticationMechanism.class);
+
+        if (mtls.isAvailable() && config.auth.certificateRoleProperties.isPresent()) {
+            Path rolesPath = config.auth.certificateRoleProperties.get();
+            URL rolesResource = null;
+            if (Files.exists(rolesPath)) {
+                try {
+                    rolesResource = rolesPath.toUri().toURL();
+                } catch (MalformedURLException e) {
+                    // The Files.exists(rolesPath) check has succeeded therefore this exception can't happen in this case
+                }
+            } else {
+                rolesResource = Thread.currentThread().getContextClassLoader().getResource(rolesPath.toString());
+            }
+            if (rolesResource == null) {
+                throw new ConfigurationException(
+                        "quarkus.http.auth.certificate-role-properties location can not be resolved",
+                        Set.of("quarkus.http.auth.certificate-role-properties"));
+            }
+
+            try (Reader reader = new BufferedReader(
+                    new InputStreamReader(rolesResource.openStream(), StandardCharsets.UTF_8))) {
+                Properties rolesProps = new Properties();
+                rolesProps.load(reader);
+
+                Map<String, Set<String>> roles = new HashMap<>();
+                for (Map.Entry<Object, Object> e : rolesProps.entrySet()) {
+                    log.debugf("Added role mapping for %s:%s", e.getKey(), e.getValue());
+                    roles.put((String) e.getKey(), parseRoles((String) e.getValue()));
+                }
+
+                if (!roles.isEmpty()) {
+                    var certRolesAttribute = new CertificateRoleAttribute(config.auth.certificateRoleAttribute, roles);
+                    mtls.get().setCertificateToRolesMapper(certRolesAttribute.rolesMapper());
+                }
+            } catch (Exception e) {
+                log.warnf("Unable to read roles mappings from %s:%s", rolesPath, e.getMessage());
+            }
+        }
+    }
+
+    public RuntimeValue<MethodDescription> createMethodDescription(String className, String methodName, String[] paramTypes) {
+        return new RuntimeValue<>(new MethodDescription(className, methodName, paramTypes));
+    }
+
+    public Function<String, Consumer<RoutingContext>> authMechanismSelectionInterceptorCreator() {
+        return new Function<String, Consumer<RoutingContext>>() {
+            @Override
+            public Consumer<RoutingContext> apply(String authMechanismName) {
+                // when endpoint is annotated with @HttpAuthenticationMechanism("my-mechanism"), we add this mechanism
+                // to the event so that when request is being authenticated, the HTTP authenticator will know
+                // what mechanism should be used
+                return new Consumer<RoutingContext>() {
+                    @Override
+                    public void accept(RoutingContext routingContext) {
+                        HttpAuthenticator.selectAuthMechanism(routingContext, authMechanismName);
+                    }
+                };
+            }
+        };
+    }
+
+    public Consumer<RoutingContext> createEagerSecurityInterceptor(
+            Function<String, Consumer<RoutingContext>> interceptorCreator, String annotationValue) {
+        return interceptorCreator.apply(annotationValue);
+    }
+
+    public Consumer<RoutingContext> compoundSecurityInterceptor(Consumer<RoutingContext> interceptor1,
+            Consumer<RoutingContext> interceptor2) {
+        return new Consumer<RoutingContext>() {
+            @Override
+            public void accept(RoutingContext routingContext) {
+                interceptor1.accept(routingContext);
+                interceptor2.accept(routingContext);
+            }
+        };
+    }
+
+    public void selectAuthMechanismViaAnnotation() {
+        HttpAuthenticator.selectAuthMechanismWithAnnotation();
+    }
+
+    private static Set<String> parseRoles(String value) {
+        Set<String> roles = new HashSet<>();
+        for (String s : value.split(",")) {
+            roles.add(s.trim());
+        }
+        return Set.copyOf(roles);
+    }
+
+    public Supplier<BasicAuthenticationMechanism> basicAuthenticationMechanismBean(HttpConfiguration runtimeConfig,
+            boolean formAuthEnabled) {
+        return new Supplier<>() {
+            @Override
+            public BasicAuthenticationMechanism get() {
+                return new BasicAuthenticationMechanism(runtimeConfig.auth.realm.orElse(null), formAuthEnabled);
+            }
+        };
     }
 
 }

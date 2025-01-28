@@ -1,15 +1,17 @@
 package io.quarkus.it.opentelemetry;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
+import io.opentelemetry.instrumentation.annotations.SpanAttribute;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import io.smallrye.common.annotation.Blocking;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.MultiMap;
@@ -34,6 +36,11 @@ public class PingPongResource {
         @GET
         @Path("/client/pong/{message}")
         Uni<String> asyncPingpong(@PathParam("message") String message);
+
+        @GET
+        @Path("/client/pong/{message}")
+        @WithSpan
+        String pingpongIntercept(@SpanAttribute(value = "message") @PathParam("message") String message);
     }
 
     @Inject
@@ -81,4 +88,9 @@ public class PingPongResource {
                 .onItemOrFailure().call(httpClient::close);
     }
 
+    @GET
+    @Path("pong-intercept/{message}")
+    public String pongIntercept(@PathParam("message") String message) {
+        return pingRestClient.pingpongIntercept(message);
+    }
 }

@@ -1,8 +1,8 @@
 package io.quarkus.qute.deployment;
 
-import java.lang.reflect.Modifier;
-import java.util.Collection;
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -17,12 +17,15 @@ import org.jboss.jandex.PrimitiveType.Primitive;
 import org.jboss.jandex.Type;
 import org.jboss.jandex.Type.Kind;
 import org.jboss.jandex.TypeVariable;
+import org.jboss.logging.Logger;
 
 import io.quarkus.arc.processor.DotNames;
 
 public final class Types {
 
     static final String JAVA_LANG_PREFIX = "java.lang.";
+
+    private static final Logger LOG = Logger.getLogger(Types.class);
 
     static Set<Type> getTypeClosure(ClassInfo classInfo, Map<TypeVariable, Type> resolvedTypeParameters,
             IndexView index) {
@@ -123,73 +126,63 @@ public final class Types {
             }
         }
         if (type.kind() == Type.Kind.ARRAY) {
-            return containsTypeVariable(type.asArrayType().component());
+            return containsTypeVariable(type.asArrayType().constituent());
         }
         return false;
     }
 
-    static boolean isAssignableFrom(Type type1, Type type2, IndexView index, Map<DotName, AssignableInfo> assignableCache) {
-        // TODO consider type params in assignability rules
-        if (type1.kind() == Kind.ARRAY && type2.kind() == Kind.ARRAY) {
-            return isAssignableFrom(type1.asArrayType().component(), type2.asArrayType().component(), index, assignableCache);
+    // This class is not thread-safe and should not be used concurrently.
+    static class AssignabilityCheck {
+
+        final Map<DotName, Set<DotName>> superTypesCache;
+        final IndexView computingIndex;
+
+        AssignabilityCheck(IndexView beanArchiveIndex) {
+            this.superTypesCache = new HashMap<>();
+            this.computingIndex = beanArchiveIndex;
         }
-        return Types.isAssignableFrom(box(type1).name(), box(type2).name(), index, assignableCache);
-    }
 
-    static class AssignableInfo {
-
-        final Set<DotName> subclasses;
-        final Set<DotName> implementors;
-        final Set<DotName> extendingInterfaces;
-
-        public AssignableInfo(Collection<ClassInfo> subclasses, Collection<ClassInfo> implementors,
-                Set<DotName> extendingInterfaces) {
-            this.subclasses = new HashSet<>();
-            for (ClassInfo subclass : subclasses) {
-                this.subclasses.add(subclass.name());
+        boolean isAssignableFrom(Type type1, Type type2) {
+            if (type1.kind() == Kind.ARRAY) {
+                return type2.kind() == Kind.ARRAY
+                        ? isAssignableFrom(type1.asArrayType().constituent(), type2.asArrayType().constituent())
+                        : false;
             }
-            this.implementors = new HashSet<>();
-            for (ClassInfo implementor : implementors) {
-                this.implementors.add(implementor.name());
+            return isAssignableFrom(box(type1).name(), box(type2).name());
+        }
+
+        boolean isAssignableFrom(DotName className1, DotName className2) {
+            // java.lang.Object is assignable from any type
+            if (className1.equals(DotNames.OBJECT)) {
+                return true;
             }
-            this.extendingInterfaces = extendingInterfaces;
+            if (className1.equals(className2)) {
+                return true;
+            }
+            return superTypesCache.computeIfAbsent(className2, this::findSuperTypes).contains(className1);
         }
 
-        boolean isAssignableFrom(DotName clazz) {
-            return subclasses.contains(clazz) || implementors.contains(clazz) || extendingInterfaces.contains(clazz);
+        private Set<DotName> findSuperTypes(DotName name) {
+            LOG.debugf("Find supertypes/index hierarchy of: %s", name);
+            Set<DotName> result = new HashSet<>();
+            Deque<DotName> queue = new ArrayDeque<>();
+            queue.add(name);
+            while (!queue.isEmpty()) {
+                DotName type = queue.poll();
+                if (result.add(type)) {
+                    ClassInfo clazz = computingIndex.getClassByName(type);
+                    if (clazz == null) {
+                        continue;
+                    }
+                    if (clazz.superName() != null) {
+                        queue.add(clazz.superName());
+                    }
+                    queue.addAll(clazz.interfaceNames());
+                }
+            }
+            return result;
         }
 
-    }
-
-    static boolean isAssignableFrom(DotName class1, DotName class2, IndexView index,
-            Map<DotName, AssignableInfo> assignableCache) {
-        // java.lang.Object is assignable from any type
-        if (class1.equals(DotNames.OBJECT)) {
-            return true;
-        }
-        // type1 is the same as type2
-        if (class1.equals(class2)) {
-            return true;
-        }
-        AssignableInfo assignableInfo = assignableCache.get(class1);
-        if (assignableInfo == null) {
-            assignableInfo = new AssignableInfo(index.getAllKnownSubclasses(class1), index.getAllKnownImplementors(class1),
-                    getAllInterfacesExtending(class1, index));
-            assignableCache.put(class1, assignableInfo);
-        }
-        return assignableInfo.isAssignableFrom(class2);
-    }
-
-    static void indexHierarchy(ClassInfo classInfo, IndexView index) {
-        // Interfaces
-        for (DotName interfaceName : classInfo.interfaceNames()) {
-            index.getClassByName(interfaceName);
-        }
-        // Superclass
-        DotName superName = classInfo.superName();
-        if (superName != null && !superName.equals(DotNames.OBJECT)) {
-            indexHierarchy(index.getClassByName(superName), index);
-        }
     }
 
     static Type box(Type type) {
@@ -222,19 +215,27 @@ public final class Types {
         }
     }
 
-    private static Set<DotName> getAllInterfacesExtending(DotName target, IndexView index) {
-        Set<DotName> ret = new HashSet<>();
-        for (ClassInfo clazz : index.getKnownClasses()) {
-            if (!Modifier.isInterface(clazz.flags())
-                    || clazz.isAnnotation()
-                    || clazz.isEnum()) {
-                continue;
-            }
-            if (clazz.interfaceNames().contains(target)) {
-                ret.add(clazz.name());
+    static boolean isImplementorOf(ClassInfo target, DotName interfaceName, IndexView index) {
+        if (target.interfaceNames().contains(interfaceName)) {
+            // Direct implementor
+            return true;
+        }
+        DotName superName = target.superName();
+        if (superName != null && !superName.equals(DotName.OBJECT_NAME)) {
+            ClassInfo superClass = index.getClassByName(superName);
+            if (superClass != null && isImplementorOf(superClass, interfaceName, index)) {
+                // Superclass is implementor
+                return true;
             }
         }
-        return ret;
+        for (DotName name : target.interfaceNames()) {
+            ClassInfo interfaceClass = index.getClassByName(name);
+            if (interfaceClass != null && isImplementorOf(interfaceClass, interfaceName, index)) {
+                // Superinterface is implementor
+                return true;
+            }
+        }
+        return false;
     }
 
 }

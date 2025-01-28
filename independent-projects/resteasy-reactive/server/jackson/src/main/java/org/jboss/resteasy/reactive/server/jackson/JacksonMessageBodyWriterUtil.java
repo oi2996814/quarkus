@@ -7,7 +7,7 @@ import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.nio.charset.StandardCharsets;
 
-import javax.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.MultivaluedMap;
 
 import org.jboss.resteasy.reactive.server.StreamingOutputStream;
 
@@ -28,6 +28,7 @@ public final class JacksonMessageBodyWriterUtil {
         if (JacksonMessageBodyWriterUtil.needsNewFactory(jsonFactory)) {
             jsonFactory = jsonFactory.copy();
             JacksonMessageBodyWriterUtil.setNecessaryJsonFactoryConfig(jsonFactory);
+            jsonFactory.setCodec(mapper);
             return mapper.writer().with(jsonFactory);
         } else {
             return mapper.writer();

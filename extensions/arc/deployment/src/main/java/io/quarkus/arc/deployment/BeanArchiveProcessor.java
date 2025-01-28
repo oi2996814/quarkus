@@ -1,5 +1,8 @@
 package io.quarkus.arc.deployment;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -17,11 +20,14 @@ import org.jboss.jandex.CompositeIndex;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Indexer;
+import org.jboss.logging.Logger;
 
+import io.quarkus.arc.processor.AnnotationsTransformer;
 import io.quarkus.arc.processor.BeanArchives;
 import io.quarkus.arc.processor.BeanDefiningAnnotation;
 import io.quarkus.arc.processor.BeanDeployment;
 import io.quarkus.arc.processor.DotNames;
+import io.quarkus.arc.runtime.AdditionalBean;
 import io.quarkus.deployment.ApplicationArchive;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -37,18 +43,24 @@ import io.quarkus.maven.dependency.ArtifactKey;
 
 public class BeanArchiveProcessor {
 
+    private static final Logger LOGGER = Logger.getLogger(BeanArchiveProcessor.class);
+
     @BuildStep
     public BeanArchiveIndexBuildItem build(ArcConfig config, ApplicationArchivesBuildItem applicationArchivesBuildItem,
             List<BeanDefiningAnnotationBuildItem> additionalBeanDefiningAnnotations,
             List<AdditionalBeanBuildItem> additionalBeans, List<GeneratedBeanBuildItem> generatedBeans,
             LiveReloadBuildItem liveReloadBuildItem, BuildProducer<GeneratedClassBuildItem> generatedClass,
             CustomScopeAnnotationsBuildItem customScopes, List<ExcludeDependencyBuildItem> excludeDependencyBuildItems,
-            List<BeanArchivePredicateBuildItem> beanArchivePredicates)
+            List<BeanArchivePredicateBuildItem> beanArchivePredicates,
+            List<KnownCompatibleBeanArchiveBuildItem> knownCompatibleBeanArchives,
+            BuildCompatibleExtensionsBuildItem buildCompatibleExtensions,
+            BuildProducer<AnnotationsTransformerBuildItem> annotationsTransformations)
             throws Exception {
 
         // First build an index from application archives
         IndexView applicationIndex = buildApplicationIndex(config, applicationArchivesBuildItem,
-                additionalBeanDefiningAnnotations, customScopes, excludeDependencyBuildItems, beanArchivePredicates);
+                additionalBeanDefiningAnnotations, customScopes, excludeDependencyBuildItems, beanArchivePredicates,
+                new KnownCompatibleBeanArchives(knownCompatibleBeanArchives));
 
         // Then build additional index for beans added by extensions
         Indexer additionalBeanIndexer = new Indexer();
@@ -56,6 +68,24 @@ public class BeanArchiveProcessor {
         for (AdditionalBeanBuildItem i : additionalBeans) {
             additionalBeanClasses.addAll(i.getBeanClasses());
         }
+
+        Set<String> additionalBeansFromExtensions = new HashSet<>();
+        buildCompatibleExtensions.entrypoint.runDiscovery(applicationIndex, additionalBeansFromExtensions);
+        additionalBeanClasses.addAll(additionalBeansFromExtensions);
+        annotationsTransformations.produce(new AnnotationsTransformerBuildItem(new AnnotationsTransformer() {
+            @Override
+            public boolean appliesTo(Kind kind) {
+                return kind == Kind.CLASS;
+            }
+
+            @Override
+            public void transform(TransformationContext ctx) {
+                if (additionalBeansFromExtensions.contains(ctx.getTarget().asClass().name().toString())) {
+                    // make all the `@Discovery`-registered classes beans
+                    ctx.transform().add(AdditionalBean.class).done();
+                }
+            }
+        }));
 
         // Build the index for additional beans and generated bean classes
         Set<DotName> additionalIndex = new HashSet<>();
@@ -65,12 +95,13 @@ public class BeanArchiveProcessor {
                     knownMissingClasses, Thread.currentThread().getContextClassLoader());
         }
         Set<DotName> generatedClassNames = new HashSet<>();
-        for (GeneratedBeanBuildItem generatedBeanClass : generatedBeans) {
-            IndexingUtil.indexClass(generatedBeanClass.getName(), additionalBeanIndexer, applicationIndex, additionalIndex,
-                    knownMissingClasses, Thread.currentThread().getContextClassLoader(), generatedBeanClass.getData());
-            generatedClassNames.add(DotName.createSimple(generatedBeanClass.getName().replace('/', '.')));
-            generatedClass.produce(new GeneratedClassBuildItem(true, generatedBeanClass.getName(), generatedBeanClass.getData(),
-                    generatedBeanClass.getSource()));
+        for (GeneratedBeanBuildItem generatedBean : generatedBeans) {
+            IndexingUtil.indexClass(generatedBean.getName(), additionalBeanIndexer, applicationIndex, additionalIndex,
+                    knownMissingClasses, Thread.currentThread().getContextClassLoader(), generatedBean.getData());
+            generatedClassNames.add(DotName.createSimple(generatedBean.getName().replace('/', '.')));
+            generatedClass.produce(new GeneratedClassBuildItem(generatedBean.isApplicationClass(), generatedBean.getName(),
+                    generatedBean.getData(),
+                    generatedBean.getSource()));
         }
 
         PersistentClassIndex index = liveReloadBuildItem.getContextObject(PersistentClassIndex.class);
@@ -95,7 +126,8 @@ public class BeanArchiveProcessor {
     private IndexView buildApplicationIndex(ArcConfig config, ApplicationArchivesBuildItem applicationArchivesBuildItem,
             List<BeanDefiningAnnotationBuildItem> additionalBeanDefiningAnnotations,
             CustomScopeAnnotationsBuildItem customScopes, List<ExcludeDependencyBuildItem> excludeDependencyBuildItems,
-            List<BeanArchivePredicateBuildItem> beanArchivePredicates) {
+            List<BeanArchivePredicateBuildItem> beanArchivePredicates,
+            KnownCompatibleBeanArchives knownCompatibleBeanArchives) {
 
         Set<ApplicationArchive> archives = applicationArchivesBuildItem.getAllApplicationArchives();
 
@@ -117,23 +149,38 @@ public class BeanArchiveProcessor {
                         .map(bda -> new BeanDefiningAnnotation(bda.getName(), bda.getDefaultScope()))
                         .collect(Collectors.toList()), stereotypes);
         beanDefiningAnnotations.addAll(customScopes.getCustomScopeNames());
-        // Also include archives that are not bean archives but contain qualifiers or interceptor bindings
+        // Also include archives that are not bean archives but contain scopes, qualifiers or interceptor bindings
+        beanDefiningAnnotations.add(DotNames.SCOPE);
+        beanDefiningAnnotations.add(DotNames.NORMAL_SCOPE);
         beanDefiningAnnotations.add(DotNames.QUALIFIER);
         beanDefiningAnnotations.add(DotNames.INTERCEPTOR_BINDING);
 
+        boolean rootIsAlwaysBeanArchive = !config.strictCompatibility;
+        Collection<ApplicationArchive> candidateArchives = applicationArchivesBuildItem.getApplicationArchives();
+        if (!rootIsAlwaysBeanArchive) {
+            candidateArchives = new ArrayList<>(candidateArchives);
+            candidateArchives.add(applicationArchivesBuildItem.getRootArchive());
+        }
+
         List<IndexView> indexes = new ArrayList<>();
 
-        for (ApplicationArchive archive : applicationArchivesBuildItem.getApplicationArchives()) {
+        for (ApplicationArchive archive : candidateArchives) {
             if (isApplicationArchiveExcluded(config, excludeDependencyBuildItems, archive)) {
                 continue;
             }
+            if (!possiblyBeanArchive(archive, knownCompatibleBeanArchives)) {
+                continue;
+            }
             IndexView index = archive.getIndex();
-            if (isExplicitBeanArchive(archive) || isImplicitBeanArchive(index, beanDefiningAnnotations)
+            if (isExplicitBeanArchive(archive)
+                    || isImplicitBeanArchive(index, beanDefiningAnnotations)
                     || isAdditionalBeanArchive(archive, beanArchivePredicates)) {
                 indexes.add(index);
             }
         }
-        indexes.add(applicationArchivesBuildItem.getRootArchive().getIndex());
+        if (rootIsAlwaysBeanArchive) {
+            indexes.add(applicationArchivesBuildItem.getRootArchive().getIndex());
+        }
         return CompositeIndex.create(indexes);
     }
 
@@ -144,6 +191,7 @@ public class BeanArchiveProcessor {
     private boolean isImplicitBeanArchive(IndexView index, Set<DotName> beanDefiningAnnotations) {
         // NOTE: Implicit bean archive without beans.xml contains one or more bean classes with a bean defining annotation and no extension
         return index.getAllKnownImplementors(DotNames.EXTENSION).isEmpty()
+                && index.getAllKnownImplementors(DotNames.BUILD_COMPATIBLE_EXTENSION).isEmpty()
                 && containsBeanDefiningAnnotation(index, beanDefiningAnnotations);
     }
 
@@ -155,6 +203,47 @@ public class BeanArchiveProcessor {
             }
         }
         return false;
+    }
+
+    private boolean possiblyBeanArchive(ApplicationArchive archive,
+            KnownCompatibleBeanArchives knownCompatibleBeanArchives) {
+        return archive.apply(tree -> {
+            boolean result = true;
+            for (String beansXml : List.of("META-INF/beans.xml", "WEB-INF/beans.xml")) {
+                result &= tree.apply(beansXml, pathVisit -> {
+                    if (pathVisit == null) {
+                        return true;
+                    }
+
+                    // crude but enough
+                    try {
+                        String text = Files.readString(pathVisit.getPath());
+                        if (text.contains("bean-discovery-mode='none'")
+                                || text.contains("bean-discovery-mode=\"none\"")) {
+                            return false;
+                        }
+
+                        if (text.contains("bean-discovery-mode='all'")
+                                || text.contains("bean-discovery-mode=\"all\"")) {
+
+                            if (!knownCompatibleBeanArchives.isKnownCompatible(archive)) {
+                                LOGGER.warnf("Detected bean archive with bean discovery mode of 'all', "
+                                        + "this is not portable in CDI Lite and is treated as 'annotated' in Quarkus! "
+                                        + "Path to beans.xml: %s",
+                                        archive.getResolvedDependency() != null
+                                                ? archive.getResolvedDependency().toCompactCoords() + ":" + pathVisit.getPath()
+                                                : pathVisit.getPath());
+                            }
+                        }
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+
+                    return true;
+                });
+            }
+            return result;
+        });
     }
 
     private boolean isApplicationArchiveExcluded(ArcConfig config, List<ExcludeDependencyBuildItem> excludeDependencyBuildItems,
@@ -169,7 +258,8 @@ public class BeanArchiveProcessor {
             }
 
             for (ExcludeDependencyBuildItem excludeDependencyBuildItem : excludeDependencyBuildItems) {
-                if (archiveMatches(key, excludeDependencyBuildItem.getGroupId(), excludeDependencyBuildItem.getArtifactId(),
+                if (archiveMatches(key, excludeDependencyBuildItem.getGroupId(),
+                        Optional.ofNullable(excludeDependencyBuildItem.getArtifactId()),
                         excludeDependencyBuildItem.getClassifier())) {
                     return true;
                 }
@@ -179,17 +269,16 @@ public class BeanArchiveProcessor {
         return false;
     }
 
-    public static boolean archiveMatches(ArtifactKey key, String groupId, String artifactId, Optional<String> classifier) {
-
-        if (Objects.equals(key.getArtifactId(), artifactId)
-                && Objects.equals(key.getGroupId(), groupId)) {
+    public static boolean archiveMatches(ArtifactKey key, String groupId, Optional<String> artifactId,
+            Optional<String> classifier) {
+        if (Objects.equals(key.getGroupId(), groupId)
+                && (artifactId.isEmpty() || Objects.equals(key.getArtifactId(), artifactId.get()))) {
             if (classifier.isPresent() && Objects.equals(key.getClassifier(), classifier.get())) {
                 return true;
             } else if (!classifier.isPresent() && ArtifactCoords.DEFAULT_CLASSIFIER.equals(key.getClassifier())) {
                 return true;
             }
         }
-
         return false;
     }
 

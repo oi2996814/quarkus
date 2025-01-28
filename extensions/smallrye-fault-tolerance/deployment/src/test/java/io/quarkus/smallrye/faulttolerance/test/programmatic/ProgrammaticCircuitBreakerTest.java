@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,12 +18,11 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import io.quarkus.test.QuarkusUnitTest;
 import io.smallrye.faulttolerance.api.CircuitBreakerMaintenance;
 import io.smallrye.faulttolerance.api.CircuitBreakerState;
-import io.smallrye.faulttolerance.api.FaultTolerance;
 
 public class ProgrammaticCircuitBreakerTest {
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
-            .withApplicationRoot((jar) -> jar.addClasses(HelloService.class));
+            .withApplicationRoot(jar -> jar.addClasses(HelloService.class));
 
     @Inject
     HelloService helloService;
@@ -33,14 +32,12 @@ public class ProgrammaticCircuitBreakerTest {
 
     @BeforeEach
     public void reset() {
-        FaultTolerance.circuitBreakerMaintenance().resetAll();
-
-        helloService.toString(); // force bean instantiation
+        CircuitBreakerMaintenance.get().resetAll();
     }
 
     @Test
     public void test() {
-        CircuitBreakerMaintenance cbm = FaultTolerance.circuitBreakerMaintenance();
+        CircuitBreakerMaintenance cbm = CircuitBreakerMaintenance.get();
 
         assertThat(cb.currentState("hello")).isEqualTo(CircuitBreakerState.CLOSED);
         assertThat(cb.currentState("another-hello")).isEqualTo(CircuitBreakerState.CLOSED);

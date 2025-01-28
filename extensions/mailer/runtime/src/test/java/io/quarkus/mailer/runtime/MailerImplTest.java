@@ -5,13 +5,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Scanner;
+import java.util.UUID;
 
-import javax.mail.BodyPart;
-import javax.mail.MessagingException;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-import javax.mail.internet.MimeMultipart;
+import jakarta.mail.BodyPart;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -52,11 +56,10 @@ class MailerImplTest {
 
     @BeforeEach
     void init() {
-        mailer = new MutinyMailerImpl();
-        mailer.mailerSupport = new MailerSupport(FROM, null, false);
-        mailer.vertx = vertx;
-        mailer.client = MailClient.createShared(mailer.vertx,
-                new MailConfig().setPort(wiser.getServer().getPort()));
+        mailer = new MutinyMailerImpl(vertx,
+                MailClient.createShared(vertx,
+                        new MailConfig().setPort(wiser.getServer().getPort())),
+                null, FROM, null, false, List.of(), false, false, null);
 
         wiser.getMessages().clear();
     }
@@ -268,7 +271,7 @@ class MailerImplTest {
 
     private String read(BodyPart part) throws IOException, MessagingException {
         try (InputStream is = part.getInputStream()) {
-            Scanner s = new Scanner(is, "UTF-8").useDelimiter("\\A");
+            Scanner s = new Scanner(is, StandardCharsets.UTF_8).useDelimiter("\\A");
             return s.hasNext() ? s.next() : "";
         }
     }

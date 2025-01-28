@@ -1,11 +1,13 @@
 package io.quarkus.flyway.runtime;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 
@@ -22,11 +24,27 @@ public final class FlywayDataSourceRuntimeConfig {
     }
 
     /**
-     * The maximum number of retries when attempting to connect to the database. After each failed attempt, Flyway will wait 1
-     * second before attempting to connect again, up to the maximum number of times specified by connectRetries.
+     * Flag to activate/deactivate Flyway for a specific datasource at runtime.
+     */
+    @ConfigItem(defaultValueDocumentation = "'true' if the datasource is active; 'false' otherwise")
+    public Optional<Boolean> active = Optional.empty();
+
+    /**
+     * The maximum number of retries when attempting to connect to the database.
+     * <p>
+     * After each failed attempt, Flyway will wait up to the configured `connect-retries-interval` duration before
+     * attempting to connect again, up to the maximum number of times specified by connectRetries.
      */
     @ConfigItem
     public OptionalInt connectRetries = OptionalInt.empty();
+
+    /**
+     * The maximum time between retries when attempting to connect to the database.
+     * <p>
+     * This will cap the interval between connect retries to the value provided.
+     */
+    @ConfigItem(defaultValueDocumentation = "120 seconds")
+    public Optional<Duration> connectRetriesInterval = Optional.empty();
 
     /**
      * Sets the default schema managed by Flyway. This schema name is case-sensitive. If not specified, but <i>schemas</i>
@@ -42,6 +60,27 @@ public final class FlywayDataSourceRuntimeConfig {
      */
     @ConfigItem
     public Optional<String> defaultSchema = Optional.empty();
+
+    /**
+     * The JDBC URL that Flyway uses to connect to the database.
+     * Falls back to the datasource URL if not specified.
+     */
+    @ConfigItem
+    public Optional<String> jdbcUrl = Optional.empty();
+
+    /**
+     * The username that Flyway uses to connect to the database.
+     * If no specific JDBC URL is configured, falls back to the datasource username if not specified.
+     */
+    @ConfigItem
+    public Optional<String> username = Optional.empty();
+
+    /**
+     * The password that Flyway uses to connect to the database.
+     * If no specific JDBC URL is configured, falls back to the datasource password if not specified.
+     */
+    @ConfigItem
+    public Optional<String> password = Optional.empty();
 
     /**
      * Comma-separated case-sensitive list of schemas managed by Flyway.
@@ -93,12 +132,6 @@ public final class FlywayDataSourceRuntimeConfig {
     public boolean cleanDisabled;
 
     /**
-     * true to automatically call clean when a validation error occurs, false otherwise.
-     */
-    @ConfigItem
-    public boolean cleanOnValidationError;
-
-    /**
      * true to execute Flyway automatically when the application starts, false otherwise.
      *
      */
@@ -120,10 +153,21 @@ public final class FlywayDataSourceRuntimeConfig {
     public boolean validateAtStart;
 
     /**
-     * Enable the creation of the history table if it does not exist already.
+     * true to execute Flyway baseline before migrations This flag is ignored if the flyway_schema_history table exists in the
+     * current schema or if the current schema is empty.
+     * Note that this will not automatically call migrate, you must either enable baselineAtStart or programmatically call
+     * flyway.migrate().
      */
     @ConfigItem
     public boolean baselineOnMigrate;
+
+    /**
+     * true to execute Flyway baseline automatically when the application starts.
+     * This flag is ignored if the flyway_schema_history table exists in the current schema.
+     * This will work even if the current schema is empty.
+     */
+    @ConfigItem
+    public boolean baselineAtStart;
 
     /**
      * The initial baseline version.
@@ -169,6 +213,7 @@ public final class FlywayDataSourceRuntimeConfig {
      * Sets the placeholders to replace in SQL migration scripts.
      */
     @ConfigItem
+    @ConfigDocMapKey("placeholder-key")
     public Map<String, String> placeholders = Collections.emptyMap();
 
     /**

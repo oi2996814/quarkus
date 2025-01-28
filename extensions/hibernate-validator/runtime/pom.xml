@@ -11,7 +11,7 @@
 
     <artifactId>quarkus-hibernate-validator</artifactId>
     <name>Quarkus - Hibernate Validator - Runtime</name>
-    <description>Validate object properties (field, getter) and method parameters for your beans (REST, CDI, JPA)</description>
+    <description>Validate object properties (field, getter) and method parameters for your beans (REST, CDI, Jakarta Persistence)</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -27,8 +27,8 @@
         </dependency>
         <!-- EL implementation -->
         <dependency>
-           <groupId>org.glassfish</groupId>
-           <artifactId>jakarta.el</artifactId>
+           <groupId>org.glassfish.expressly</groupId>
+           <artifactId>expressly</artifactId>
         </dependency>
         <dependency>
             <groupId>io.smallrye.config</groupId>
@@ -88,12 +88,12 @@
             <optional>true</optional>
         </dependency>
         <dependency>
-            <groupId>org.jboss.spec.javax.ws.rs</groupId>
-            <artifactId>jboss-jaxrs-api_2.1_spec</artifactId>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.graalvm.nativeimage</groupId>
-            <artifactId>svm</artifactId>
+            <groupId>org.graalvm.sdk</groupId>
+            <artifactId>nativeimage</artifactId>
             <scope>provided</scope>
         </dependency>
     </dependencies>
@@ -107,48 +107,25 @@
                     <capabilities>
                         <provides>io.quarkus.hibernate.validator</provides>
                     </capabilities>
-                    <excludedArtifacts>
-                        <excludedArtifact>javax.validation:validation-api</excludedArtifact>
-                    </excludedArtifacts>
                 </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>io.quarkus</groupId>
-                            <artifactId>quarkus-extension-processor</artifactId>
-                            <version>${project.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openrewrite.maven</groupId>
-                        <artifactId>rewrite-maven-plugin</artifactId>
-                        <configuration>
-                            <activeRecipes>
-                                <recipe>io.quarkus.jakarta-el-switch</recipe>
-                                <recipe>io.quarkus.jakarta-jaxrs-switch</recipe>
-                            </activeRecipes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

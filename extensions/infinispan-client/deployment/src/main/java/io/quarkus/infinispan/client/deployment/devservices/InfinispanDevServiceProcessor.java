@@ -5,7 +5,6 @@ import static org.infinispan.server.test.core.InfinispanContainer.DEFAULT_USERNA
 
 import java.io.Closeable;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,11 +13,12 @@ import java.util.OptionalInt;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.infinispan.client.hotrod.configuration.ClientIntelligence;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.commons.util.Version;
 import org.infinispan.server.test.core.InfinispanContainer;
 import org.jboss.logging.Logger;
-import org.jetbrains.annotations.NotNull;
+import org.testcontainers.containers.BindMode;
 
 import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.IsNormal;
@@ -32,15 +32,18 @@ import io.quarkus.deployment.builditem.DockerStatusBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.console.ConsoleInstalledBuildItem;
 import io.quarkus.deployment.console.StartupLogCompressor;
-import io.quarkus.deployment.dev.devservices.GlobalDevServicesConfig;
+import io.quarkus.deployment.dev.devservices.DevServicesConfig;
 import io.quarkus.deployment.logging.LoggingSetupBuildItem;
 import io.quarkus.devservices.common.ConfigureUtil;
 import io.quarkus.devservices.common.ContainerLocator;
-import io.quarkus.infinispan.client.deployment.InfinispanClientDevServiceBuildTimeConfig;
+import io.quarkus.infinispan.client.runtime.InfinispanClientBuildTimeConfig;
+import io.quarkus.infinispan.client.runtime.InfinispanClientUtil;
+import io.quarkus.infinispan.client.runtime.InfinispanClientsBuildTimeConfig;
+import io.quarkus.infinispan.client.runtime.InfinispanDevServicesConfig;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.configuration.ConfigUtils;
 
-@BuildSteps(onlyIfNot = IsNormal.class, onlyIf = GlobalDevServicesConfig.Enabled.class)
+@BuildSteps(onlyIfNot = IsNormal.class, onlyIf = DevServicesConfig.Enabled.class)
 public class InfinispanDevServiceProcessor {
     private static final Logger log = Logger.getLogger(InfinispanDevServiceProcessor.class);
 
@@ -56,27 +59,40 @@ public class InfinispanDevServiceProcessor {
     private static final String DEFAULT_PASSWORD = "password";
     private static final String QUARKUS = "quarkus.";
     private static final String DOT = ".";
-    private static volatile List<RunningDevService> devServices;
-    private static volatile InfinispanClientDevServiceBuildTimeConfig.DevServiceConfiguration capturedDevServicesConfiguration;
+    private static final String UNDERSCORE = "_";
+    private static volatile Map<String, RunningDevService> devServices;
+    private static volatile Map<String, InfinispanClientBuildTimeConfig.DevServiceConfiguration> capturedDevServicesConfiguration;
     private static volatile boolean first = true;
+    private static volatile Map<String, String> properties = new HashMap<>();
 
     @BuildStep
     public List<DevServicesResultBuildItem> startInfinispanContainers(LaunchModeBuildItem launchMode,
             DockerStatusBuildItem dockerStatusBuildItem,
             List<DevServicesSharedNetworkBuildItem> devServicesSharedNetworkBuildItem,
-            InfinispanClientDevServiceBuildTimeConfig config,
+            InfinispanClientsBuildTimeConfig config,
             Optional<ConsoleInstalledBuildItem> consoleInstalledBuildItem,
             CuratedApplicationShutdownBuildItem closeBuildItem,
-            LoggingSetupBuildItem loggingSetupBuildItem, GlobalDevServicesConfig devServicesConfig) {
+            LoggingSetupBuildItem loggingSetupBuildItem,
+            DevServicesConfig devServicesConfig) {
 
         // figure out if we need to shut down and restart existing Infinispan containers
         // if not and the Infinispan containers have already started we just return
         if (devServices != null) {
-            boolean restartRequired = !config.devService.equals(capturedDevServicesConfiguration);
-            if (!restartRequired) {
-                return devServices.stream().map(RunningDevService::toBuildItem).collect(Collectors.toList());
+            boolean restartRequired = false;
+            for (String devServiceName : devServices.keySet()) {
+                InfinispanClientBuildTimeConfig.DevServiceConfiguration devServiceConfig = capturedDevServicesConfiguration.get(
+                        devServiceName);
+                restartRequired = restartRequired
+                        || !config.getInfinispanClientBuildTimeConfig(devServiceName).devService.equals(
+                                devServiceConfig);
+
             }
-            for (Closeable closeable : devServices) {
+
+            if (!restartRequired) {
+                return devServices.values().stream().map(RunningDevService::toBuildItem).collect(Collectors.toList());
+            }
+
+            for (Closeable closeable : devServices.values()) {
                 try {
                     closeable.close();
                 } catch (Throwable e) {
@@ -87,28 +103,29 @@ public class InfinispanDevServiceProcessor {
             capturedDevServicesConfiguration = null;
         }
 
-        capturedDevServicesConfiguration = config.devService;
-        List<RunningDevService> newDevServices = new ArrayList<>();
+        capturedDevServicesConfiguration = new HashMap<>();
+        Map<String, RunningDevService> newDevServices = new HashMap<>();
+        capturedDevServicesConfiguration.put(InfinispanClientUtil.DEFAULT_INFINISPAN_CLIENT_NAME,
+                config.defaultInfinispanClient.devService);
+        for (Map.Entry<String, InfinispanClientBuildTimeConfig> entry : config.namedInfinispanClients.entrySet()) {
+            capturedDevServicesConfiguration.put(entry.getKey(), entry.getValue().devService);
+        }
 
         StartupLogCompressor compressor = new StartupLogCompressor(
                 (launchMode.isTest() ? "(test) " : "") + "Infinispan Dev Services Starting:", consoleInstalledBuildItem,
                 loggingSetupBuildItem);
-        try {
-            RunningDevService devService = startContainer(dockerStatusBuildItem, config.devService.devservices,
-                    launchMode.getLaunchMode(),
-                    !devServicesSharedNetworkBuildItem.isEmpty(), devServicesConfig.timeout);
-            if (devService == null) {
-                compressor.closeAndDumpCaptured();
-                return null;
-            }
-            newDevServices.add(devService);
-            log.infof("The infinispan server is ready to accept connections on %s",
-                    devService.getConfig().get(getConfigPrefix() + "server-list"));
-            compressor.close();
-        } catch (Throwable t) {
-            compressor.closeAndDumpCaptured();
-            throw new RuntimeException(t);
-        }
+
+        runInfinispanDevService(InfinispanClientUtil.DEFAULT_INFINISPAN_CLIENT_NAME, launchMode,
+                compressor, dockerStatusBuildItem, devServicesSharedNetworkBuildItem, config.defaultInfinispanClient,
+                devServicesConfig, newDevServices,
+                properties);
+
+        config.namedInfinispanClients.entrySet().forEach(dServ -> {
+            runInfinispanDevService(dServ.getKey(), launchMode,
+                    compressor, dockerStatusBuildItem, devServicesSharedNetworkBuildItem, dServ.getValue(),
+                    devServicesConfig,
+                    newDevServices, properties);
+        });
 
         devServices = newDevServices;
 
@@ -116,7 +133,7 @@ public class InfinispanDevServiceProcessor {
             first = false;
             Runnable closeTask = () -> {
                 if (devServices != null) {
-                    for (Closeable closeable : devServices) {
+                    for (Closeable closeable : devServices.values()) {
                         try {
                             closeable.close();
                         } catch (Throwable t) {
@@ -130,61 +147,108 @@ public class InfinispanDevServiceProcessor {
             };
             closeBuildItem.addCloseTask(closeTask, true);
         }
-        return devServices.stream().map(RunningDevService::toBuildItem).collect(Collectors.toList());
+        return devServices.values().stream().map(RunningDevService::toBuildItem).collect(Collectors.toList());
     }
 
-    private RunningDevService startContainer(DockerStatusBuildItem dockerStatusBuildItem,
+    private void runInfinispanDevService(String clientName,
+            LaunchModeBuildItem launchMode,
+            StartupLogCompressor compressor,
+            DockerStatusBuildItem dockerStatusBuildItem,
+            List<DevServicesSharedNetworkBuildItem> devServicesSharedNetworkBuildItem,
+            InfinispanClientBuildTimeConfig config,
+            DevServicesConfig devServicesConfig,
+            Map<String, RunningDevService> newDevServices,
+            Map<String, String> properties) {
+        try {
+
+            InfinispanDevServicesConfig namedDevServiceConfig = config.devService.devservices;
+            RunningDevService devService = startContainer(clientName, dockerStatusBuildItem, namedDevServiceConfig,
+                    launchMode.getLaunchMode(),
+                    !devServicesSharedNetworkBuildItem.isEmpty(), devServicesConfig.timeout(), properties);
+            if (devService == null) {
+                compressor.closeAndDumpCaptured();
+                return;
+            }
+            newDevServices.put(clientName, devService);
+            log.infof("The infinispan server is ready to accept connections on %s",
+                    devService.getConfig().get(getConfigPrefix(clientName) + "hosts"));
+            compressor.close();
+        } catch (Throwable t) {
+            compressor.closeAndDumpCaptured();
+            throw new RuntimeException(t);
+        }
+    }
+
+    private RunningDevService startContainer(String clientName, DockerStatusBuildItem dockerStatusBuildItem,
             InfinispanDevServicesConfig devServicesConfig, LaunchMode launchMode,
-            boolean useSharedNetwork, Optional<Duration> timeout) {
+            boolean useSharedNetwork, Optional<Duration> timeout, Map<String, String> properties) {
         if (!devServicesConfig.enabled) {
             // explicitly disabled
-            log.debug("Not starting devservices for Infinispan as it has been disabled in the config");
+            log.debug("Not starting Dev Services for Infinispan as it has been disabled in the config");
             return null;
         }
 
-        String configPrefix = getConfigPrefix();
+        String configPrefix = getConfigPrefix(clientName);
 
-        boolean needToStart = !ConfigUtils.isPropertyPresent(configPrefix + "server-list");
+        boolean needToStart = !ConfigUtils.isPropertyNonEmpty(configPrefix + "hosts")
+                && !ConfigUtils.isPropertyNonEmpty(configPrefix + "server-list");
+
         if (!needToStart) {
-            log.debug("Not starting devservices for Infinispan as 'server-list' have been provided");
+            log.debug("Not starting Dev Services for Infinispan as 'hosts', 'uri' or 'server-list' have been provided");
             return null;
         }
 
-        if (!dockerStatusBuildItem.isDockerAvailable()) {
-            log.warn("Please configure 'quarkus.infinispan-client.server-list' or get a working docker instance");
+        if (!dockerStatusBuildItem.isContainerRuntimeAvailable()) {
+            log.warn(
+                    "Please configure 'quarkus.infinispan-client.hosts' or 'quarkus.infinispan-client.uri' or get a working Docker instance");
             return null;
         }
+        log.infof("Starting Dev Services for connection %s", clientName);
+        log.infof("Applying Dev Services config %s", devServicesConfig);
 
-        Supplier<RunningDevService> defaultInfinispanServerSupplier = () -> {
-            QuarkusInfinispanContainer infinispanContainer = new QuarkusInfinispanContainer(devServicesConfig, launchMode,
+        Supplier<RunningDevService> infinispanServerSupplier = () -> {
+            QuarkusInfinispanContainer infinispanContainer = new QuarkusInfinispanContainer(clientName, devServicesConfig,
+                    launchMode,
                     useSharedNetwork);
             timeout.ifPresent(infinispanContainer::withStartupTimeout);
+            infinispanContainer.withEnv(devServicesConfig.containerEnv);
             infinispanContainer.start();
 
-            return getRunningDevService(infinispanContainer.getContainerId(), infinispanContainer::close,
+            return getRunningDevService(clientName, infinispanContainer.getContainerId(), infinispanContainer::close,
                     infinispanContainer.getHost() + ":" + infinispanContainer.getPort(),
-                    infinispanContainer.getUser(), infinispanContainer.getPassword());
+                    infinispanContainer.getUser(), infinispanContainer.getPassword(), properties);
         };
 
         return infinispanContainerLocator.locateContainer(devServicesConfig.serviceName, devServicesConfig.shared, launchMode)
-                .map(containerAddress -> getRunningDevService(containerAddress.getId(), null,
-                        containerAddress.getUrl(), DEFAULT_USERNAME, DEFAULT_PASSWORD)) // TODO can this be always right ?
-                .orElseGet(defaultInfinispanServerSupplier);
+                .map(containerAddress -> getRunningDevService(clientName, containerAddress.getId(), null,
+                        containerAddress.getUrl(), DEFAULT_USERNAME, DEFAULT_PASSWORD, properties)) // TODO can this be always right ?
+                .orElseGet(infinispanServerSupplier);
     }
 
-    @NotNull
-    private RunningDevService getRunningDevService(String containerId, Closeable closeable, String serverList,
-            String username, String password) {
-        Map<String, String> config = new HashMap<>();
-        config.put(getConfigPrefix() + "server-list", serverList);
-        config.put(getConfigPrefix() + "client-intelligence", "BASIC");
-        config.put(getConfigPrefix() + "auth-username", username);
-        config.put(getConfigPrefix() + "auth-password", password);
-        return new RunningDevService(Feature.INFINISPAN_CLIENT.getName(), containerId, closeable, config);
+    private RunningDevService getRunningDevService(String clientName, String containerId, Closeable closeable, String hosts,
+            String username, String password, Map<String, String> config) {
+        config.put(getConfigPrefix(clientName) + "hosts", hosts);
+        config.put(getConfigPrefix(clientName) + "client-intelligence", ClientIntelligence.BASIC.name());
+        config.put(getConfigPrefix(clientName) + "username", username);
+        config.put(getConfigPrefix(clientName) + "password", password);
+        return new RunningDevService(runningServiceName(clientName), containerId, closeable, config);
     }
 
-    private String getConfigPrefix() {
-        return QUARKUS + "infinispan-client" + DOT;
+    private String runningServiceName(String clientName) {
+        if (InfinispanClientUtil.isDefault(clientName)) {
+            return Feature.INFINISPAN_CLIENT.getName();
+        }
+
+        return Feature.INFINISPAN_CLIENT.getName() + UNDERSCORE + clientName;
+
+    }
+
+    private String getConfigPrefix(String name) {
+        if (name.equals(InfinispanClientUtil.DEFAULT_INFINISPAN_CLIENT_NAME)) {
+            return QUARKUS + InfinispanClientUtil.INFINISPAN_CLIENT_CONFIG_ROOT_NAME + DOT;
+        }
+
+        return QUARKUS + InfinispanClientUtil.INFINISPAN_CLIENT_CONFIG_ROOT_NAME + DOT + name + DOT;
     }
 
     private static class QuarkusInfinispanContainer extends InfinispanContainer {
@@ -193,17 +257,54 @@ public class InfinispanDevServiceProcessor {
 
         private String hostName = null;
 
-        public QuarkusInfinispanContainer(InfinispanDevServicesConfig config,
+        public QuarkusInfinispanContainer(String clientName, InfinispanDevServicesConfig config,
                 LaunchMode launchMode, boolean useSharedNetwork) {
-            super(config.imageName.orElse(IMAGE_BASENAME + ":" + Version.getMajorMinor()));
+            super(config.imageName.orElse(IMAGE_BASENAME + ":" + Version.getUnbrandedVersion()));
             this.fixedExposedPort = config.port;
             this.useSharedNetwork = useSharedNetwork;
             if (launchMode == DEVELOPMENT) {
-                withLabel(DEV_SERVICE_LABEL, config.serviceName);
+                String label = config.serviceName;
+                if (InfinispanClientUtil.DEFAULT_INFINISPAN_DEV_SERVICE_NAME.equals(label)
+                        && !InfinispanClientUtil.isDefault(clientName)) {
+                    // Adds the client name suffix to create a different service name in named connections
+                    label = label + UNDERSCORE + clientName;
+                }
+                withLabel(DEV_SERVICE_LABEL, label);
             }
             withUser(DEFAULT_USERNAME);
             withPassword(InfinispanDevServiceProcessor.DEFAULT_PASSWORD);
+            String command = "-c infinispan.xml";
+            if (config.site.isPresent()) {
+                command = "-c infinispan-xsite.xml -Dinfinispan.site.name=" + config.site.get();
+            }
+            command = command + config.configFiles.map(files -> files.stream().map(file -> {
+                String userConfigFile = "/user-config/" + file;
+                withClasspathResourceMapping(file, userConfigFile, BindMode.READ_ONLY);
+                return " -c " + userConfigFile;
+            }).collect(Collectors.joining())).orElse("");
+
+            if (config.tracing.orElse(false)) {
+                log.warn(
+                        "Starting with Infinispan 15.0, Infinispan support for instrumentation of the server via OpenTelemetry has evolved. Enabling tracing by setting `quarkus.infinispan-client.devservices.tracing.enabled=true` doesn't work anymore.\n"
+                                +
+                                "You need to use the `quarkus.infinispan-client.devservices.tracing.enabled` property and provide a JSON, XML or YAML file as follows. Check https://quarkus.io/guides/infinispan-dev-services for more information");
+                log.warn("infinispan:\n" +
+                        "        cacheContainer:\n" +
+                        "                tracing:\n" +
+                        "                        collector-endpoint: \"http://jaeger:4318\"\n" +
+                        "                        enabled: true\n" +
+                        "                        exporter-protocol: \"OTLP\"\n" +
+                        "                        service-name: \"infinispan-server\"\n" +
+                        "                        security: false");
+            }
+
+            if (config.mcastPort.isPresent()) {
+                command = command + " -Djgroups.mcast_port=" + config.mcastPort.getAsInt();
+            }
+
             config.artifacts.ifPresent(a -> withArtifacts(a.toArray(new String[0])));
+
+            withCommand(command);
         }
 
         @Override

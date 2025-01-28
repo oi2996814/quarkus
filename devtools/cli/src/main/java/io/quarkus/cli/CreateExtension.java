@@ -1,11 +1,13 @@
 package io.quarkus.cli;
 
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 import io.quarkus.cli.common.OutputOptionMixin;
 import io.quarkus.cli.common.PropertiesOptions;
-import io.quarkus.cli.common.TargetQuarkusVersionGroup;
+import io.quarkus.cli.common.TargetQuarkusPlatformGroup;
 import io.quarkus.cli.create.BaseCreateCommand;
 import io.quarkus.cli.create.ExtensionCodeGenerationGroup;
 import io.quarkus.cli.create.ExtensionGAVMixin;
@@ -13,6 +15,7 @@ import io.quarkus.cli.create.ExtensionNameGenerationGroup;
 import io.quarkus.devtools.commands.data.QuarkusCommandOutcome;
 import io.quarkus.devtools.commands.handlers.CreateExtensionCommandHandler;
 import io.quarkus.devtools.project.BuildTool;
+import io.quarkus.devtools.project.JavaVersion;
 import io.quarkus.devtools.project.QuarkusProject;
 import io.quarkus.maven.dependency.ArtifactCoords;
 import io.quarkus.registry.catalog.ExtensionCatalog;
@@ -68,6 +71,12 @@ import picocli.CommandLine;
         })
 public class CreateExtension extends BaseCreateCommand {
 
+    static class VersionCandidates extends ArrayList<String> {
+        VersionCandidates() {
+            super(JavaVersion.JAVA_VERSIONS_LTS.stream().map(String::valueOf).collect(Collectors.toList()));
+        }
+    }
+
     @CommandLine.Spec
     protected CommandLine.Model.CommandSpec spec;
 
@@ -75,7 +84,12 @@ public class CreateExtension extends BaseCreateCommand {
     ExtensionGAVMixin gav = new ExtensionGAVMixin();
 
     @CommandLine.ArgGroup(order = 1, heading = "%nQuarkus version:%n")
-    TargetQuarkusVersionGroup targetQuarkusVersion = new TargetQuarkusVersionGroup();
+    TargetQuarkusPlatformGroup targetQuarkusVersion = new TargetQuarkusPlatformGroup();
+
+    // Ideally we should use TargetLanguageGroup once we support creating extensions with Kotlin
+    @CommandLine.Option(names = {
+            "--java" }, description = "Target Java version.\n  Valid values: ${COMPLETION-CANDIDATES}", completionCandidates = VersionCandidates.class, defaultValue = JavaVersion.DEFAULT_JAVA_VERSION_FOR_EXTENSION)
+    String javaVersion;
 
     @CommandLine.ArgGroup(order = 2, exclusive = false, heading = "%nGenerated artifacts%n")
     ExtensionNameGenerationGroup nameGeneration = new ExtensionNameGenerationGroup();
@@ -117,6 +131,7 @@ public class CreateExtension extends BaseCreateCommand {
                     .quarkusBomGroupId(quarkusBom.getGroupId())
                     .quarkusBomArtifactId(quarkusBom.getArtifactId())
                     .quarkusBomVersion(quarkusBom.getVersion())
+                    .javaVersion(javaVersion)
                     .withCodestart(codeGeneration.withCodestart())
                     .withoutUnitTest(codeGeneration.skipUnitTest())
                     .withoutDevModeTest(codeGeneration.skipDevModeTest())

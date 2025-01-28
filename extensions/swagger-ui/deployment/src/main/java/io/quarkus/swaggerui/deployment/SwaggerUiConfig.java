@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.smallrye.openapi.ui.DocExpansion;
@@ -21,7 +22,7 @@ public class SwaggerUiConfig {
      * By default, this value will be resolved as a path relative to `${quarkus.http.non-application-root-path}`.
      */
     @ConfigItem(defaultValue = "swagger-ui")
-    String path;
+    public String path;
 
     /**
      * If this should be included every time. By default, this is only included when the application is running
@@ -35,6 +36,7 @@ public class SwaggerUiConfig {
      * Here you can override that and supply multiple urls that will appear in the TopBar plugin.
      */
     @ConfigItem
+    @ConfigDocMapKey("name")
     Map<String, String> urls;
 
     /**
@@ -255,6 +257,12 @@ public class SwaggerUiConfig {
     Optional<List<String>> plugins;
 
     /**
+     * A list of external scripts (usually plugins) to use in Swagger UI.
+     */
+    @ConfigItem
+    Optional<List<String>> scripts;
+
+    /**
      * A list of presets to use in Swagger UI.
      */
     @ConfigItem
@@ -351,4 +359,15 @@ public class SwaggerUiConfig {
     @ConfigItem
     Optional<String> preauthorizeApiKeyApiKeyValue;
 
+    /**
+     * If set to true, this allows the user to modify and test different query parameters in the API request
+     */
+    @ConfigItem(defaultValue = "false")
+    boolean queryConfigEnabled;
+
+    /**
+     * If try it out should be enabled by default
+     */
+    @ConfigItem(defaultValue = "false")
+    boolean tryItOutEnabled;
 }

@@ -73,13 +73,16 @@ public class WebXmlParsingBuildStep {
                     try (InputStream in = Files.newInputStream(webXml)) {
                         final XMLStreamReader xmlReader = inputFactory.createXMLStreamReader(in);
                         metadata = WebMetaDataParser.parse(xmlReader, dtdInfo,
-                                PropertyReplacers.resolvingReplacer(new MPConfigPropertyResolver()));
+                                PropertyReplacers.resolvingExpressionReplacer(new MPConfigExpressionResolver()));
                     } catch (IOException | XMLStreamException e) {
                         throw new RuntimeException(e);
                     }
                     if (metadata.getServlets() != null) {
                         for (ServletMetaData i : metadata.getServlets()) {
-                            additionalBeans.add(i.getServletClass());
+                            String servletClass = i.getServletClass();
+                            if (servletClass != null) {
+                                additionalBeans.add(servletClass);
+                            }
                         }
                     }
                     if (metadata.getFilters() != null) {
@@ -126,7 +129,7 @@ public class WebXmlParsingBuildStep {
                         XMLStreamReader xmlReader = inputFactory.createXMLStreamReader(is);
 
                         WebFragmentMetaData webFragmentMetaData = WebFragmentMetaDataParser.parse(xmlReader,
-                                PropertyReplacers.resolvingReplacer(new MPConfigPropertyResolver()));
+                                PropertyReplacers.resolvingExpressionReplacer(new MPConfigExpressionResolver()));
                         webFragments.add(webFragmentMetaData);
 
                     } catch (XMLStreamException e) {

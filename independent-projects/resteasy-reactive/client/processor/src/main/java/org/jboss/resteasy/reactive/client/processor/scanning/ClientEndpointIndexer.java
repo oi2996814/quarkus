@@ -1,6 +1,7 @@
 package org.jboss.resteasy.reactive.client.processor.scanning;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
+import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.ENCODED;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JSONP_JSON_ARRAY;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JSONP_JSON_NUMBER;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JSONP_JSON_OBJECT;
@@ -8,12 +9,13 @@ import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNa
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JSONP_JSON_STRUCTURE;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JSONP_JSON_VALUE;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MediaType;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -44,30 +46,26 @@ import org.jboss.resteasy.reactive.common.providers.serialisers.jsonp.JsonValueH
 public class ClientEndpointIndexer
         extends EndpointIndexer<ClientEndpointIndexer, ClientEndpointIndexer.ClientIndexedParam, ResourceMethod> {
     static final DotName CONTINUATION = DotName.createSimple("kotlin.coroutines.Continuation");
+    static final DotName CLIENT_EXCEPTION_MAPPER = DotName
+            .createSimple("io.quarkus.rest.client.reactive.ClientExceptionMapper");
 
     private final String[] defaultProduces;
     private final String[] defaultProducesNegotiated;
     private final boolean smartDefaultProduces;
 
-    ClientEndpointIndexer(Builder builder, String defaultProduces, boolean smartDefaultProduces) {
+    public ClientEndpointIndexer(AbstractBuilder builder, String defaultProduces, boolean smartDefaultProduces) {
         super(builder);
         this.defaultProduces = new String[] { defaultProduces };
         this.defaultProducesNegotiated = new String[] { defaultProduces, MediaType.WILDCARD };
         this.smartDefaultProduces = smartDefaultProduces;
     }
 
-    public MaybeRestClientInterface createClientProxy(ClassInfo classInfo,
-            String path) {
+    public MaybeRestClientInterface createClientProxy(ClassInfo classInfo, String path) {
         try {
             RestClientInterface clazz = new RestClientInterface();
             clazz.setClassName(classInfo.name().toString());
+            clazz.setEncoded(classInfo.hasDeclaredAnnotation(ENCODED));
             if (path != null) {
-                if (!path.startsWith("/")) {
-                    path = "/" + path;
-                }
-                if (path.endsWith("/")) {
-                    path = path.substring(0, path.length() - 1);
-                }
                 clazz.setPath(path);
             }
             List<ResourceMethod> methods = createEndpoints(classInfo, classInfo, new HashSet<>(), new HashSet<>(),
@@ -86,8 +84,19 @@ public class ClientEndpointIndexer
     }
 
     private void warnForUnsupportedAnnotations(ClassInfo classInfo) {
-        if ((classInfo.annotationsMap().get(ResteasyReactiveDotNames.BLOCKING) != null)
-                || (classInfo.annotationsMap().get(ResteasyReactiveDotNames.NON_BLOCKING) != null)) {
+        List<AnnotationInstance> offendingBlockingAnnotations = new ArrayList<>();
+
+        List<AnnotationInstance> blockingAnnotations = classInfo.annotationsMap().get(ResteasyReactiveDotNames.BLOCKING);
+        if (blockingAnnotations != null) {
+            for (AnnotationInstance blockingAnnotation : blockingAnnotations) {
+                // If the `@Blocking` annotation is used along with the `@ClientExceptionMapper`, we support it.
+                if (blockingAnnotation.target().annotation(CLIENT_EXCEPTION_MAPPER) == null) {
+                    offendingBlockingAnnotations.add(blockingAnnotation);
+                }
+            }
+        }
+        if (!offendingBlockingAnnotations.isEmpty()
+                || classInfo.annotationsMap().get(ResteasyReactiveDotNames.NON_BLOCKING) != null) {
             log.warn(
                     "'@Blocking' and '@NonBlocking' annotations are not necessary (or supported) on REST Client interfaces. Offending class is '"
                             + classInfo.name()
@@ -195,13 +204,13 @@ public class ClientEndpointIndexer
         if (dotName.equals(JSONP_JSON_NUMBER)
                 || dotName.equals(JSONP_JSON_VALUE)
                 || dotName.equals(JSONP_JSON_STRING)) {
-            additionalReaderWriter.add(JsonValueHandler.class, APPLICATION_JSON, javax.json.JsonValue.class);
+            additionalReaderWriter.add(JsonValueHandler.class, APPLICATION_JSON, jakarta.json.JsonValue.class);
         } else if (dotName.equals(JSONP_JSON_ARRAY)) {
-            additionalReaderWriter.add(JsonArrayHandler.class, APPLICATION_JSON, javax.json.JsonArray.class);
+            additionalReaderWriter.add(JsonArrayHandler.class, APPLICATION_JSON, jakarta.json.JsonArray.class);
         } else if (dotName.equals(JSONP_JSON_OBJECT)) {
-            additionalReaderWriter.add(JsonObjectHandler.class, APPLICATION_JSON, javax.json.JsonObject.class);
+            additionalReaderWriter.add(JsonObjectHandler.class, APPLICATION_JSON, jakarta.json.JsonObject.class);
         } else if (dotName.equals(JSONP_JSON_STRUCTURE)) {
-            additionalReaderWriter.add(JsonStructureHandler.class, APPLICATION_JSON, javax.json.JsonStructure.class);
+            additionalReaderWriter.add(JsonStructureHandler.class, APPLICATION_JSON, jakarta.json.JsonStructure.class);
         }
     }
 
@@ -214,23 +223,26 @@ public class ClientEndpointIndexer
 
     }
 
-    public static final class Builder extends EndpointIndexer.Builder<ClientEndpointIndexer, Builder, ResourceMethod> {
+    public static abstract class AbstractBuilder<B extends EndpointIndexer.Builder<ClientEndpointIndexer, B, ResourceMethod>>
+            extends EndpointIndexer.Builder<ClientEndpointIndexer, B, ResourceMethod> {
+
         private String defaultProduces = MediaType.TEXT_PLAIN;
         private boolean smartDefaultProduces = true;
 
-        public Builder setDefaultProduces(String defaultProduces) {
+        public B setDefaultProduces(String defaultProduces) {
             this.defaultProduces = defaultProduces;
-            return this;
+            return (B) this;
         }
 
-        public Builder setSmartDefaultProduces(boolean smartDefaultProduces) {
+        public B setSmartDefaultProduces(boolean smartDefaultProduces) {
             this.smartDefaultProduces = smartDefaultProduces;
-            return this;
+            return (B) this;
         }
 
         @Override
         public ClientEndpointIndexer build() {
             return new ClientEndpointIndexer(this, defaultProduces, smartDefaultProduces);
         }
+
     }
 }

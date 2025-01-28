@@ -1,14 +1,13 @@
 package io.quarkus.micrometer.runtime;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
 
-import javax.annotation.Priority;
-import javax.interceptor.AroundInvoke;
-import javax.interceptor.Interceptor;
+import jakarta.annotation.Priority;
+import jakarta.interceptor.AroundInvoke;
+import jakarta.interceptor.Interceptor;
 
 import org.jboss.logging.Logger;
 
@@ -33,9 +32,11 @@ public class MicrometerTimedInterceptor {
     public static final String DEFAULT_METRIC_NAME = "method.timed";
 
     private final MeterRegistry meterRegistry;
+    private final MeterTagsSupport meterTagsSupport;
 
-    public MicrometerTimedInterceptor(MeterRegistry meterRegistry) {
+    public MicrometerTimedInterceptor(MeterRegistry meterRegistry, MeterTagsSupport meterTagsSupport) {
         this.meterRegistry = meterRegistry;
+        this.meterTagsSupport = meterTagsSupport;
     }
 
     @AroundInvoke
@@ -85,18 +86,17 @@ public class MicrometerTimedInterceptor {
     }
 
     private List<Sample> getSamples(ArcInvocationContext context) {
-        Method method = context.getMethod();
-        Tags commonTags = getCommonTags(method.getDeclaringClass().getName(), method.getName());
         List<Timed> timed = context.findIterceptorBindings(Timed.class);
         if (timed.isEmpty()) {
             return Collections.emptyList();
         }
+        Tags tags = meterTagsSupport.getTags(context);
         List<Sample> samples = new ArrayList<>(timed.size());
         for (Timed t : timed) {
             if (t.longTask()) {
-                samples.add(new LongTimerSample(t, commonTags));
+                samples.add(new LongTimerSample(t, tags));
             } else {
-                samples.add(new TimerSample(t, commonTags));
+                samples.add(new TimerSample(t, tags));
             }
         }
         return samples;

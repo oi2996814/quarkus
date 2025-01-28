@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.http.HttpStatus;
 import org.apache.kafka.streams.KafkaStreams;
@@ -40,9 +40,9 @@ public class KafkaStreamsStartupFailureTest {
         assertEquals(State.CREATED, kafkaStreams.state());
         RestAssured.get("/q/health/ready").then()
                 .statusCode(HttpStatus.SC_SERVICE_UNAVAILABLE)
-                .body("checks[0].name", CoreMatchers.is("Kafka Streams topics health check"))
-                .body("checks[0].status", CoreMatchers.is("DOWN"))
-                .body("checks[0].data.missing_topics", CoreMatchers.is("nonexisting-topic"));
+                .rootPath("checks.find { it.name ==  'Kafka Streams topics health check' }")
+                .body("status", CoreMatchers.is("DOWN"))
+                .body("data.missing_topics", CoreMatchers.is("nonexisting-topic"));
         assertTrue(Application.currentApplication().isStarted());
 
         Application.currentApplication().stop();

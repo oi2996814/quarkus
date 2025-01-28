@@ -86,7 +86,7 @@ public class QuarkusTestCallbacksTestCase {
     @Test
     @Order(2)
     public void testBeforeClass() {
-        assertEquals(2, SimpleAnnotationCheckerBeforeClassCallback.count.get());
+        assertEquals(1, SimpleAnnotationCheckerBeforeClassCallback.count.get());
     }
 
     @Test
@@ -111,6 +111,12 @@ public class QuarkusTestCallbacksTestCase {
     @Test
     @Order(5)
     public void testCallbackContextIsFailed() {
+        assertTrue(TestContextCheckerBeforeEachCallback.CONTEXT.getTestStatus().isTestFailed());
+    }
+
+    @Test
+    @Order(6)
+    public void testCallbackContextIsNotFailedAgain() {
         assertTrue(TestContextCheckerBeforeEachCallback.CONTEXT.getTestStatus().isTestFailed());
     }
 

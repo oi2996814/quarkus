@@ -3,7 +3,7 @@ package io.quarkus.vertx.http.security;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -28,7 +28,6 @@ import io.vertx.ext.web.RoutingContext;
 public class DisabledProactiveSecIdentityProviderTest {
 
     private static final String APP_PROPS = "" +
-            "quarkus.http.auth.basic=true\n" +
             "quarkus.http.auth.proactive=false\n" +
             "quarkus.http.auth.policy.r1.roles-allowed=admin\n" +
             "quarkus.http.auth.permission.roles1.paths=/admin\n" +

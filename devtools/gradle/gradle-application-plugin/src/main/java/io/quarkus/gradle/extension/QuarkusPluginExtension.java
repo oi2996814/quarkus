@@ -1,5 +1,7 @@
 package io.quarkus.gradle.extension;
 
+import static io.quarkus.runtime.LaunchMode.*;
+
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -10,47 +12,74 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
+import javax.annotation.Nullable;
+
 import org.gradle.api.Action;
 import org.gradle.api.Project;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.provider.ListProperty;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.jvm.tasks.Jar;
+import org.gradle.process.JavaForkOptions;
 
 import io.quarkus.bootstrap.BootstrapConstants;
 import io.quarkus.bootstrap.model.ApplicationModel;
 import io.quarkus.bootstrap.resolver.AppModelResolver;
 import io.quarkus.gradle.AppModelGradleResolver;
+import io.quarkus.gradle.QuarkusPlugin;
+import io.quarkus.gradle.dsl.Manifest;
+import io.quarkus.gradle.tasks.AbstractQuarkusExtension;
+import io.quarkus.gradle.tasks.QuarkusBuild;
 import io.quarkus.gradle.tasks.QuarkusGradleUtils;
 import io.quarkus.gradle.tooling.ToolingUtils;
 import io.quarkus.runtime.LaunchMode;
+import io.smallrye.config.SmallRyeConfig;
 
-public class QuarkusPluginExtension {
-    private final Project project;
-
-    private final Property<String> finalName;
+public abstract class QuarkusPluginExtension extends AbstractQuarkusExtension {
     private final SourceSetExtension sourceSetExtension;
 
-    public QuarkusPluginExtension(Project project) {
-        this.project = project;
+    private final Property<Boolean> cacheLargeArtifacts;
+    private final Property<Boolean> cleanupBuildOutput;
 
-        finalName = project.getObjects().property(String.class);
-        finalName.convention(project.provider(() -> String.format("%s-%s", project.getName(), project.getVersion())));
+    public QuarkusPluginExtension(Project project) {
+        super(project);
+
+        this.cleanupBuildOutput = project.getObjects().property(Boolean.class)
+                .convention(true);
+        this.cacheLargeArtifacts = project.getObjects().property(Boolean.class)
+                .convention(!System.getenv().containsKey("CI"));
 
         this.sourceSetExtension = new SourceSetExtension();
     }
 
+    public Manifest getManifest() {
+        return manifest();
+    }
+
+    @SuppressWarnings("unused")
+    public void manifest(Action<Manifest> action) {
+        action.execute(this.getManifest());
+    }
+
     public void beforeTest(Test task) {
         try {
-            final Map<String, Object> props = task.getSystemProperties();
+            Map<String, Object> props = task.getSystemProperties();
+            ApplicationModel appModel = getApplicationModel(TEST);
 
-            final ApplicationModel appModel = getApplicationModel(LaunchMode.TEST);
-            final Path serializedModel = ToolingUtils.serializeAppModel(appModel, task, true);
+            SmallRyeConfig config = buildEffectiveConfiguration(appModel)
+                    .getConfig();
+            config.getOptionalValue(TEST.getProfileKey(), String.class)
+                    .ifPresent(value -> props.put(TEST.getProfileKey(), value));
+
+            Path serializedModel = ToolingUtils.serializeAppModel(appModel, task, true);
             props.put(BootstrapConstants.SERIALIZED_TEST_APP_MODEL, serializedModel.toString());
 
             StringJoiner outputSourcesDir = new StringJoiner(",");
@@ -59,13 +88,15 @@ public class QuarkusPluginExtension {
             }
             props.put(BootstrapConstants.OUTPUT_SOURCES_DIR, outputSourcesDir.toString());
 
-            final SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
-            final SourceSet mainSourceSet = sourceSets.getByName(SourceSet.MAIN_SOURCE_SET_NAME);
+            SourceSetContainer sourceSets = getSourceSets();
+            SourceSet mainSourceSet = sourceSets.getByName(SourceSet.MAIN_SOURCE_SET_NAME);
 
-            final File outputDirectoryAsFile = getLastFile(mainSourceSet.getOutput().getClassesDirs());
+            File outputDirectoryAsFile = getLastFile(mainSourceSet.getOutput().getClassesDirs());
+
+            Path projectDirPath = projectDir.toPath();
 
             // Identify the folder containing the sources associated with this test task
-            String fileList = getSourceSets().stream()
+            String fileList = sourceSets.stream()
                     .filter(sourceSet -> Objects.equals(
                             task.getTestClassesDirs().getAsPath(),
                             sourceSet.getOutput().getClassesDirs().getAsPath()))
@@ -73,15 +104,15 @@ public class QuarkusPluginExtension {
                     .filter(File::exists)
                     .distinct()
                     .map(testSrcDir -> String.format("%s:%s",
-                            project.relativePath(testSrcDir),
-                            project.relativePath(outputDirectoryAsFile)))
+                            projectDirPath.relativize(testSrcDir.toPath()),
+                            projectDirPath.relativize(outputDirectoryAsFile.toPath())))
                     .collect(Collectors.joining(","));
             task.environment(BootstrapConstants.TEST_TO_MAIN_MAPPINGS, fileList);
-            project.getLogger().debug("test dir mapping - {}", fileList);
+            task.getLogger().debug("test dir mapping - {}", fileList);
 
-            final String nativeRunner = task.getProject().getBuildDir().toPath().resolve(finalName() + "-runner")
-                    .toAbsolutePath()
-                    .toString();
+            QuarkusBuild quarkusBuild = project.getTasks().named(QuarkusPlugin.QUARKUS_BUILD_TASK_NAME, QuarkusBuild.class)
+                    .get();
+            String nativeRunner = quarkusBuild.getNativeRunner().toPath().toAbsolutePath().toString();
             props.put("native.image.path", nativeRunner);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to resolve deployment classpath", e);
@@ -90,6 +121,30 @@ public class QuarkusPluginExtension {
 
     public Property<String> getFinalName() {
         return finalName;
+    }
+
+    /**
+     * Whether the build output, build/*-runner[.jar] and build/quarkus-app, for other package types than the
+     * currently configured one are removed, default is 'true'.
+     */
+    public Property<Boolean> getCleanupBuildOutput() {
+        return cleanupBuildOutput;
+    }
+
+    public void setCleanupBuildOutput(boolean cleanupBuildOutput) {
+        this.cleanupBuildOutput.set(cleanupBuildOutput);
+    }
+
+    /**
+     * Whether large build artifacts, like uber-jar and native runners, are cached. Defaults to 'false' if the 'CI' environment
+     * variable is set, otherwise defaults to 'true'.
+     */
+    public Property<Boolean> getCacheLargeArtifacts() {
+        return cacheLargeArtifacts;
+    }
+
+    public void setCacheLargeArtifacts(boolean cacheLargeArtifacts) {
+        this.cacheLargeArtifacts.set(cacheLargeArtifacts);
     }
 
     public String finalName() {
@@ -112,15 +167,24 @@ public class QuarkusPluginExtension {
         return getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getResources().getSrcDirs();
     }
 
+    public static FileCollection combinedOutputSourceDirs(Project project) {
+        ConfigurableFileCollection classesDirs = project.files();
+        SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
+        classesDirs.from(sourceSets.getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput().getClassesDirs());
+        classesDirs.from(sourceSets.getByName(SourceSet.TEST_SOURCE_SET_NAME).getOutput().getClassesDirs());
+        return classesDirs;
+    }
+
     public Set<File> combinedOutputSourceDirs() {
         Set<File> sourcesDirs = new LinkedHashSet<>();
-        sourcesDirs.addAll(getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput().getClassesDirs().getFiles());
-        sourcesDirs.addAll(getSourceSets().getByName(SourceSet.TEST_SOURCE_SET_NAME).getOutput().getClassesDirs().getFiles());
+        SourceSetContainer sourceSets = getSourceSets();
+        sourcesDirs.addAll(sourceSets.getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput().getClassesDirs().getFiles());
+        sourcesDirs.addAll(sourceSets.getByName(SourceSet.TEST_SOURCE_SET_NAME).getOutput().getClassesDirs().getFiles());
         return sourcesDirs;
     }
 
     public AppModelResolver getAppModelResolver() {
-        return getAppModelResolver(LaunchMode.NORMAL);
+        return getAppModelResolver(NORMAL);
     }
 
     public AppModelResolver getAppModelResolver(LaunchMode mode) {
@@ -128,7 +192,7 @@ public class QuarkusPluginExtension {
     }
 
     public ApplicationModel getApplicationModel() {
-        return getApplicationModel(LaunchMode.NORMAL);
+        return getApplicationModel(NORMAL);
     }
 
     public ApplicationModel getApplicationModel(LaunchMode mode) {
@@ -136,7 +200,30 @@ public class QuarkusPluginExtension {
     }
 
     /**
+     * Adds an action to configure the {@code JavaForkOptions} to build a Quarkus application.
+     *
+     * @param action configuration action
+     */
+    @SuppressWarnings("unused")
+    public void buildForkOptions(Action<? super JavaForkOptions> action) {
+        buildForkOptions.add(action);
+    }
+
+    /**
+     * Adds an action to configure the {@code JavaForkOptions} to generate Quarkus code.
+     *
+     * @param action configuration action
+     */
+    @SuppressWarnings("unused")
+    public void codeGenForkOptions(Action<? super JavaForkOptions> action) {
+        codeGenForkOptions.add(action);
+    }
+
+    /**
      * Returns the last file from the specified {@link FileCollection}.
+     *
+     * @param fileCollection the collection of files present in the directory
+     * @return result returns the last file
      */
     public static File getLastFile(FileCollection fileCollection) {
         File result = null;
@@ -181,5 +268,26 @@ public class QuarkusPluginExtension {
             throw new RuntimeException("Failed to locate project's classes directory");
         }
         return classesDir;
+    }
+
+    @SuppressWarnings("unused")
+    public MapProperty<String, String> getQuarkusBuildProperties() {
+        return quarkusBuildProperties;
+    }
+
+    public ListProperty<String> getCachingRelevantProperties() {
+        return cachingRelevantProperties;
+    }
+
+    public void set(String name, @Nullable String value) {
+        quarkusBuildProperties.put(addQuarkusBuildPropertyPrefix(name), value);
+    }
+
+    public void set(String name, Provider<String> value) {
+        quarkusBuildProperties.put(addQuarkusBuildPropertyPrefix(name), value);
+    }
+
+    private String addQuarkusBuildPropertyPrefix(String name) {
+        return String.format("quarkus.%s", name);
     }
 }

@@ -3,7 +3,7 @@ package io.quarkus.oidc.client.reactive.filter.deployment;
 import java.util.Collection;
 import java.util.List;
 
-import javax.ws.rs.Priorities;
+import jakarta.ws.rs.Priorities;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationValue;
@@ -47,7 +47,7 @@ public class OidcClientReactiveFilterBuildStep {
             // get client name from annotation @OidcClientFilter("clientName")
             final String clientName = OidcClientFilterDeploymentHelper.getClientName(instance);
             final AnnotationValue valueAttr;
-            if (clientName != null && !clientName.equals(oidcClientReactiveFilterConfig.clientName.orElse(null))) {
+            if (clientName != null && !clientName.equals(oidcClientReactiveFilterConfig.clientName().orElse(null))) {
                 // create and use custom filter for named OidcClient
                 // we generate exactly one custom filter for each named client specified through annotation
                 valueAttr = createClassValue(helper.getOrCreateFilter(clientName));
@@ -75,6 +75,8 @@ public class OidcClientReactiveFilterBuildStep {
         additionalBeans.produce(AdditionalBeanBuildItem.unremovableOf(OidcClientRequestReactiveFilter.class));
         additionalIndexedClassesBuildItem
                 .produce(new AdditionalIndexedClassesBuildItem(OidcClientRequestReactiveFilter.class.getName()));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, OidcClientRequestReactiveFilter.class));
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder(OidcClientRequestReactiveFilter.class)
+                .reason(getClass().getName())
+                .methods().fields().build());
     }
 }

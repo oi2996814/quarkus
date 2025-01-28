@@ -5,18 +5,18 @@ import java.util.Set;
 
 import io.quarkus.cli.common.DataOptions;
 import io.quarkus.cli.common.PropertiesOptions;
-import io.quarkus.cli.common.TargetQuarkusVersionGroup;
+import io.quarkus.cli.common.TargetQuarkusPlatformGroup;
 import io.quarkus.cli.create.BaseCreateCommand;
 import io.quarkus.cli.create.CodeGenerationGroup;
 import io.quarkus.cli.create.TargetBuildToolGroup;
 import io.quarkus.cli.create.TargetGAVGroup;
 import io.quarkus.cli.create.TargetLanguageGroup;
 import io.quarkus.devtools.commands.CreateProject.CreateProjectKey;
-import io.quarkus.devtools.commands.SourceType;
 import io.quarkus.devtools.commands.data.QuarkusCommandInvocation;
 import io.quarkus.devtools.commands.handlers.CreateJBangProjectCommandHandler;
 import io.quarkus.devtools.commands.handlers.CreateProjectCommandHandler;
 import io.quarkus.devtools.project.BuildTool;
+import io.quarkus.devtools.project.SourceType;
 import picocli.CommandLine;
 
 @CommandLine.Command(name = "app", header = "Create a Quarkus application project.", description = "%n"
@@ -40,7 +40,7 @@ public class CreateApp extends BaseCreateCommand {
     String description;
 
     @CommandLine.ArgGroup(order = 4, heading = "%nQuarkus version:%n")
-    TargetQuarkusVersionGroup targetQuarkusVersion = new TargetQuarkusVersionGroup();
+    TargetQuarkusPlatformGroup targetQuarkusVersion = new TargetQuarkusPlatformGroup();
 
     @CommandLine.ArgGroup(order = 5, heading = "%nBuild tool (Maven):%n")
     TargetBuildToolGroup targetBuildTool = new TargetBuildToolGroup();
@@ -101,7 +101,7 @@ public class CreateApp extends BaseCreateCommand {
             return CommandLine.ExitCode.SOFTWARE;
         } catch (Exception e) {
             return output.handleCommandException(e,
-                    "Unable to create project: " + e.getMessage());
+                    "Unable to create project: " + e.getLocalizedMessage());
         }
     }
 

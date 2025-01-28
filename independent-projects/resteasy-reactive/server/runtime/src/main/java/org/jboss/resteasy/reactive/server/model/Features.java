@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-import javax.ws.rs.core.Feature;
+import jakarta.ws.rs.core.Feature;
 
 import org.jboss.resteasy.reactive.common.model.ResourceFeature;
 import org.jboss.resteasy.reactive.spi.BeanFactory;
@@ -22,9 +22,10 @@ public class Features {
     }
 
     public void initializeDefaultFactories(Function<String, BeanFactory<?>> factoryCreator) {
-        for (ResourceFeature i : resourceFeatures) {
-            if (i.getFactory() == null) {
-                i.setFactory((BeanFactory<Feature>) factoryCreator.apply(i.getClassName()));
+        for (int i = 0; i < resourceFeatures.size(); i++) {
+            ResourceFeature resourceFeature = resourceFeatures.get(i);
+            if (resourceFeature.getFactory() == null) {
+                resourceFeature.setFactory((BeanFactory<Feature>) factoryCreator.apply(resourceFeature.getClassName()));
             }
         }
     }

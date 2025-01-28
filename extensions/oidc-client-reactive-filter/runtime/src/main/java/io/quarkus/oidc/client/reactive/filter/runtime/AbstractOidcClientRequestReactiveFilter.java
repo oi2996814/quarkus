@@ -2,8 +2,7 @@ package io.quarkus.oidc.client.reactive.filter.runtime;
 
 import java.util.function.Consumer;
 
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.core.HttpHeaders;
 
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.client.spi.ResteasyReactiveClientRequestContext;
@@ -27,6 +26,11 @@ public class AbstractOidcClientRequestReactiveFilter extends AbstractTokensProdu
 
     @Override
     public void filter(ResteasyReactiveClientRequestContext requestContext) {
+        if (isClientFeatureDisabled()) {
+            LOG.debug("OIDC client filter can not acquire and propagate tokens because "
+                    + "OIDC client is disabled with `quarkus.oidc-client.enabled=false`");
+            return;
+        }
         requestContext.suspend();
 
         super.getTokens().subscribe().with(new Consumer<>() {
@@ -40,13 +44,12 @@ public class AbstractOidcClientRequestReactiveFilter extends AbstractTokensProdu
             @Override
             public void accept(Throwable t) {
                 if (t instanceof DisabledOidcClientException) {
-                    LOG.debug("Client is disabled");
-                    requestContext.abortWith(Response.status(Response.Status.INTERNAL_SERVER_ERROR).build());
+                    LOG.debug("Client is disabled, acquiring and propagating the token is not necessary");
+                    requestContext.resume();
                 } else {
-                    LOG.debugf("Access token is not available, aborting the request with HTTP 401 error: %s", t.getMessage());
-                    requestContext.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+                    LOG.debugf("Access token is not available, cause: %s, aborting the request", t.getMessage());
+                    requestContext.resume((t instanceof RuntimeException) ? t : new RuntimeException(t));
                 }
-                requestContext.resume();
             }
         });
     }

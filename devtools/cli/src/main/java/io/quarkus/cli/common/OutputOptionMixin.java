@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
+import io.quarkus.cli.QuarkusCli;
 import io.quarkus.devtools.messagewriter.MessageWriter;
 import picocli.CommandLine;
 import picocli.CommandLine.Help.ColorScheme;
@@ -17,11 +18,10 @@ public class OutputOptionMixin implements MessageWriter {
 
     static final boolean picocliDebugEnabled = "DEBUG".equalsIgnoreCase(System.getProperty("picocli.trace"));
 
-    @CommandLine.Option(names = { "-e", "--errors" }, description = "Display error messages.")
-    boolean showErrors;
+    boolean verbose = false;
 
-    @CommandLine.Option(names = { "--verbose" }, description = "Verbose mode.")
-    boolean verbose;
+    @CommandLine.Option(names = { "-e", "--errors" }, description = "Print more context on errors and exceptions.")
+    boolean showErrors;
 
     @CommandLine.Option(names = {
             "--cli-test" }, hidden = true, description = "Manually set output streams for unit test purposes.")
@@ -70,8 +70,21 @@ public class OutputOptionMixin implements MessageWriter {
         return showErrors || picocliDebugEnabled;
     }
 
+    private static OutputOptionMixin getOutput(CommandSpec commandSpec) {
+        return ((QuarkusCli) commandSpec.root().userObject()).getOutput();
+    }
+
+    @CommandLine.Option(names = { "--verbose" }, description = "Verbose mode.")
+    public void setVerbose(boolean verbose) {
+        getOutput(mixee).verbose = verbose;
+    }
+
+    public boolean getVerbose() {
+        return getOutput(mixee).verbose;
+    }
+
     public boolean isVerbose() {
-        return verbose || picocliDebugEnabled;
+        return getVerbose() || picocliDebugEnabled;
     }
 
     public boolean isCliTest() {
@@ -149,6 +162,11 @@ public class OutputOptionMixin implements MessageWriter {
             CommandLine.UnmatchedArgumentException.printSuggestions((CommandLine.ParameterException) ex, out());
         }
         error(message);
+
+        if (!isShowErrors()) {
+            info("\nAdd the -e/--errors option to get more information about the error. Add the --verbose option to get even more details.");
+        }
+
         return cmd.getExitCodeExceptionMapper() != null ? cmd.getExitCodeExceptionMapper().getExitCode(ex)
                 : mixee.exitCodeOnInvalidInput();
     }
@@ -157,7 +175,7 @@ public class OutputOptionMixin implements MessageWriter {
     public String toString() {
         return "OutputOptions [testMode=" + cliTestMode
                 + ", showErrors=" + showErrors
-                + ", verbose=" + verbose + "]";
+                + ", verbose=" + getVerbose() + "]";
     }
 
 }

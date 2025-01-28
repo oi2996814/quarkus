@@ -2,8 +2,8 @@ package io.quarkus.qute.deployment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ public class PropertyNotFoundDevModeTest {
     @Test
     public void testExceptionIsThrown() {
         assertEquals(
-                "Rendering error in template [foo.html] line 1: Entry \"foo\" not found in the data map in expression {foo.surname}",
+                "Rendering error in template [foo.html] line 1: Key \"foo\" not found in the template data map with keys [] in expression {foo.surname}",
                 RestAssured.get("test-foo").then().statusCode(200).extract().body().asString());
         assertEquals(
                 "Rendering error in template [bar.html] line 1: Property \"name\" not found on the base object \"java.lang.String\" in expression {bar.name}",

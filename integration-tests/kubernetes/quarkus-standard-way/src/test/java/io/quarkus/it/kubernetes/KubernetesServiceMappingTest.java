@@ -59,11 +59,11 @@ public class KubernetesServiceMappingTest {
                         assertTrue(ports.stream().anyMatch(port -> "http".equals(port.getName())
                                 && port.getContainerPort() == 8080
                                 && "TCP".equals(port.getProtocol())),
-                                () -> "http port not found in the pod containers!");
+                                "http port not found in the pod containers!");
                         assertTrue(ports.stream().anyMatch(port -> "debug".equals(port.getName())
                                 && port.getContainerPort() == 5005
                                 && "UDP".equals(port.getProtocol())),
-                                () -> "debug port not found in the pod containers!");
+                                "debug port not found in the pod containers!");
                     });
                 });
             });

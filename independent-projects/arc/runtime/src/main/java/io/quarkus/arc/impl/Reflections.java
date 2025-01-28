@@ -21,6 +21,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
+import jakarta.enterprise.inject.CreationException;
+
 /**
  * Neither the class nor its methods are considered a public API and should only be used internally.
  */
@@ -124,12 +126,22 @@ public final class Reflections {
     public static Object newInstance(Class<?> clazz, Class<?>[] parameterTypes, Object[] args) {
         Constructor<?> constructor = findConstructor(clazz, parameterTypes);
         if (constructor != null) {
-            if (!constructor.isAccessible()) {
+            if (!constructor.canAccess(null)) {
                 constructor.setAccessible(true);
             }
             try {
                 return constructor.newInstance(args);
-            } catch (InstantiationException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
+                }
+                if (cause instanceof Error) {
+                    throw (Error) cause;
+                }
+                // this method is only used to instantiate beans, so throwing `CreationException` is fine
+                throw new CreationException(cause);
+            } catch (InstantiationException | IllegalAccessException | IllegalArgumentException e) {
                 throw new RuntimeException("Cannot invoke constructor: " + clazz.getName(), e);
             }
         }
@@ -140,7 +152,7 @@ public final class Reflections {
     public static Object readField(Class<?> clazz, String name, Object instance) {
         try {
             Field field = clazz.getDeclaredField(name);
-            if (!field.isAccessible()) {
+            if (!field.canAccess(instance)) {
                 field.setAccessible(true);
             }
             return field.get(instance);
@@ -152,7 +164,7 @@ public final class Reflections {
     public static void writeField(Class<?> clazz, String name, Object instance, Object value) {
         try {
             Field field = clazz.getDeclaredField(name);
-            if (!field.isAccessible()) {
+            if (!field.canAccess(instance)) {
                 field.setAccessible(true);
             }
             field.set(instance, value);
@@ -164,7 +176,7 @@ public final class Reflections {
     public static Object invokeMethod(Class<?> clazz, String name, Class<?>[] paramTypes, Object instance, Object[] args) {
         try {
             Method method = clazz.getDeclaredMethod(name, paramTypes);
-            if (!method.isAccessible()) {
+            if (!method.canAccess(instance)) {
                 method.setAccessible(true);
             }
             return method.invoke(instance, args);

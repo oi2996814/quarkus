@@ -4,17 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
-import javax.inject.Inject;
-import javax.persistence.EntityManager;
-import javax.transaction.Transactional;
-import javax.ws.rs.GET;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
+import org.hibernate.search.engine.common.EntityReference;
 import org.hibernate.search.mapper.orm.Search;
-import org.hibernate.search.mapper.orm.common.EntityReference;
 import org.hibernate.search.mapper.orm.session.SearchSession;
 import org.jboss.resteasy.annotations.jaxrs.QueryParam;
 
@@ -34,6 +34,7 @@ public class AnalysisTestResource {
         entityManager.persist(new Analysis3TestingEntity("irrelevant"));
         entityManager.persist(new Analysis4TestingEntity("irrelevant"));
         entityManager.persist(new Analysis5TestingEntity("irrelevant"));
+        entityManager.persist(new Analysis6TestingEntity("irrelevant"));
     }
 
     @GET
@@ -59,13 +60,16 @@ public class AnalysisTestResource {
         assertThat(findTypesMatching("text", "token_inserted_by_index_analysis_5"))
                 .containsExactlyInAnyOrder(Analysis5TestingEntity.class);
 
+        assertThat(findTypesMatching("text", "token_inserted_by_index_analysis_6"))
+                .containsExactlyInAnyOrder(Analysis6TestingEntity.class);
+
         return "OK";
     }
 
     public List<Class<?>> findTypesMatching(@QueryParam String field, @QueryParam String term) {
         SearchSession searchSession = Search.session(entityManager);
         return searchSession.search(AnalysisTestingEntityBase.class)
-                .<Class<?>> select(f -> f.composite(EntityReference::type, f.entityReference()))
+                .<Class<?>> select(f -> f.composite().from(f.entityReference()).as(EntityReference::type))
                 .where(f -> f.match().field(field).matching(term).skipAnalysis())
                 .fetchAllHits();
     }

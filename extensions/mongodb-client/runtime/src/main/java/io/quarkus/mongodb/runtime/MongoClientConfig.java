@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import org.bson.UuidRepresentation;
+
 import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
@@ -62,7 +64,7 @@ public class MongoClientConfig {
     public Optional<String> connectionString;
 
     /**
-     * Configures the MongoDB server addressed (one if single mode).
+     * Configures the MongoDB server addresses (one if single mode).
      * The addresses are passed as {@code host:port}.
      */
     @ConfigItem(defaultValue = "127.0.0.1:27017")
@@ -179,7 +181,7 @@ public class MongoClientConfig {
     public Optional<String> readConcern;
 
     /**
-     * Configures the read preferences.
+     * Configures the read preference.
      * Supported values are: {@code primary|primaryPreferred|secondary|secondaryPreferred|nearest}
      */
     @ConfigItem
@@ -196,5 +198,12 @@ public class MongoClientConfig {
      */
     @ConfigItem(name = "health.database", defaultValue = "admin")
     public String healthDatabase;
+
+    /**
+     * Configures the UUID representation to use when encoding instances of {@link java.util.UUID}
+     * and when decoding BSON binary values with subtype of 3.
+     */
+    @ConfigItem
+    public Optional<UuidRepresentation> uuidRepresentation;
 
 }

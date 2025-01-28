@@ -30,7 +30,7 @@ public final class CodestartResourceLoadersBuilder {
 
     private static final String BASE_CODESTARTS_ARTIFACT_COORDS = retrieveBaseCodestartsArtifactCoords();
     private ExtensionCatalog catalog = null;
-    private MavenArtifactResolver artifactResolver = QuarkusProjectHelper.artifactResolver();
+    private MavenArtifactResolver artifactResolver;
     private String baseCodestartsArtifactCoords = BASE_CODESTARTS_ARTIFACT_COORDS;
     private Collection<String> extraCodestartsArtifactCoords = new ArrayList<>();
 
@@ -94,7 +94,7 @@ public final class CodestartResourceLoadersBuilder {
 
     public List<ResourceLoader> build() {
         return getCodestartResourceLoaders(baseCodestartsArtifactCoords, extraCodestartsArtifactCoords, catalog,
-                artifactResolver);
+                artifactResolver == null ? QuarkusProjectHelper.artifactResolver() : artifactResolver);
     }
 
     private static List<ResourceLoader> getCodestartResourceLoaders(String baseCodestartsArtifactCoords,
@@ -105,6 +105,7 @@ public final class CodestartResourceLoadersBuilder {
         final Map<String, Artifact> codestartsArtifacts = new LinkedHashMap<>();
 
         // The latest inserted in the Map will have priority over the previous (in case of codestarts name conflicts)
+        // We have to remove keys to override because 'put' keeps the order in a LinkedHashMap
         if (catalog != null) {
             // Load codestarts from each extensions codestart artifacts
             for (Extension e : catalog.getExtensions()) {

@@ -13,13 +13,14 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 import java.util.Set;
 
-import javax.annotation.Priority;
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Named;
-import javax.interceptor.AroundInvoke;
-import javax.interceptor.Interceptor;
-import javax.interceptor.InterceptorBinding;
-import javax.interceptor.InvocationContext;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.inject.Named;
+import jakarta.interceptor.AroundInvoke;
+import jakarta.interceptor.Interceptor;
+import jakarta.interceptor.InterceptorBinding;
+import jakarta.interceptor.InvocationContext;
 
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
@@ -27,7 +28,6 @@ import org.jboss.jandex.DotName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.quarkus.arc.AlternativePriority;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.arc.processor.AnnotationsTransformer;
@@ -43,7 +43,7 @@ public class SyntheticBeanWithStereotypeTest {
             .beanClasses(ToBeStereotype.class, SimpleBinding.class, SimpleInterceptor.class)
             .additionalClasses(SomeBean.class)
             .stereotypeRegistrars(new MyStereotypeRegistrar())
-            .annotationsTransformers(new MyAnnotationTrasnformer())
+            .annotationTransformations(new MyAnnotationTrasnformer())
             .beanRegistrars(new MyBeanRegistrar())
             .build();
 
@@ -110,7 +110,8 @@ public class SyntheticBeanWithStereotypeTest {
                         .add(ApplicationScoped.class)
                         .add(SimpleBinding.class)
                         .add(Named.class)
-                        .add(AlternativePriority.class, AnnotationValue.createIntegerValue("value", 11))
+                        .add(Alternative.class)
+                        .add(Priority.class, AnnotationValue.createIntegerValue("value", 11))
                         .done();
             }
         }

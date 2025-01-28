@@ -5,8 +5,10 @@ import java.io.InputStream;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -248,7 +250,7 @@ public final class JandexUtil {
     private static boolean containsTypeParameters(Type type) {
         switch (type.kind()) {
             case ARRAY:
-                return containsTypeParameters(type.asArrayType().component());
+                return containsTypeParameters(type.asArrayType().constituent());
             case PARAMETERIZED_TYPE:
                 ParameterizedType parameterizedType = type.asParameterizedType();
                 if (parameterizedType.owner() != null
@@ -274,7 +276,7 @@ public final class JandexUtil {
         switch (type.kind()) {
             case ARRAY:
                 ArrayType arrayType = type.asArrayType();
-                return ArrayType.create(mapGenerics(arrayType.component(), mapping), arrayType.dimensions());
+                return ArrayType.create(mapGenerics(arrayType.constituent(), mapping), arrayType.dimensions());
             case CLASS:
                 return type;
             case PARAMETERIZED_TYPE:
@@ -362,6 +364,95 @@ public final class JandexUtil {
             throw new RuntimeException("The class " + superType.name() + " is not inside the Jandex index");
         }
         return isSubclassOf(index, superClass, parentName);
+    }
+
+    /**
+     * Returns true if the given Jandex ClassInfo is a subclass of or inherits the given <tt>name</tt>.
+     *
+     * @param index the index to use to look up super classes.
+     * @param info the ClassInfo we want to check.
+     * @param name the name of the superclass or interface we want to find.
+     * @throws RuntimeException if one of the superclasses is not indexed.
+     */
+    public static boolean isImplementorOf(IndexView index, ClassInfo info, DotName name) {
+        return isImplementorOf(index, info, name, Collections.emptySet());
+    }
+
+    /**
+     * Returns true if the given Jandex ClassInfo is a subclass of or inherits the given <tt>name</tt>.
+     *
+     * @param index the index to use to look up super classes.
+     * @param info the ClassInfo we want to check.
+     * @param name the name of the superclass or interface we want to find.
+     * @param additionalIgnoredSuperClasses return false if the class has any of these as a superclass.
+     * @throws RuntimeException if one of the superclasses is not indexed.
+     */
+    public static boolean isImplementorOf(IndexView index, ClassInfo info, DotName name,
+            Set<DotName> additionalIgnoredSuperClasses) {
+        // Check interfaces
+        List<DotName> interfaceNames = info.interfaceNames();
+        for (DotName interfaceName : interfaceNames) {
+            if (interfaceName.equals(name)) {
+                return true;
+            }
+        }
+
+        // Check direct hierarchy
+        DotName superDotName = info.superName();
+        if (superDotName.equals(DOTNAME_OBJECT) || superDotName.equals(DOTNAME_RECORD)
+                || additionalIgnoredSuperClasses.contains(superDotName)) {
+            return false;
+        }
+        if (info.superName().equals(name)) {
+            return true;
+        }
+
+        // climb up the hierarchy of classes
+        Type superType = info.superClassType();
+        ClassInfo superClass = index.getClassByName(superType.name());
+        if (superClass == null) {
+            // this can happen if the parent is not inside the Jandex index
+            throw new RuntimeException("The class " + superType.name() + " is not inside the Jandex index");
+        }
+        return isImplementorOf(index, superClass, name, additionalIgnoredSuperClasses);
+    }
+
+    public static boolean isAssignableFrom(DotName superType, DotName subType, IndexView index) {
+        // java.lang.Object is assignable from any type
+        if (superType.equals(DOTNAME_OBJECT)) {
+            return true;
+        }
+        // type1 is the same as type2
+        if (superType.equals(subType)) {
+            return true;
+        }
+        // type1 is a superclass
+        return findSupertypes(subType, index).contains(superType);
+    }
+
+    private static Set<DotName> findSupertypes(DotName name, IndexView index) {
+        Set<DotName> result = new HashSet<>();
+
+        Deque<DotName> workQueue = new ArrayDeque<>();
+        workQueue.add(name);
+        while (!workQueue.isEmpty()) {
+            DotName type = workQueue.poll();
+            if (result.contains(type)) {
+                continue;
+            }
+            result.add(type);
+
+            ClassInfo clazz = index.getClassByName(type);
+            if (clazz == null) {
+                continue;
+            }
+            if (clazz.superName() != null) {
+                workQueue.add(clazz.superName());
+            }
+            workQueue.addAll(clazz.interfaceNames());
+        }
+
+        return result;
     }
 
 }

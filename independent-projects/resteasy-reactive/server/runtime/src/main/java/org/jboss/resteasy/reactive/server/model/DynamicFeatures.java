@@ -4,13 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-import javax.ws.rs.container.DynamicFeature;
+import jakarta.ws.rs.container.DynamicFeature;
 
 import org.jboss.resteasy.reactive.common.model.ResourceDynamicFeature;
 import org.jboss.resteasy.reactive.spi.BeanFactory;
 
 /**
- * Container for {@link javax.ws.rs.container.DynamicFeature}
+ * Container for {@link jakarta.ws.rs.container.DynamicFeature}
  */
 public class DynamicFeatures {
 
@@ -25,9 +25,10 @@ public class DynamicFeatures {
     }
 
     public void initializeDefaultFactories(Function<String, BeanFactory<?>> factoryCreator) {
-        for (ResourceDynamicFeature i : resourceDynamicFeatures) {
-            if (i.getFactory() == null) {
-                i.setFactory((BeanFactory<DynamicFeature>) factoryCreator.apply(i.getClassName()));
+        for (int i = 0; i < resourceDynamicFeatures.size(); i++) {
+            ResourceDynamicFeature resourceFeature = resourceDynamicFeatures.get(i);
+            if (resourceFeature.getFactory() == null) {
+                resourceFeature.setFactory((BeanFactory<DynamicFeature>) factoryCreator.apply(resourceFeature.getClassName()));
             }
         }
     }

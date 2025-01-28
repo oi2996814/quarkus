@@ -18,9 +18,8 @@
             <groupId>io.smallrye</groupId>
             <artifactId>smallrye-health</artifactId>
             <exclusions>
-                <!-- we let quarkus-jsonp bring the appropriate impl -->
                 <exclusion>
-                    <groupId>org.glassfish</groupId>
+                    <groupId>org.eclipse.parsson</groupId>
                     <artifactId>jakarta.json</artifactId>
                 </exclusion>
             </exclusions>
@@ -56,15 +55,20 @@
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>io.quarkus</groupId>
-                            <artifactId>quarkus-extension-processor</artifactId>
-                            <version>${project.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

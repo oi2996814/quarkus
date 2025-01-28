@@ -8,13 +8,13 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.inject.spi.ObserverMethod;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.spi.ObserverMethod;
 
 /**
  * This annotation can be used to initialize a CDI bean at application startup:
  * <ul>
- * <li>If a bean class is annotated then a contextual instance is created and the {@link javax.annotation.PostConstruct}
+ * <li>If a bean class is annotated then a contextual instance is created and the {@link jakarta.annotation.PostConstruct}
  * callbacks are invoked.</li>
  * <li>If a producer method is annotated then a contextual instance is created, i.e. the producer method is invoked.</li>
  * <li>If a producer field is annotated then a contextual instance is created, i.e. the producer field is read.</li>
@@ -27,7 +27,7 @@ import javax.enterprise.inject.spi.ObserverMethod;
  * Furthermore, {@link #value()} can be used to specify the priority of the generated observer method and thus affects observers
  * ordering.
  * <p>
- * The contextual instance is destroyed immediately afterwards for {@link Dependent} beans.
+ * The contextual instance is destroyed immediately after the method is invoked for {@link Dependent} beans.
  * <p>
  * The following examples are functionally equivalent.
  *
@@ -68,7 +68,7 @@ public @interface Startup {
     /**
      *
      * @return the priority
-     * @see javax.annotation.Priority
+     * @see jakarta.annotation.Priority
      */
     int value() default ObserverMethod.DEFAULT_PRIORITY;
 

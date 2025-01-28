@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
@@ -13,6 +14,12 @@ import io.quarkus.vertx.http.runtime.cors.CORSConfig;
 
 @ConfigRoot(phase = ConfigPhase.RUN_TIME)
 public class HttpConfiguration {
+
+    /**
+     * Authentication configuration
+     */
+    @ConfigDocSection(generated = true)
+    public AuthRuntimeConfig auth;
 
     /**
      * Enable the CORS filter.
@@ -34,15 +41,26 @@ public class HttpConfiguration {
 
     /**
      * The HTTP host
-     *
+     * <p>
      * In dev/test mode this defaults to localhost, in prod mode this defaults to 0.0.0.0
-     *
+     * <p>
      * Defaulting to 0.0.0.0 makes it easier to deploy Quarkus to container, however it
      * is not suitable for dev/test mode as other people on the network can connect to your
      * development machine.
+     * <p>
+     * As an exception, when running in Windows Subsystem for Linux (WSL), the HTTP host
+     * defaults to 0.0.0.0 even in dev/test mode since using localhost makes the application
+     * inaccessible.
      */
     @ConfigItem
     public String host;
+
+    /**
+     * Used when {@code QuarkusIntegrationTest} is meant to execute against an application that is already running and
+     * listening on the host specified by this property.
+     */
+    @ConfigItem
+    public Optional<String> testHost;
 
     /**
      * Enable listening to host:port
@@ -63,27 +81,45 @@ public class HttpConfiguration {
     public int testSslPort;
 
     /**
+     * Used when {@code QuarkusIntegrationTest} is meant to execute against an application that is already running
+     * to configure the test to use SSL.
+     */
+    @ConfigItem
+    public Optional<Boolean> testSslEnabled;
+
+    /**
      * If insecure (i.e. http rather than https) requests are allowed. If this is {@code enabled}
      * then http works as normal. {@code redirect} will still open the http port, but
      * all requests will be redirected to the HTTPS port. {@code disabled} will prevent the HTTP
      * port from opening at all.
+     * <p>
+     * Default is {@code enabled} except when client auth is set to {@code required} (configured using
+     * {@code quarkus.http.ssl.client-auth=required}).
+     * In this case, the default is {@code disabled}.
      */
-    @ConfigItem(defaultValue = "enabled")
-    public InsecureRequests insecureRequests;
+    @ConfigItem
+    public Optional<InsecureRequests> insecureRequests;
 
     /**
      * If this is true (the default) then HTTP/2 will be enabled.
-     *
-     * Note that for browsers to be able to use it HTTPS must be enabled,
-     * and you must be running on JDK11 or above, as JDK8 does not support
-     * ALPN.
+     * <p>
+     * Note that for browsers to be able to use it HTTPS must be enabled.
      */
     @ConfigItem(defaultValue = "true")
     public boolean http2;
 
     /**
+     * Enables or Disable the HTTP/2 Push feature.
+     * This setting can be used to disable server push. The server will not send a {@code PUSH_PROMISE} frame if it
+     * receives this parameter set to @{code false}.
+     */
+    @ConfigItem(defaultValue = "true")
+    public boolean http2PushEnabled;
+
+    /**
      * The CORS config
      */
+    @ConfigDocSection(generated = true)
     public CORSConfig cors;
 
     /**
@@ -92,8 +128,21 @@ public class HttpConfiguration {
     public ServerSslConfig ssl;
 
     /**
-     * The Static Resources config
+     * The name of the TLS configuration to use.
+     * <p>
+     * If not set and the default TLS configuration is configured ({@code quarkus.tls.*}) then that will be used.
+     * If a name is configured, it uses the configuration from {@code quarkus.tls.<name>.*}
+     * If a name is configured, but no TLS configuration is found with that name then an error will be thrown.
+     * <p>
+     * If no TLS configuration is set, and {@code quarkus.tls.*} is not configured, then, `quarkus.http.ssl` will be used.
      */
+    @ConfigItem
+    public Optional<String> tlsConfigurationName;
+
+    /**
+     * Static Resources.
+     */
+    @ConfigDocSection(generated = true)
     public StaticResourcesConfig staticResources;
 
     /**
@@ -107,7 +156,7 @@ public class HttpConfiguration {
      * The number if IO threads used to perform IO. This will be automatically set to a reasonable value based on
      * the number of CPU cores if it is not provided. If this is set to a higher value than the number of Vert.x event
      * loops then it will be capped at the number of event loops.
-     *
+     * <p>
      * In general this should be controlled by setting quarkus.vertx.event-loops-pool-size, this setting should only
      * be used if you want to limit the number of HTTP io threads to a smaller number than the total number of IO threads.
      */
@@ -115,8 +164,9 @@ public class HttpConfiguration {
     public OptionalInt ioThreads;
 
     /**
-     * Server limits configuration
+     * Server limits.
      */
+    @ConfigDocSection(generated = true)
     public ServerLimitsConfig limits;
 
     /**
@@ -129,7 +179,6 @@ public class HttpConfiguration {
      * Http connection read timeout for blocking IO. This is the maximum amount of time
      * a thread will wait for data, before an IOException will be thrown and the connection
      * closed.
-     *
      */
     @ConfigItem(defaultValue = "60s", name = "read-timeout")
     public Duration readTimeout;
@@ -142,7 +191,7 @@ public class HttpConfiguration {
     /**
      * The encryption key that is used to store persistent logins (e.g. for form auth). Logins are stored in a persistent
      * cookie that is encrypted with AES-256 using a key derived from a SHA-256 hash of the key that is provided here.
-     *
+     * <p>
      * If no key is provided then an in-memory one will be generated, this will change on every restart though so it
      * is not suitable for production environments. This must be more than 16 characters long for security reasons
      */
@@ -180,6 +229,14 @@ public class HttpConfiguration {
     public int acceptBacklog;
 
     /**
+     * Set the SETTINGS_INITIAL_WINDOW_SIZE HTTP/2 setting.
+     * Indicates the sender's initial window size (in octets) for stream-level flow control.
+     * The initial value is {@code 2^16-1} (65,535) octets.
+     */
+    @ConfigItem
+    public OptionalInt initialWindowSize;
+
+    /**
      * Path to a unix domain socket
      */
     @ConfigItem(defaultValue = "/var/run/io.quarkus.app.socket")
@@ -193,13 +250,23 @@ public class HttpConfiguration {
 
     /**
      * If this is true then the request start time will be recorded to enable logging of total request time.
-     *
+     * <p>
      * This has a small performance penalty, so is disabled by default.
      */
     @ConfigItem
     public boolean recordRequestStartTime;
 
-    AccessLogConfig accessLog;
+    /**
+     * Access logs.
+     */
+    @ConfigDocSection(generated = true)
+    public AccessLogConfig accessLog;
+
+    /**
+     * Traffic shaping.
+     */
+    @ConfigDocSection
+    public TrafficShapingConfig trafficShaping;
 
     /**
      * Configuration that allows setting the same site attributes for cookies.
@@ -225,15 +292,27 @@ public class HttpConfiguration {
      * Additional HTTP Headers always sent in the response
      */
     @ConfigItem
+    @ConfigDocSection(generated = true)
     public Map<String, HeaderConfig> header;
 
     /**
      * Additional HTTP configuration per path
      */
     @ConfigItem
+    @ConfigDocSection(generated = true)
     public Map<String, FilterConfig> filter;
 
+    /**
+     * Proxy.
+     */
+    @ConfigDocSection
     public ProxyConfig proxy;
+
+    /**
+     * WebSocket Server configuration.
+     */
+    @ConfigDocSection
+    public WebsocketServerConfig websocketServer;
 
     public int determinePort(LaunchMode launchMode) {
         return launchMode == LaunchMode.TEST ? testPort : port;
@@ -252,5 +331,6 @@ public class HttpConfiguration {
     public enum PayloadHint {
         JSON,
         HTML,
+        TEXT
     }
 }

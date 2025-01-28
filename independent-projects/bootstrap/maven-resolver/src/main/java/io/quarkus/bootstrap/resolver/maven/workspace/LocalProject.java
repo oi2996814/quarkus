@@ -3,7 +3,6 @@ package io.quarkus.bootstrap.resolver.maven.workspace;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -13,6 +12,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.maven.model.Build;
+import org.apache.maven.model.BuildBase;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
@@ -56,6 +56,7 @@ public class LocalProject {
     private static final String PROJECT_BASEDIR = "${project.basedir}";
     private static final String PROJECT_BUILD_DIR = "${project.build.directory}";
     static final String PROJECT_OUTPUT_DIR = "${project.build.outputDirectory}";
+    static final String PROJECT_GENERATED_SOURCES_DIR = "${project.build.directory}/generated-sources/annotations";
 
     public static final String POM_XML = "pom.xml";
 
@@ -109,16 +110,15 @@ public class LocalProject {
         if (currentProjectPom == null) {
             return null;
         }
-        final Path rootProjectBaseDir = ctx.getRootProjectBaseDir();
         final WorkspaceLoader wsLoader = new WorkspaceLoader(ctx, currentProjectPom, modelProvider);
-
+        final Path rootProjectBaseDir = ctx.getRootProjectBaseDir();
         if (rootProjectBaseDir != null && !rootProjectBaseDir.equals(currentProjectPom.getParent())) {
             wsLoader.setWorkspaceRootPom(rootProjectBaseDir.resolve(POM_XML));
         }
         return wsLoader.load();
     }
 
-    static final Model readModel(Path pom) throws BootstrapMavenException {
+    static Model readModel(Path pom) throws BootstrapMavenException {
         try {
             final Model model = ModelUtils.readModel(pom);
             model.setPomFile(pom.toFile());
@@ -162,11 +162,11 @@ public class LocalProject {
         this.modelBuildingResult = modelBuildingResult;
         this.workspace = workspace;
         if (workspace != null) {
-            workspace.addProject(this, rawModel.getPomFile().lastModified());
+            workspace.addProject(this);
         }
     }
 
-    LocalProject(Model rawModel, LocalWorkspace workspace) throws BootstrapMavenException {
+    LocalProject(Model rawModel, LocalWorkspace workspace) {
         this.modelBuildingResult = null;
         this.rawModel = rawModel;
         this.dir = rawModel.getProjectDirectory().toPath();
@@ -178,13 +178,17 @@ public class LocalProject {
         version = rawVersionIsUnresolved ? ModelUtils.resolveVersion(rawVersion, rawModel) : rawVersion;
 
         if (workspace != null) {
-            workspace.addProject(this, rawModel.getPomFile().lastModified());
+            workspace.addProject(this);
             if (rawVersionIsUnresolved && version != null) {
                 workspace.setResolvedVersion(version);
             }
         } else if (version == null && rawVersionIsUnresolved) {
             throw UnresolvedVersionException.forGa(key.getGroupId(), key.getArtifactId(), rawVersion);
         }
+    }
+
+    protected long getPomLastModified() {
+        return rawModel.getPomFile().lastModified();
     }
 
     public LocalProject getLocalParent() {
@@ -228,34 +232,38 @@ public class LocalProject {
 
     public Path getOutputDir() {
         return modelBuildingResult == null
-                ? resolveRelativeToBaseDir(configuredBuildDir(this, build -> build.getDirectory()), "target")
-                : Paths.get(modelBuildingResult.getEffectiveModel().getBuild().getDirectory());
+                ? resolveRelativeToBaseDir(configuredBuildDir(this, BuildBase::getDirectory), "target")
+                : Path.of(modelBuildingResult.getEffectiveModel().getBuild().getDirectory());
     }
 
     public Path getCodeGenOutputDir() {
         return getOutputDir().resolve("generated-sources");
     }
 
+    public Path getGeneratedSourcesDir() {
+        return getOutputDir().resolve("generated-sources/annotations");
+    }
+
     public Path getClassesDir() {
         return modelBuildingResult == null
-                ? resolveRelativeToBuildDir(configuredBuildDir(this, build -> build.getOutputDirectory()), "classes")
-                : Paths.get(modelBuildingResult.getEffectiveModel().getBuild().getOutputDirectory());
+                ? resolveRelativeToBuildDir(configuredBuildDir(this, Build::getOutputDirectory), "classes")
+                : Path.of(modelBuildingResult.getEffectiveModel().getBuild().getOutputDirectory());
     }
 
     public Path getTestClassesDir() {
         return modelBuildingResult == null
-                ? resolveRelativeToBuildDir(configuredBuildDir(this, build -> build.getTestOutputDirectory()), "test-classes")
-                : Paths.get(modelBuildingResult.getEffectiveModel().getBuild().getTestOutputDirectory());
+                ? resolveRelativeToBuildDir(configuredBuildDir(this, Build::getTestOutputDirectory), "test-classes")
+                : Path.of(modelBuildingResult.getEffectiveModel().getBuild().getTestOutputDirectory());
     }
 
     public Path getSourcesSourcesDir() {
         return modelBuildingResult == null
-                ? resolveRelativeToBaseDir(configuredBuildDir(this, build -> build.getSourceDirectory()), "src/main/java")
-                : Paths.get(modelBuildingResult.getEffectiveModel().getBuild().getSourceDirectory());
+                ? resolveRelativeToBaseDir(configuredBuildDir(this, Build::getSourceDirectory), "src/main/java")
+                : Path.of(modelBuildingResult.getEffectiveModel().getBuild().getSourceDirectory());
     }
 
     public Path getTestSourcesSourcesDir() {
-        return resolveRelativeToBaseDir(configuredBuildDir(this, build -> build.getTestSourceDirectory()), "src/test/java");
+        return resolveRelativeToBaseDir(configuredBuildDir(this, Build::getTestSourceDirectory), "src/test/java");
     }
 
     public Path getSourcesDir() {
@@ -362,75 +370,24 @@ public class LocalProject {
                 .setBuildDir(getOutputDir());
 
         final Model model = modelBuildingResult == null ? getRawModel() : modelBuildingResult.getEffectiveModel();
-        if (!ArtifactCoords.TYPE_POM.equals(model.getPackaging())) {
-            final Build build = model.getBuild();
-            boolean addDefaultSourceSet = true;
-            if (build != null && !build.getPlugins().isEmpty()) {
-                for (Plugin plugin : build.getPlugins()) {
-                    if (plugin.getArtifactId().equals("maven-jar-plugin")) {
-                        if (plugin.getExecutions().isEmpty()) {
-                            final DefaultArtifactSources src = processJarPluginExecutionConfig(plugin.getConfiguration(),
-                                    false);
-                            if (src != null) {
-                                addDefaultSourceSet = false;
-                                moduleBuilder.addArtifactSources(src);
-                            }
-                        } else {
-                            for (PluginExecution e : plugin.getExecutions()) {
-                                DefaultArtifactSources src = null;
-                                if (e.getGoals().contains(ArtifactCoords.TYPE_JAR)) {
-                                    src = processJarPluginExecutionConfig(e.getConfiguration(), false);
-                                    addDefaultSourceSet &= !e.getId().equals("default-jar");
-                                } else if (e.getGoals().contains("test-jar")) {
-                                    src = processJarPluginExecutionConfig(e.getConfiguration(), true);
-                                }
-                                if (src != null) {
-                                    moduleBuilder.addArtifactSources(src);
-                                }
-                            }
-                        }
-                    } else if (plugin.getArtifactId().equals("maven-surefire-plugin") && plugin.getConfiguration() != null) {
-                        Object config = plugin.getConfiguration();
-                        if (config == null || !(config instanceof Xpp3Dom)) {
-                            continue;
-                        }
-                        Xpp3Dom dom = (Xpp3Dom) config;
-                        final Xpp3Dom depExcludes = dom.getChild("classpathDependencyExcludes");
-                        if (depExcludes != null) {
-                            final Xpp3Dom[] excludes = depExcludes.getChildren("classpathDependencyExclude");
-                            if (excludes != null) {
-                                final List<String> list = new ArrayList<>(excludes.length);
-                                for (Xpp3Dom exclude : excludes) {
-                                    list.add(exclude.getValue());
-                                }
-                                moduleBuilder.setTestClasspathDependencyExclusions(list);
-                            }
-                        }
-                        final Xpp3Dom additionalElements = dom.getChild("additionalClasspathElements");
-                        if (additionalElements != null) {
-                            final Xpp3Dom[] elements = additionalElements.getChildren("additionalClasspathElement");
-                            if (elements != null) {
-                                final List<String> list = new ArrayList<>(elements.length);
-                                for (Xpp3Dom element : elements) {
-                                    for (String s : element.getValue().split(",")) {
-                                        list.add(stripProjectBasedirPrefix(s, PROJECT_BASEDIR));
-                                    }
-                                }
-                                moduleBuilder.setAdditionalTestClasspathElements(list);
-                            }
-                        }
-                    }
+        if (!ArtifactCoords.TYPE_POM.equals(getPackaging())) {
+            final List<Plugin> plugins = model.getBuild() == null ? List.of() : model.getBuild().getPlugins();
+            boolean addDefaultSourceSet = addSourceSetsFromPlugins(plugins, moduleBuilder);
+            if (addDefaultSourceSet) {
+                var pluginManagement = model.getBuild() == null ? null : model.getBuild().getPluginManagement();
+                if (pluginManagement != null) {
+                    addDefaultSourceSet = addSourceSetsFromPlugins(pluginManagement.getPlugins(), moduleBuilder);
+                }
+                if (addDefaultSourceSet) {
+                    moduleBuilder.addArtifactSources(new DefaultArtifactSources(ArtifactSources.MAIN,
+                            List.of(new DefaultSourceDir(getSourcesSourcesDir(), getClassesDir(), getGeneratedSourcesDir())),
+                            collectMainResources(null)));
                 }
             }
-
-            if (addDefaultSourceSet) {
-                moduleBuilder.addArtifactSources(new DefaultArtifactSources(ArtifactSources.MAIN,
-                        List.of(new DefaultSourceDir(getSourcesSourcesDir(), getClassesDir())),
-                        collectMainResources(null)));
-            }
             if (!moduleBuilder.hasTestSources()) {
+                // FIXME: do tests have generated sources?
                 moduleBuilder.addArtifactSources(new DefaultArtifactSources(ArtifactSources.TEST,
-                        List.of(new DefaultSourceDir(getTestSourcesSourcesDir(), getTestClassesDir())),
+                        List.of(new DefaultSourceDir(getTestSourcesSourcesDir(), getTestClassesDir(), null)),
                         collectTestResources(null)));
             }
         }
@@ -447,6 +404,70 @@ public class LocalProject {
         moduleBuilder.setDependencies(toArtifactDependencies(model.getDependencies(), ctx));
 
         return this.module = moduleBuilder.build();
+    }
+
+    private boolean addSourceSetsFromPlugins(List<Plugin> plugins, WorkspaceModule.Mutable moduleBuilder) {
+        boolean addDefaultSourceSet = true;
+        int processedPlugins = 0;
+        for (int i = 0; i < plugins.size() && processedPlugins < 2; ++i) {
+            var plugin = plugins.get(i);
+            if (plugin.getArtifactId().equals("maven-jar-plugin")) {
+                ++processedPlugins;
+                if (plugin.getExecutions().isEmpty()) {
+                    final DefaultArtifactSources src = processJarPluginExecutionConfig(plugin.getConfiguration(),
+                            false);
+                    if (src != null) {
+                        addDefaultSourceSet = false;
+                        moduleBuilder.addArtifactSources(src);
+                    }
+                } else {
+                    for (PluginExecution e : plugin.getExecutions()) {
+                        DefaultArtifactSources src = null;
+                        if (e.getGoals().contains(ArtifactCoords.TYPE_JAR)) {
+                            src = processJarPluginExecutionConfig(e.getConfiguration(), false);
+                            addDefaultSourceSet &= !(src != null && e.getId().equals("default-jar"));
+                        } else if (e.getGoals().contains("test-jar")) {
+                            src = processJarPluginExecutionConfig(e.getConfiguration(), true);
+                        }
+                        if (src != null) {
+                            moduleBuilder.addArtifactSources(src);
+                        }
+                    }
+                }
+            } else if (plugin.getArtifactId().equals("maven-surefire-plugin") && plugin.getConfiguration() != null) {
+                ++processedPlugins;
+                Object config = plugin.getConfiguration();
+                if (!(config instanceof Xpp3Dom)) {
+                    continue;
+                }
+                Xpp3Dom dom = (Xpp3Dom) config;
+                final Xpp3Dom depExcludes = dom.getChild("classpathDependencyExcludes");
+                if (depExcludes != null) {
+                    final Xpp3Dom[] excludes = depExcludes.getChildren("classpathDependencyExclude");
+                    if (excludes != null) {
+                        final List<String> list = new ArrayList<>(excludes.length);
+                        for (Xpp3Dom exclude : excludes) {
+                            list.add(exclude.getValue());
+                        }
+                        moduleBuilder.setTestClasspathDependencyExclusions(list);
+                    }
+                }
+                final Xpp3Dom additionalElements = dom.getChild("additionalClasspathElements");
+                if (additionalElements != null) {
+                    final Xpp3Dom[] elements = additionalElements.getChildren("additionalClasspathElement");
+                    if (elements != null) {
+                        final List<String> list = new ArrayList<>(elements.length);
+                        for (Xpp3Dom element : elements) {
+                            for (String s : element.getValue().split(",")) {
+                                list.add(stripProjectBasedirPrefix(s, PROJECT_BASEDIR));
+                            }
+                        }
+                        moduleBuilder.setAdditionalTestClasspathElements(list);
+                    }
+                }
+            }
+        }
+        return addDefaultSourceSet;
     }
 
     private List<io.quarkus.maven.dependency.Dependency> toArtifactDependencies(List<Dependency> rawModelDeps,
@@ -492,7 +513,7 @@ public class LocalProject {
     }
 
     private DefaultArtifactSources processJarPluginExecutionConfig(Object config, boolean test) {
-        if (config == null || !(config instanceof Xpp3Dom)) {
+        if (!(config instanceof Xpp3Dom)) {
             return null;
         }
         Xpp3Dom dom = (Xpp3Dom) config;
@@ -503,6 +524,8 @@ public class LocalProject {
         final Collection<SourceDir> sources = List.of(
                 new DefaultSourceDir(new DirectoryPathTree(test ? getTestSourcesSourcesDir() : getSourcesSourcesDir()),
                         new DirectoryPathTree(test ? getTestClassesDir() : getClassesDir(), filter),
+                        // FIXME: wrong for tests
+                        new DirectoryPathTree(getGeneratedSourcesDir(), filter),
                         Map.of()));
         final Collection<SourceDir> resources = test ? collectTestResources(filter) : collectMainResources(filter);
         return new DefaultArtifactSources(classifier, sources, resources);
@@ -529,10 +552,13 @@ public class LocalProject {
         final List<Resource> resources = rawModel.getBuild() == null ? List.of()
                 : rawModel.getBuild().getResources();
         final Path classesDir = getClassesDir();
+        final Path generatedSourcesDir = getGeneratedSourcesDir();
         if (resources.isEmpty()) {
             return List.of(new DefaultSourceDir(
                     new DirectoryPathTree(resolveRelativeToBaseDir(null, SRC_MAIN_RESOURCES)),
-                    new DirectoryPathTree(classesDir, filter), Map.of()));
+                    new DirectoryPathTree(classesDir, filter),
+                    new DirectoryPathTree(generatedSourcesDir, filter),
+                    Map.of()));
         }
         final List<SourceDir> sourceDirs = new ArrayList<>(resources.size());
         for (Resource r : resources) {
@@ -541,6 +567,10 @@ public class LocalProject {
                             new DirectoryPathTree(resolveRelativeToBaseDir(r.getDirectory(), SRC_MAIN_RESOURCES)),
                             new DirectoryPathTree((r.getTargetPath() == null ? classesDir
                                     : classesDir.resolve(stripProjectBasedirPrefix(r.getTargetPath(), PROJECT_OUTPUT_DIR))),
+                                    filter),
+                            new DirectoryPathTree((r.getTargetPath() == null ? generatedSourcesDir
+                                    : generatedSourcesDir.resolve(
+                                            stripProjectBasedirPrefix(r.getTargetPath(), PROJECT_GENERATED_SOURCES_DIR))),
                                     filter),
                             Map.of()));
         }
@@ -551,10 +581,14 @@ public class LocalProject {
         final List<Resource> resources = rawModel.getBuild() == null ? List.of()
                 : rawModel.getBuild().getTestResources();
         final Path testClassesDir = getTestClassesDir();
+        final Path generatedSourcesDir = getGeneratedSourcesDir();
         if (resources.isEmpty()) {
             return List.of(new DefaultSourceDir(
                     new DirectoryPathTree(resolveRelativeToBaseDir(null, SRC_TEST_RESOURCES)),
-                    new DirectoryPathTree(testClassesDir, filter), Map.of()));
+                    new DirectoryPathTree(testClassesDir, filter),
+                    // FIXME: do tests have generated sources?
+                    null,
+                    Map.of()));
         }
         final List<SourceDir> sourceDirs = new ArrayList<>(resources.size());
         for (Resource r : resources) {
@@ -564,6 +598,8 @@ public class LocalProject {
                             new DirectoryPathTree((r.getTargetPath() == null ? testClassesDir
                                     : testClassesDir.resolve(stripProjectBasedirPrefix(r.getTargetPath(), PROJECT_OUTPUT_DIR))),
                                     filter),
+                            // FIXME: do tests have generated sources?
+                            null,
                             Map.of()));
         }
         return sourceDirs;

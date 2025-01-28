@@ -3,6 +3,7 @@ pluginManagement {
         mavenLocal {
             content {
                 includeGroupByRegex 'io.quarkus.*'
+                includeGroup 'org.hibernate.orm'
             }
         }
         mavenCentral()
@@ -17,5 +18,5 @@ pluginManagement {
 rootProject.name = 'quarkus-basic-multi-module-build'
 
 include ':common'
-include ':application'
-
+include ':application-files'
+include ':application-dep'

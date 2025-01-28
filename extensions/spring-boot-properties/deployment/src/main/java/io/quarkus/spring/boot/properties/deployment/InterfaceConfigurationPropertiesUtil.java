@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import javax.enterprise.inject.Produces;
-import javax.enterprise.inject.spi.DeploymentException;
+import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.DeploymentException;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -259,8 +259,8 @@ final class InterfaceConfigurationPropertiesUtil {
                                     method.declaringClass().name(), methodCreator, config);
                             methodCreator.returnValue(value);
                             if (defaultValueStr == null || ConfigProperty.UNCONFIGURED_VALUE.equals(defaultValueStr)) {
-                                configProperties
-                                        .produce(new ConfigPropertyBuildItem(fullConfigName, returnType, defaultValueStr));
+                                configProperties.produce(
+                                        ConfigPropertyBuildItem.runtimeInit(fullConfigName, returnType, defaultValueStr));
                             }
                         }
                     }

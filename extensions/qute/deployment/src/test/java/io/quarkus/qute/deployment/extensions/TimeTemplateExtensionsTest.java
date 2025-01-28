@@ -11,7 +11,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
@@ -59,7 +59,8 @@ public class TimeTemplateExtensionsTest {
             engine.parse("{time:format(input.birthday, 'uuuu')}").data("input", Map.of("name", "Quarkus Qute")).render();
             fail();
         } catch (TemplateException expected) {
-            assertTrue(expected.getMessage().startsWith("Rendering error: Property \"birthday\" not found on the base object"),
+            assertTrue(
+                    expected.getMessage().startsWith("Rendering error: Key \"birthday\" not found in the map with keys [name]"),
                     expected.getMessage());
         }
     }

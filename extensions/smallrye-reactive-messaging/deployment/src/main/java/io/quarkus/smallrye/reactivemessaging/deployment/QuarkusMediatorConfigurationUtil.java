@@ -8,7 +8,10 @@ import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessaging
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.INCOMINGS;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.KOTLIN_UNIT;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.MERGE;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.NON_BLOCKING;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.OUTGOING;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.OUTGOINGS;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.RUN_ON_VIRTUAL_THREAD;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.SMALLRYE_BLOCKING;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.TRANSACTIONAL;
 import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.VOID_CLASS;
@@ -30,10 +33,16 @@ import org.jboss.jandex.Type;
 
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.deployment.recording.RecorderContext;
+import io.quarkus.runtime.configuration.ConfigurationException;
 import io.quarkus.smallrye.reactivemessaging.runtime.QuarkusMediatorConfiguration;
+import io.quarkus.smallrye.reactivemessaging.runtime.QuarkusParameterDescriptor;
+import io.quarkus.smallrye.reactivemessaging.runtime.QuarkusWorkerPoolRegistry;
+import io.quarkus.smallrye.reactivemessaging.runtime.ReactiveMessagingConfiguration;
+import io.quarkus.smallrye.reactivemessaging.runtime.TypeInfo;
 import io.smallrye.reactive.messaging.Shape;
 import io.smallrye.reactive.messaging.annotations.Blocking;
 import io.smallrye.reactive.messaging.annotations.Merge;
+import io.smallrye.reactive.messaging.keyed.KeyValueExtractor;
 import io.smallrye.reactive.messaging.providers.MediatorConfigurationSupport;
 
 public final class QuarkusMediatorConfigurationUtil {
@@ -43,7 +52,7 @@ public final class QuarkusMediatorConfigurationUtil {
 
     public static QuarkusMediatorConfiguration create(MethodInfo methodInfo, boolean isSuspendMethod, BeanInfo bean,
             RecorderContext recorderContext,
-            ClassLoader cl, boolean strict) {
+            ClassLoader cl, boolean strict, ReactiveMessagingConfiguration.ExecutionMode executionMode) {
 
         Class[] parameterTypeClasses;
         Class<?> returnTypeClass;
@@ -67,6 +76,28 @@ public final class QuarkusMediatorConfigurationUtil {
         }
 
         QuarkusMediatorConfiguration configuration = new QuarkusMediatorConfiguration();
+
+        List<TypeInfo> gen = new ArrayList<>();
+        for (int i = 0; i < methodInfo.parameterTypes().size(); i++) {
+            TypeInfo ti = new TypeInfo();
+            Type type = methodInfo.parameterTypes().get(i);
+            ti.setName(recorderContext.classProxy(type.name().toString()));
+            List<Class<?>> inner = new ArrayList<>();
+            if (type.kind() == Type.Kind.PARAMETERIZED_TYPE) {
+                inner = type.asParameterizedType().arguments().stream()
+                        .map(t -> recorderContext.classProxy(t.name().toString()))
+                        .collect(Collectors.toList());
+            }
+            ti.setGenerics(inner);
+            gen.add(ti);
+        }
+
+        QuarkusParameterDescriptor descriptor = new QuarkusParameterDescriptor(gen);
+        configuration.setParameterDescriptor(descriptor);
+
+        // Extract @Keyed, key type and value type
+        handleKeyedMulti(methodInfo, recorderContext, configuration);
+
         MediatorConfigurationSupport mediatorConfigurationSupport = new MediatorConfigurationSupport(
                 fullMethodName(methodInfo), returnTypeClass, parameterTypeClasses,
                 genericReturnTypeAssignable,
@@ -82,21 +113,18 @@ public final class QuarkusMediatorConfigurationUtil {
 
         String returnTypeName = returnTypeClass.getName();
         configuration.setReturnType(recorderContext.classProxy(returnTypeName));
-        Class<?>[] parameterTypes = new Class[methodInfo.parametersCount()];
-        for (int i = 0; i < methodInfo.parametersCount(); i++) {
-            parameterTypes[i] = recorderContext.classProxy(methodInfo.parameterType(i).name().toString());
-        }
-        configuration.setParameterTypes(parameterTypes);
 
         // We need to extract the value of @Incoming and @Incomings (which contains an array of @Incoming)
         List<String> incomingValues = new ArrayList<>(getValues(methodInfo, INCOMING));
         incomingValues.addAll(getIncomingValues(methodInfo));
         configuration.setIncomings(incomingValues);
 
-        String outgoingValue = getValue(methodInfo, OUTGOING);
-        configuration.setOutgoing(outgoingValue);
+        // We need to extract the value of @Outgoing and @Outgoings (which contains an array of @Outgoing)
+        List<String> outgoingValues = new ArrayList<>(getValues(methodInfo, OUTGOING));
+        outgoingValues.addAll(getOutgoingValues(methodInfo));
+        configuration.setOutgoings(outgoingValues);
 
-        Shape shape = mediatorConfigurationSupport.determineShape(incomingValues, outgoingValue);
+        Shape shape = mediatorConfigurationSupport.determineShape(incomingValues, outgoingValues);
         configuration.setShape(shape);
         Acknowledgment.Strategy acknowledgment = mediatorConfigurationSupport
                 .processSuppliedAcknowledgement(incomingValues,
@@ -114,11 +142,8 @@ public final class QuarkusMediatorConfigurationUtil {
         configuration.setProduction(validationOutput.getProduction());
         configuration.setConsumption(validationOutput.getConsumption());
         configuration.setIngestedPayloadType(validationOutput.getIngestedPayloadType());
-        if (validationOutput.getUseBuilderTypes()) {
-            configuration.setUseBuilderTypes(validationOutput.getUseBuilderTypes());
-        } else {
-            configuration.setUseBuilderTypes(false);
-        }
+        configuration.setUseBuilderTypes(validationOutput.getUseBuilderTypes());
+        configuration.setUseReactiveStreams(validationOutput.getUseReactiveStreams());
 
         if (acknowledgment == null) {
             acknowledgment = mediatorConfigurationSupport.processDefaultAcknowledgement(shape,
@@ -141,7 +166,7 @@ public final class QuarkusMediatorConfigurationUtil {
             }
         }));
 
-        configuration.setBroadcastValue(mediatorConfigurationSupport.processBroadcast(outgoingValue,
+        configuration.setBroadcastValue(mediatorConfigurationSupport.processBroadcast(outgoingValues,
                 new Supplier<Integer>() {
                     @Override
                     public Integer get() {
@@ -156,27 +181,91 @@ public final class QuarkusMediatorConfigurationUtil {
                         return null;
                     }
                 }));
+        configuration.setHasTargetedOutput(mediatorConfigurationSupport.processTargetedOutput());
+        if (!hasBlockingAnnotation(methodInfo)
+                && !hasNonBlockingAnnotation(methodInfo)
+                && hasBlockingPayloadSignature(methodInfo)) {
+            switch (executionMode) {
+                case WORKER:
+                    configuration.setBlocking(true);
+                    configuration.setBlockingExecutionOrdered(true);
+                    break;
+                case VIRTUAL_THREAD:
+                    configuration.setBlocking(true);
+                    configuration.setWorkerPoolName(QuarkusWorkerPoolRegistry.DEFAULT_VIRTUAL_THREAD_WORKER);
+                    break;
+                default:
+                    break;
+            }
+        }
 
         AnnotationInstance blockingAnnotation = methodInfo.annotation(BLOCKING);
         AnnotationInstance smallryeBlockingAnnotation = methodInfo.annotation(SMALLRYE_BLOCKING);
         AnnotationInstance transactionalAnnotation = methodInfo.annotation(TRANSACTIONAL);
-        if (blockingAnnotation != null || smallryeBlockingAnnotation != null || transactionalAnnotation != null) {
+        AnnotationInstance runOnVirtualThreadAnnotation = methodInfo.annotation(RUN_ON_VIRTUAL_THREAD);
+        // IF @RunOnVirtualThread is used on the declaring class, it forces all @Blocking method to be run on virtual threads.
+        AnnotationInstance runOnVirtualThreadClassAnnotation = methodInfo.declaringClass()
+                .declaredAnnotation(RUN_ON_VIRTUAL_THREAD);
+        if (blockingAnnotation != null || smallryeBlockingAnnotation != null || transactionalAnnotation != null
+                || runOnVirtualThreadAnnotation != null) {
             mediatorConfigurationSupport.validateBlocking(validationOutput);
             configuration.setBlocking(true);
             if (blockingAnnotation != null) {
                 AnnotationValue ordered = blockingAnnotation.value("ordered");
-                configuration.setBlockingExecutionOrdered(ordered == null || ordered.asBoolean());
+                if (runOnVirtualThreadAnnotation != null || runOnVirtualThreadClassAnnotation != null) {
+                    if (ordered != null && ordered.asBoolean()) {
+                        throw new ConfigurationException(
+                                "The method `" + methodInfo.name()
+                                        + "` is using `@RunOnVirtualThread` but explicitly set as `@Blocking(ordered = true)`");
+                    }
+                    configuration.setBlockingExecutionOrdered(false);
+                    configuration.setWorkerPoolName(QuarkusWorkerPoolRegistry.DEFAULT_VIRTUAL_THREAD_WORKER);
+                } else {
+                    configuration.setBlockingExecutionOrdered(ordered == null || ordered.asBoolean());
+                }
                 String poolName;
                 if (blockingAnnotation.value() != null &&
                         !(poolName = blockingAnnotation.value().asString()).equals(Blocking.DEFAULT_WORKER_POOL)) {
                     configuration.setWorkerPoolName(poolName);
                 }
+            } else if (runOnVirtualThreadAnnotation != null || runOnVirtualThreadClassAnnotation != null) {
+                configuration.setBlockingExecutionOrdered(false);
+                configuration.setWorkerPoolName(QuarkusWorkerPoolRegistry.DEFAULT_VIRTUAL_THREAD_WORKER);
             } else {
                 configuration.setBlockingExecutionOrdered(true);
             }
         }
 
         return configuration;
+    }
+
+    private static void handleKeyedMulti(MethodInfo methodInfo,
+            RecorderContext recorderContext, QuarkusMediatorConfiguration configuration) {
+        if (methodInfo.parametersCount() == 1) { // @Keyed can only be used with a single parameter, a keyed multi
+            var info = methodInfo.parameters().get(0);
+            var annotation = info.annotation(ReactiveMessagingDotNames.KEYED);
+            if (annotation != null) {
+                // Make sure we have a keyed multi and an incoming.
+                if (methodInfo.annotation(INCOMING) == null && methodInfo.annotation(INCOMINGS) == null) {
+                    throw new ConfigurationException(
+                            "The method `" + methodInfo.name() + "` is using `@Keyed` but is not annotated with `@Incoming`");
+                }
+                if (info.type().kind() != Type.Kind.PARAMETERIZED_TYPE
+                        || !info.type().asParameterizedType().name().equals(ReactiveMessagingDotNames.KEYED_MULTI)) {
+                    throw new ConfigurationException("The method `" + methodInfo.name()
+                            + "` is using `@Keyed` but the annotated parameter is not a `KeyedMulti`");
+                }
+                var extractor = (Class<? extends KeyValueExtractor>) recorderContext
+                        .classProxy(annotation.value().asClass().name().toString());
+                configuration.setKeyed(extractor);
+            }
+            if (info.type().kind() == Type.Kind.PARAMETERIZED_TYPE
+                    && info.type().asParameterizedType().name().equals(ReactiveMessagingDotNames.KEYED_MULTI)) {
+                var args = info.type().asParameterizedType().arguments();
+                configuration.setKeyType(recorderContext.classProxy(args.get(0).name().toString()));
+                configuration.setValueType(recorderContext.classProxy(args.get(1).name().toString()));
+            }
+        }
     }
 
     // TODO: avoid hard coding CompletionStage handling
@@ -259,6 +348,13 @@ public final class QuarkusMediatorConfigurationUtil {
         return methodInfo.annotations().stream().filter(ai -> ai.name().equals(INCOMINGS))
                 .flatMap(incomings -> Arrays.stream(incomings.value().asNestedArray()))
                 .map(incoming -> incoming.value().asString())
+                .collect(Collectors.toList());
+    }
+
+    private static List<String> getOutgoingValues(MethodInfo methodInfo) {
+        return methodInfo.annotations().stream().filter(ai -> ai.name().equals(OUTGOINGS))
+                .flatMap(outgoings -> Arrays.stream(outgoings.value().asNestedArray()))
+                .map(outgoing -> outgoing.value().asString())
                 .collect(Collectors.toList());
     }
 
@@ -362,6 +458,10 @@ public final class QuarkusMediatorConfigurationUtil {
             super(getGenericParameterType(method, paramIndex), classLoader);
         }
 
+        public MethodParamGenericTypeAssignable(Type type, ClassLoader classLoader) {
+            super(type, classLoader);
+        }
+
         private static Type getGenericParameterType(MethodInfo method, int paramIndex) {
             List<Type> parameters = method.parameterTypes();
             if (parameters.size() < paramIndex + 1) {
@@ -370,5 +470,22 @@ public final class QuarkusMediatorConfigurationUtil {
             }
             return parameters.get(paramIndex);
         }
+    }
+
+    private static boolean hasNonBlockingAnnotation(MethodInfo method) {
+        return method.hasAnnotation(NON_BLOCKING);
+    }
+
+    public static boolean hasBlockingAnnotation(MethodInfo method) {
+        return method.hasAnnotation(BLOCKING)
+                || method.hasAnnotation(SMALLRYE_BLOCKING)
+                || method.hasAnnotation(RUN_ON_VIRTUAL_THREAD)
+                || method.hasAnnotation(TRANSACTIONAL);
+    }
+
+    private static boolean hasBlockingPayloadSignature(MethodInfo methodInfo) {
+        return !ReactiveMessagingDotNames.UNI.equals(methodInfo.returnType().name())
+                && !ReactiveMessagingDotNames.MULTI.equals(methodInfo.returnType().name())
+                && !ReactiveMessagingDotNames.COMPLETION_STAGE.equals(methodInfo.returnType().name());
     }
 }

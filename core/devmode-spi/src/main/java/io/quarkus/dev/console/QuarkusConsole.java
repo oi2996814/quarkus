@@ -6,6 +6,7 @@ import java.io.InterruptedIOException;
 import java.io.PrintStream;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.function.BiPredicate;
@@ -103,7 +104,17 @@ public abstract class QuarkusConsole {
         redirectsInstalled = false;
     }
 
+    private static void checkAndSetJdkConsole() {
+        // the JLine console in JDK 23+ causes significant startup slowdown,
+        // so we avoid it unless the user opted into it
+        String res = System.getProperty("jdk.console");
+        if (res == null) {
+            System.setProperty("jdk.console", "java.base");
+        }
+    }
+
     public static boolean hasColorSupport() {
+        checkAndSetJdkConsole();
         if (Boolean.getBoolean(FORCE_COLOR_SUPPORT)) {
             return true; //assume the IDE run window has color support
         }
@@ -119,7 +130,7 @@ public abstract class QuarkusConsole {
         } else {
             // on sane operating systems having a console is a good indicator
             // you are attached to a TTY with colors.
-            return System.console() != null;
+            return TerminalUtils.isTerminal(System.console());
         }
     }
 
@@ -150,6 +161,20 @@ public abstract class QuarkusConsole {
 
     public void exitCliMode() {
         //noop for the non-aesh console
+    }
+
+    /**
+     * Exposes single character aliases so they can be displayed in the help screen
+     */
+    public Map<Character, String> singleLetterAliases() {
+        return Map.of();
+    }
+
+    /**
+     * runs a single letter alias
+     */
+    public void runAlias(char alias) {
+
     }
 
     protected String stripAnsiCodes(String s) {

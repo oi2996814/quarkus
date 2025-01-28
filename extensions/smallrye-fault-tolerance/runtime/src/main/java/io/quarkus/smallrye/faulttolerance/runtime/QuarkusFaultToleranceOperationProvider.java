@@ -6,9 +6,9 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-import javax.annotation.Priority;
-import javax.enterprise.inject.Alternative;
-import javax.inject.Singleton;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
@@ -49,7 +49,7 @@ public class QuarkusFaultToleranceOperationProvider implements FaultToleranceOpe
         return FaultToleranceOperation.create(FaultToleranceMethods.create(key.beanClass, key.method));
     }
 
-    Map<CacheKey, FaultToleranceOperation> getOperationCache() {
+    public Map<CacheKey, FaultToleranceOperation> getOperationCache() {
         return operationCache;
     }
 

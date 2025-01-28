@@ -2,14 +2,18 @@ package io.quarkus.elytron.security.ldap.rest;
 
 import java.security.Principal;
 
-import javax.annotation.security.DenyAll;
-import javax.annotation.security.PermitAll;
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.SecurityContext;
+import jakarta.annotation.security.DenyAll;
+import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.SecurityContext;
+
+import org.wildfly.security.authz.Attributes;
+
+import io.quarkus.security.identity.SecurityIdentity;
 
 @Path("subject")
 public class SubjectExposingResource {
@@ -17,13 +21,17 @@ public class SubjectExposingResource {
     @Inject
     Principal principal;
 
+    @Inject
+    SecurityIdentity identity;
+
     @GET
     @RolesAllowed("standardRole")
     @Path("secured")
-    public String getSubjectSecured(@Context SecurityContext sec) {
-        Principal user = sec.getUserPrincipal();
+    public String getSubjectSecured() {
+        Principal user = identity.getPrincipal();
         String name = user != null ? user.getName() : "anonymous";
-        return name;
+        Attributes.Entry attributeEntry = (Attributes.Entry) identity.getAttributes().get("displayName");
+        return attributeEntry == null ? name : name + ":" + attributeEntry.get(0);
     }
 
     @GET
@@ -34,7 +42,8 @@ public class SubjectExposingResource {
             throw new IllegalStateException("No injected principal");
         }
         String name = principal.getName();
-        return name;
+        Attributes.Entry attributeEntry = (Attributes.Entry) identity.getAttributes().get("displayName");
+        return attributeEntry == null ? name : name + ":" + attributeEntry.get(0);
     }
 
     @GET

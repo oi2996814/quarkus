@@ -7,12 +7,11 @@ https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 include::_attributes.adoc[]
 :categories: miscellaneous
 :summary: You need clustering support for your scheduled tasks? This guide explains how to use the Quartz extension for that.
-:extension-status: preview
+:topics: scheduling,cronjob,quartz
+:extensions: io.quarkus:quarkus-quartz
 
 Modern applications often need to run specific tasks periodically.
 In this guide, you learn how to schedule periodic clustered tasks using the http://www.quartz-scheduler.org/[Quartz] extension.
-
-include::{includes}/extension-status.adoc[]
 
 TIP: If you only need to run in-memory scheduler use the xref:scheduler.adoc[Scheduler] extension.
 
@@ -32,14 +31,14 @@ However, you can go right to the completed example.
 
 Clone the Git repository: `git clone {quickstarts-clone-url}`, or download an {quickstarts-archive-url}[archive].
 
-The solution is located in the `quartz-quickstart` {quickstarts-tree-url}/quartz-quickstart[directory].
+The solution is located in the `quartz-quickstart` link:{quickstarts-tree-url}/quartz-quickstart[directory].
 
 == Creating the Maven project
 
 First, we need a new project. Create a new project with the following command:
 
 :create-app-artifact-id: quartz-quickstart
-:create-app-extensions: resteasy-reactive-jackson,quartz,hibernate-orm-panache,flyway,jdbc-postgresql
+:create-app-extensions: rest-jackson,quartz,hibernate-orm-panache,flyway,jdbc-postgresql
 include::{includes}/devtools/create-app.adoc[]
 
 It generates:
@@ -87,9 +86,9 @@ In the `org.acme.quartz` package, create the `Task` class, with the following co
 ----
 package org.acme.quartz;
 
-import javax.persistence.Entity;
+import jakarta.persistence.Entity;
 import java.time.Instant;
-import javax.persistence.Table;
+import jakarta.persistence.Table;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 
@@ -117,9 +116,9 @@ In the `org.acme.quartz` package, create the `TaskBean` class, with the followin
 ----
 package org.acme.quartz;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
-import javax.transaction.Transactional;
+import jakarta.transaction.Transactional;
 
 import io.quarkus.scheduler.Scheduled;
 
@@ -141,7 +140,8 @@ public class TaskBean {
 
 === Scheduling Jobs Programmatically
 
-It is also possible to leverage the Quartz API directly.
+An injected `io.quarkus.scheduler.Scheduler` can be used to <<scheduler-reference.adoc#programmatic_scheduling,schedule a job programmatically>>.
+However, it is also possible to leverage the Quartz API directly.
 You can inject the underlying `org.quartz.Scheduler` in any bean:
 
 [source,java]
@@ -153,7 +153,7 @@ public class TaskBean {
 
     @Inject
     org.quartz.Scheduler quartz; <1>
-    
+
     void onStart(@Observes StartupEvent event) throws SchedulerException {
        JobDetail job = JobBuilder.newJob(MyJob.class)
                          .withIdentity("myJob", "myGroup")
@@ -168,23 +168,23 @@ public class TaskBean {
                             .build();
        quartz.scheduleJob(job, trigger); <2>
     }
-    
+
     @Transactional
     void performTask() {
         Task task = new Task();
         task.persist();
     }
-    
+
     // A new instance of MyJob is created by Quartz for every job execution
     public static class MyJob implements Job {
 
        @Inject
        TaskBean taskBean;
-    
+
        public void execute(JobExecutionContext context) throws JobExecutionException {
           taskBean.performTask(); <3>
        }
-    
+
     }
 }
 ----
@@ -192,7 +192,7 @@ public class TaskBean {
 <2> Schedule a new job using the Quartz API.
 <3> Invoke the `TaskBean#performTask()` method from the job. Jobs are also xref:cdi.adoc[container-managed] beans if they belong to a link:cdi-reference[bean archive].
 
-NOTE: By default, the scheduler is not started unless a `@Scheduled` business method is found. You may need to force the start of the scheduler for "pure" programmatic scheduling. See also <<quartz-configuration-reference>>.  
+NOTE: By default, the scheduler is not started unless a `@Scheduled` business method is found. You may need to force the start of the scheduler for "pure" programmatic scheduling. See also <<quartz-configuration-reference>>.
 
 == Updating the application configuration file
 
@@ -240,10 +240,10 @@ package org.acme.quartz;
 
 import java.util.List;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 @Path("/tasks")
 public class TaskResource {
@@ -445,7 +445,7 @@ You can register `plugins`, `job-listeners` and `trigger-listeners` through Quar
 
 The example below registers the plugin `org.quartz.plugins.history.LoggingJobHistoryPlugin` named as `jobHistory` with the property `jobSuccessMessage` defined as `Job [{1}.{0}] execution complete and reports: {8}`
 
-[source,conf]
+[source,properties]
 ----
 quarkus.quartz.plugins.jobHistory.class=org.quartz.plugins.history.LoggingJobHistoryPlugin
 quarkus.quartz.plugins.jobHistory.properties.jobSuccessMessage=Job [{1}.{0}] execution complete and reports: {8}
@@ -462,6 +462,18 @@ public class MyListenerManager {
     }
 }
 ----
+
+[[virtual-threads]]
+== Run scheduled methods on virtual threads
+
+Methods annotated with `@Scheduled` can also be annotated with `@RunOnVirtualThread`.
+In this case, the method is invoked on a virtual thread.
+
+The method must return `void` and your Java runtime must provide support for virtual threads.
+Read xref:./virtual-threads.adoc[the virtual thread guide] for more details.
+
+WARNING: This feature cannot be combined with the `run-blocking-method-on-quartz-thread` option.
+If `run-blocking-method-on-quartz-thread` is set, the scheduled method runs on a (platform) thread managed by Quartz.
 
 [[quartz-configuration-reference]]
 == Quartz Configuration Reference

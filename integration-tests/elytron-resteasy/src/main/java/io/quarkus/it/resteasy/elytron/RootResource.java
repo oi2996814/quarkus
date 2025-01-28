@@ -4,19 +4,22 @@ import java.security.Principal;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.SecurityContext;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.SecurityContext;
 
 import io.quarkus.security.Authenticated;
+import io.quarkus.security.PermissionChecker;
+import io.quarkus.security.PermissionsAllowed;
 import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.vertx.http.runtime.security.HttpSecurityUtils;
 
 @Path("/")
 public class RootResource {
@@ -70,7 +73,23 @@ public class RootResource {
         }
 
         return attributes.entrySet().stream()
+                .filter(e -> !HttpSecurityUtils.ROUTING_CONTEXT_ATTRIBUTE.equals(e.getKey()))
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining(","));
+    }
+
+    @GET
+    @Path("/test-security-permission-checker")
+    @PermissionsAllowed("see-principal")
+    public String getPrincipal(@Context SecurityContext sec) {
+        return sec.getUserPrincipal().getName() + ":" + identity.getPrincipal().getName() + ":" + principal.getName();
+    }
+
+    @PermissionChecker("see-principal")
+    boolean canSeePrincipal(SecurityContext sec) {
+        if (sec.getUserPrincipal() == null || sec.getUserPrincipal().getName() == null) {
+            return false;
+        }
+        return "meat loaf".equals(sec.getUserPrincipal().getName());
     }
 }

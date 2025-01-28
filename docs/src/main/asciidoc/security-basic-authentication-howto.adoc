@@ -1,50 +1,82 @@
+////
+This document is maintained in the main Quarkus repository
+and pull requests should be submitted there:
+https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
+////
 [id="security-basic-authentication-howto"]
 = Enable Basic authentication
 include::_attributes.adoc[]
+:diataxis-type: howto
 :categories: security
+:topics: security,authentication,basic-authentication,http
+:extensions: io.quarkus:quarkus-vertx-http,io.quarkus:quarkus-elytron-security-jdbc,io.quarkus:quarkus-elytron-security-ldap,io.quarkus:quarkus-security-jpa-reactive
 
-Enable Basic authentication for your Quarkus project and allow users to authenticate with a username and password.
- 
+Enable xref:security-basic-authentication.adoc[Basic authentication] for your Quarkus project and allow users to authenticate with a username and password.
+
 == Prerequisites
- 
-* You have installed at least one extension that provides an `IdentityProvider` based on username and password, such as xref:security-jdbc.adoc[Elytron JDBC].
+
+* You have installed at least one extension that provides an `IdentityProvider` based on username and password.
+For example:
+
+ifndef::no-quarkus-security-jpa-reactive[]
+** xref:security-jpa.adoc[Quarkus Security Jakarta Persistence extensions (`quarkus-security-jpa` or `quarkus-security-jpa-reactive`)]
+endif::no-quarkus-security-jpa-reactive[]
+ifdef::no-quarkus-security-jpa-reactive[]
+** xref:security-jpa.adoc[Quarkus Security Jakarta Persistence extension (`quarkus-security-jpa`)]
+endif::no-quarkus-security-jpa-reactive[]
+** xref:security-properties.adoc[Elytron security properties file extension `(quarkus-elytron-security-properties-file)`]
+** xref:security-jdbc.adoc[Elytron security JDBC extension `(quarkus-elytron-security-jdbc)`]
+
+The following procedure outlines how you can enable Basic authentication for your application by using the `elytron-security-properties-file` extension.
 
 == Procedure
 
-. Enable Basic authentication by setting the value of `quarkus.http.auth.basic` property to `true`.
+. In the `application.properties` file, set the `quarkus.http.auth.basic` property to `true`.
 +
 [source,properties]
 ----
 quarkus.http.auth.basic=true
 ----
- 
-An easy way to configure the required user credentials for Basic authentication to work is to configure the user name, secret, and roles directly in the `application.properties` file.
 
-.Example of Basic authentication properties
+. **Optional:** In a non-production environment only and purely for testing Quarkus Security in your applications:
+.. To enable authentication for the embedded realm, set the `quarkus.security.users.embedded.enabled` property to `true`.
++
+[source,properties]
+----
+quarkus.security.users.embedded.enabled=true
+----
 
+.. You can also configure the required user credentials, user name, secret, and roles.
+For example:
++
 [source,properties]
 ----
 quarkus.http.auth.basic=true
+quarkus.security.users.embedded.enabled=true
 quarkus.security.users.embedded.plain-text=true
-quarkus.security.users.embedded.users.alice=alice
-quarkus.security.users.embedded.users.bob=bob
-quarkus.security.users.embedded.roles.alice=admin
-quarkus.security.users.embedded.roles.bob=user
+quarkus.security.users.embedded.users.alice=alice <1>
+quarkus.security.users.embedded.users.bob=bob <2>
+quarkus.security.users.embedded.roles.alice=admin <1>
+quarkus.security.users.embedded.roles.bob=user <2>
 ----
-
-In this configuration the credentials for users `alice` and `bob` are configured: `alice` has a password `alice` and an `admin` role, `bob` has a password `bob` and a `user` role.
-
-For more information, see xref:security-testing.adoc#configuring-user-information[Configuring User Information] in the "Security Testing" guide.
-
+<1> The user, `alice`, has `alice` as their password and `admin` as their role.
+<2> The user, `bob`, has `bob` as their password and `user` as their role.
++
+For information about other methods that you can use to configure the required user credentials, see the xref:security-testing.adoc#configuring-user-information[Configuring User Information] section of the Quarkus "Security Testing" guide.
++
 [IMPORTANT]
 ====
-Configuring user names, secrets, and roles in the `application.properties` file is only suitable for testing scenarios. If you are securing an application for production, always use a database to store this information.
+Configuring user names, secrets, and roles in the `application.properties` file is appropriate only for testing scenarios.
+For securing a production application, it is crucial to use a database to store this information.
 ====
 
-To walk through how to configure Basic authentication together with JPA for storing user credentials in a database, see the xref:security-basic-authentication-tutorial.adoc[Secure a Quarkus application with Basic authentication] tutorial.
- 
-== Additional resources
+== Next steps
 
-* xref:security-overview-concept.adoc[Quarkus Security overview]
-* xref:security-overview-concept.adoc#identity-providers[Security Identity Providers]
+For a more detailed walk-through that shows you how to configure Basic authentication together with Jakarta Persistence for storing user credentials in a database, see the xref:security-getting-started-tutorial.adoc[Getting started with Security by using Basic authentication and Jakarta Persistence] guide.
+
+== References
+
+* xref:security-overview.adoc[Quarkus Security overview]
+* xref:security-identity-providers.adoc[Identity Providers]
 * xref:security-testing.adoc#configuring-user-information[Configuring User Information in application.properties]
+* xref:security-basic-authentication.adoc[Basic authentication]

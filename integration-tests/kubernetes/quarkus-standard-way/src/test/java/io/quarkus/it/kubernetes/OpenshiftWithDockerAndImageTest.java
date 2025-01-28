@@ -30,6 +30,7 @@ public class OpenshiftWithDockerAndImageTest {
             .setApplicationName(APP_NAME)
             .setApplicationVersion("0.1-SNAPSHOT")
             .withConfigurationResource(APP_NAME + ".properties")
+            .overrideConfigKey("quarkus.openshift.deployment-kind", "deployment-config")
             .setForcedDependencies(List.of(Dependency.of("io.quarkus", "quarkus-openshift", Version.getVersion())));
 
     @ProdBuildResults
@@ -49,7 +50,7 @@ public class OpenshiftWithDockerAndImageTest {
             });
             assertThat(h).isInstanceOfSatisfying(DeploymentConfig.class, d -> {
                 Container container = d.getSpec().getTemplate().getSpec().getContainers().get(0);
-                assertThat(container.getImage()).isEqualTo(APP_NAME + ":1.0");
+                assertThat(container.getImage()).isEqualTo("quay.io/user/app:1.0");
 
                 DeploymentTriggerImageChangeParams imageTriggerParams = d.getSpec().getTriggers().get(0).getImageChangeParams();
                 assertThat(imageTriggerParams.getFrom().getKind()).isEqualTo("ImageStreamTag");

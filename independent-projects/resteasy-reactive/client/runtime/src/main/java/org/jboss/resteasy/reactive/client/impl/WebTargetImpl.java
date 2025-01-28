@@ -7,12 +7,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.ws.rs.client.Invocation;
-import javax.ws.rs.client.WebTarget;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.UriBuilder;
-import javax.ws.rs.ext.ParamConverterProvider;
+import jakarta.ws.rs.client.Invocation;
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.UriBuilder;
+import jakarta.ws.rs.ext.ParamConverterProvider;
 
 import org.jboss.resteasy.reactive.client.spi.ClientRestHandler;
 import org.jboss.resteasy.reactive.common.core.Serialisers;
@@ -237,14 +237,14 @@ public class WebTargetImpl implements WebTarget {
         UriBuilder copy = uriBuilder.clone();
         if (copy instanceof UriBuilderImpl) {
             var impl = (UriBuilderImpl) copy;
-            if (values == null || (values.length == 1 && values[0] == null)) {
+            if (values == null || values.length == 0 || (values.length == 1 && values[0] == null)) {
                 impl.replaceQueryParam(name, (Object[]) null);
             } else {
                 String[] stringValues = toStringValues(values);
                 impl.clientQueryParam(name, (Object[]) stringValues);
             }
         } else {
-            if (values == null || (values.length == 1 && values[0] == null)) {
+            if (values == null || values.length == 0 || (values.length == 1 && values[0] == null)) {
                 copy.replaceQueryParam(name, (Object[]) null);
             } else {
                 String[] stringValues = toStringValues(values);
@@ -252,6 +252,16 @@ public class WebTargetImpl implements WebTarget {
             }
         }
         return newInstance(client, copy, configuration);
+    }
+
+    @SuppressWarnings("unused") // this is used in the REST Client to support @BaseUrl
+    public WebTargetImpl withNewUri(URI uri) {
+        return newInstance(client, UriBuilder.fromUri(uri), configuration);
+    }
+
+    @SuppressWarnings("unused") // this is used in the REST Client to support @BaseUrl and observability is enabled
+    public WebTargetImpl withNewUri(URI uri, ClientRestHandler preClientSendHandler) {
+        return newInstance(client, UriBuilder.fromUri(uri), configuration, preClientSendHandler);
     }
 
     @SuppressWarnings("unused")
@@ -292,6 +302,12 @@ public class WebTargetImpl implements WebTarget {
 
     protected WebTargetImpl newInstance(HttpClient client, UriBuilder uriBuilder,
             ConfigurationImpl configuration) {
+        return newInstance(client, uriBuilder, configuration, preClientSendHandler);
+    }
+
+    protected WebTargetImpl newInstance(HttpClient client, UriBuilder uriBuilder,
+            ConfigurationImpl configuration,
+            ClientRestHandler preClientSendHandler) {
         WebTargetImpl result = new WebTargetImpl(restClient, client, uriBuilder, configuration,
                 handlerChain.setPreClientSendHandler(preClientSendHandler),
                 requestContext);

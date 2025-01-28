@@ -6,28 +6,31 @@ import static org.assertj.core.api.Assertions.entry;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 
-import javax.enterprise.inject.Any;
-import javax.enterprise.inject.Default;
-import javax.inject.Inject;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Default;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.internal.MongoClientImpl;
 
 import io.quarkus.arc.Arc;
+import io.quarkus.arc.ClientProxy;
 import io.quarkus.arc.InjectableBean;
 import io.quarkus.arc.InstanceHandle;
-import io.quarkus.arc.runtime.ClientProxyUnwrapper;
 import io.quarkus.mongodb.health.MongoHealthCheck;
 import io.quarkus.mongodb.impl.ReactiveMongoClientImpl;
 import io.quarkus.mongodb.reactive.ReactiveMongoClient;
 import io.quarkus.test.QuarkusUnitTest;
 
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "Flapdoodle doesn't work very well on Windows with replicas")
 public class NamedReactiveMongoClientConfigTest extends MongoWithReplicasTestBase {
 
     @RegisterExtension
@@ -46,8 +49,6 @@ public class NamedReactiveMongoClientConfigTest extends MongoWithReplicasTestBas
     @Inject
     @Any
     MongoHealthCheck health;
-
-    private final ClientProxyUnwrapper unwrapper = new ClientProxyUnwrapper();
 
     @AfterEach
     void cleanup() {
@@ -80,7 +81,7 @@ public class NamedReactiveMongoClientConfigTest extends MongoWithReplicasTestBas
     }
 
     private void assertProperConnection(ReactiveMongoClient client, int expectedPort) {
-        assertThat(unwrapper.apply(client)).isInstanceOfSatisfying(ReactiveMongoClientImpl.class, rc -> {
+        assertThat(ClientProxy.unwrap(client)).isInstanceOfSatisfying(ReactiveMongoClientImpl.class, rc -> {
             Field mongoClientField;
             try {
                 mongoClientField = ReactiveMongoClientImpl.class.getDeclaredField("client");

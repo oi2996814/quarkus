@@ -21,16 +21,17 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Variant;
-import javax.ws.rs.ext.MessageBodyReader;
-import javax.ws.rs.ext.MessageBodyWriter;
-import javax.ws.rs.ext.WriterInterceptor;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
+import jakarta.ws.rs.core.Variant;
+import jakarta.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.ext.WriterInterceptor;
 
 import org.jboss.resteasy.reactive.FilePart;
 import org.jboss.resteasy.reactive.PathPart;
@@ -43,12 +44,12 @@ import org.jboss.resteasy.reactive.common.model.ResourceWriter;
 import org.jboss.resteasy.reactive.common.util.MediaTypeHelper;
 import org.jboss.resteasy.reactive.common.util.QuarkusMultivaluedHashMap;
 import org.jboss.resteasy.reactive.common.util.QuarkusMultivaluedMap;
-import org.jboss.resteasy.reactive.server.core.multipart.MultipartFormDataOutput;
 import org.jboss.resteasy.reactive.server.core.multipart.MultipartMessageBodyWriter;
 import org.jboss.resteasy.reactive.server.core.serialization.EntityWriter;
 import org.jboss.resteasy.reactive.server.core.serialization.FixedEntityWriterArray;
 import org.jboss.resteasy.reactive.server.jaxrs.WriterInterceptorContextImpl;
 import org.jboss.resteasy.reactive.server.mapping.RuntimeResource;
+import org.jboss.resteasy.reactive.server.multipart.MultipartFormDataOutput;
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerBooleanMessageBodyHandler;
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerByteArrayMessageBodyHandler;
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerCharArrayMessageBodyHandler;
@@ -63,6 +64,7 @@ import org.jboss.resteasy.reactive.server.providers.serialisers.ServerPathBodyHa
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerPathPartBodyHandler;
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerReaderBodyHandler;
 import org.jboss.resteasy.reactive.server.providers.serialisers.ServerStringMessageBodyHandler;
+import org.jboss.resteasy.reactive.server.providers.serialisers.StreamingOutputMessageBodyWriter;
 import org.jboss.resteasy.reactive.server.spi.ServerHttpRequest;
 import org.jboss.resteasy.reactive.server.spi.ServerHttpResponse;
 import org.jboss.resteasy.reactive.server.spi.ServerMessageBodyWriter;
@@ -78,22 +80,13 @@ public class ServerSerialisers extends Serialisers {
 
     private static final String CONTENT = "Content";
     private static final String CONTENT_LOWER = "content";
+    private static final String LOCATION = "Location";
     private static final String TYPE = "Type";
     private static final String TYPE_LOWER = "type";
     private static final String LENGTH = "Length";
     private static final String LENGTH_LOWER = "length";
     private static final String CONTENT_TYPE = CONTENT + "-" + TYPE; // use this instead of the Vert.x constant because the TCK expects upper case
-
-    static {
-        primitivesToWrappers.put(boolean.class, Boolean.class);
-        primitivesToWrappers.put(char.class, Character.class);
-        primitivesToWrappers.put(byte.class, Byte.class);
-        primitivesToWrappers.put(short.class, Short.class);
-        primitivesToWrappers.put(int.class, Integer.class);
-        primitivesToWrappers.put(long.class, Long.class);
-        primitivesToWrappers.put(float.class, Float.class);
-        primitivesToWrappers.put(double.class, Double.class);
-    }
+    private static final String TRANSFER_ENCODING = "Transfer-Encoding";
 
     public final static List<Serialisers.BuiltinReader> BUILTIN_READERS = List.of(
             new Serialisers.BuiltinReader(String.class, ServerStringMessageBodyHandler.class,
@@ -129,6 +122,8 @@ public class ServerSerialisers extends Serialisers {
             new Serialisers.BuiltinWriter(MultivaluedMap.class, ServerFormUrlEncodedProvider.class,
                     MediaType.APPLICATION_FORM_URLENCODED),
             new Serialisers.BuiltinWriter(InputStream.class, ServerInputStreamMessageBodyHandler.class,
+                    MediaType.WILDCARD),
+            new Serialisers.BuiltinWriter(StreamingOutput.class, StreamingOutputMessageBodyWriter.class,
                     MediaType.WILDCARD),
             new Serialisers.BuiltinWriter(Reader.class, ServerReaderBodyHandler.class,
                     MediaType.WILDCARD),
@@ -198,16 +193,19 @@ public class ServerSerialisers extends Serialisers {
         WriterInterceptor[] writerInterceptors = context.getWriterInterceptors();
         boolean outputStreamSet = context.getOutputStream() != null;
         context.serverResponse().setPreCommitListener(HEADER_FUNCTION);
+
+        RuntimeResource target = context.getTarget();
+        Type genericType;
+        if (context.hasGenericReturnType()) { // make sure that when a Response with a GenericEntity was returned, we use it
+            genericType = context.getGenericReturnType();
+        } else {
+            genericType = target == null ? null : target.getReturnType();
+        }
+
         try {
             if (writer instanceof ServerMessageBodyWriter && writerInterceptors == null && !outputStreamSet) {
                 ServerMessageBodyWriter<Object> quarkusRestWriter = (ServerMessageBodyWriter<Object>) writer;
-                RuntimeResource target = context.getTarget();
-                Type genericType;
-                if (context.hasGenericReturnType()) { // make sure that when a Response with a GenericEntity was returned, we use it
-                    genericType = context.getGenericReturnType();
-                } else {
-                    genericType = target == null ? null : target.getReturnType();
-                }
+
                 Class<?> entityClass = entity.getClass();
                 if (quarkusRestWriter.isWriteable(
                         entityClass,
@@ -230,7 +228,7 @@ public class ServerSerialisers extends Serialisers {
                         context.setResponseContentType(mediaType);
                     }
                     if (writerInterceptors == null) {
-                        writer.writeTo(entity, entity.getClass(), context.getGenericReturnType(),
+                        writer.writeTo(entity, entity.getClass(), genericType,
                                 context.getAllAnnotations(), context.getResponseMediaType(), response.getHeaders(),
                                 context.getOrCreateOutputStream());
                         context.getOrCreateOutputStream().close();
@@ -522,7 +520,7 @@ public class ServerSerialisers extends Serialisers {
                         vertxResponse.addResponseHeader(header, (CharSequence) HeaderUtil.headerToString(o));
                     }
                 }
-                if (header.equals("Transfer-Encoding")) { // using both headers together is not allowed
+                if (header.equalsIgnoreCase(TRANSFER_ENCODING)) { // using both headers together is not allowed
                     vertxResponse.removeResponseHeader("Content-Length");
                 }
             } else {
@@ -536,7 +534,8 @@ public class ServerSerialisers extends Serialisers {
     }
 
     private static boolean requireSingleHeader(String header) {
-        if (!(header.startsWith(CONTENT) || header.startsWith(CONTENT_LOWER))) {
+        if (!(header.startsWith(CONTENT) || header.startsWith(CONTENT_LOWER) || header.startsWith(LOCATION)
+                || header.equalsIgnoreCase(TRANSFER_ENCODING))) {
             return false;
         }
         if (header.length() < CONTENT.length() + 2) {

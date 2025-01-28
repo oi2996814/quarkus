@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MediaType;
+
+import org.jboss.resteasy.reactive.common.headers.MediaTypeHeaderDelegate;
 
 /**
  * A representation of a server side media type.
@@ -25,7 +27,7 @@ public class ServerMediaType {
     public static List<MediaType> mediaTypesFromArray(String[] mediaTypesStrs) {
         List<MediaType> mediaTypes = new ArrayList<>(mediaTypesStrs.length);
         for (String mediaTypesStr : mediaTypesStrs) {
-            mediaTypes.add(MediaType.valueOf(mediaTypesStr));
+            mediaTypes.add(MediaTypeHeaderDelegate.INSTANCE.fromString(mediaTypesStr));
         }
         return mediaTypes;
     }

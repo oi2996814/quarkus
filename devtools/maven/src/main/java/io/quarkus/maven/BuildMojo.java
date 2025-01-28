@@ -9,9 +9,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -21,10 +19,10 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectHelper;
 import org.eclipse.aether.repository.RemoteRepository;
 
+import io.quarkus.analytics.dto.segment.TrackEventType;
 import io.quarkus.bootstrap.app.AugmentAction;
 import io.quarkus.bootstrap.app.AugmentResult;
 import io.quarkus.bootstrap.app.CuratedApplication;
@@ -37,12 +35,11 @@ import io.quarkus.maven.dependency.ArtifactCoords;
 @Mojo(name = "build", defaultPhase = LifecyclePhase.PACKAGE, requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME, threadSafe = true)
 public class BuildMojo extends QuarkusBootstrapMojo {
 
-    static final String PACKAGE_TYPE_PROP = "quarkus.package.type";
-    static final String NATIVE_PROFILE_NAME = "native";
-    static final String NATIVE_PACKAGE_TYPE = "native";
-
     @Component
     MavenProjectHelper projectHelper;
+
+    @Component
+    BuildAnalyticsProvider analyticsProvider;
 
     /**
      * The project's remote repositories to use for the resolution of plugins and their dependencies.
@@ -62,9 +59,28 @@ public class BuildMojo extends QuarkusBootstrapMojo {
     @Parameter(defaultValue = "false", property = "quarkus.build.skip")
     boolean skip = false;
 
+    /**
+     * When the building an Uber JAR, the default JAR is renamed by adding {@code .original} suffix.
+     * Enabling this property will disable the renaming of the original JAR.
+     */
     @Deprecated
     @Parameter(property = "skipOriginalJarRename")
     boolean skipOriginalJarRename;
+
+    /**
+     * Whether to replace the original JAR with the Uber runner JAR as the main project artifact
+     */
+    @Parameter(property = "attachRunnerAsMainArtifact", required = false)
+    boolean attachRunnerAsMainArtifact;
+
+    /**
+     * Whether to attach SBOMs generated for Uber JARs as project artifacts
+     */
+    @Parameter(property = "attachSboms")
+    boolean attachSboms = true;
+
+    @Parameter(defaultValue = "${project.build.directory}", readonly = true)
+    File buildDirectory;
 
     /**
      * The list of system properties defined for the plugin.
@@ -105,18 +121,8 @@ public class BuildMojo extends QuarkusBootstrapMojo {
                 }
             }
 
-            // Essentially what this does is to enable the native package type even if a different package type is set
-            // in application properties. This is done to preserve what users expect to happen when
-            // they execute "mvn package -Dnative" even if quarkus.package.type has been set in application.properties
-            if (!System.getProperties().containsKey(PACKAGE_TYPE_PROP)
-                    && isNativeProfileEnabled(mavenProject())) {
-                Object packageTypeProp = mavenProject().getProperties().get(PACKAGE_TYPE_PROP);
-                String packageType = NATIVE_PACKAGE_TYPE;
-                if (packageTypeProp != null) {
-                    packageType = packageTypeProp.toString();
-                }
-                System.setProperty(PACKAGE_TYPE_PROP, packageType);
-                propertiesToClear.add(PACKAGE_TYPE_PROP);
+            if (setNativeEnabledIfNativeProfileEnabled()) {
+                propertiesToClear.add("quarkus.native.enabled");
             }
 
             if (!propertiesToClear.isEmpty() && mavenSession().getRequest().getDegreeOfConcurrency() > 1) {
@@ -131,7 +137,11 @@ public class BuildMojo extends QuarkusBootstrapMojo {
             try (CuratedApplication curatedApplication = bootstrapApplication()) {
                 AugmentAction action = curatedApplication.createAugmentor();
                 AugmentResult result = action.createProductionApplication();
-
+                analyticsProvider.sendAnalytics(
+                        TrackEventType.BUILD,
+                        curatedApplication.getApplicationModel(),
+                        result.getGraalVMInfo(),
+                        buildDirectory);
                 Artifact original = mavenProject().getArtifact();
                 if (result.getJar() != null) {
 
@@ -150,15 +160,22 @@ public class BuildMojo extends QuarkusBootstrapMojo {
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             }
-                            original.setFile(result.getJar().getOriginalArtifact().toFile());
+                            // unless we point to the renamed file the install plugin will fail
+                            original.setFile(renamedOriginal.toFile());
                         }
                     }
                     if (uberJarWithSuffix) {
-                        if (result.getJar().getClassifier().isEmpty()) {
+                        if (attachRunnerAsMainArtifact || result.getJar().getClassifier().isEmpty()) {
                             original.setFile(result.getJar().getPath().toFile());
                         } else {
                             projectHelper.attachArtifact(mavenProject(), result.getJar().getPath().toFile(),
                                     result.getJar().getClassifier());
+                        }
+                    }
+                    if (attachSboms && result.getJar().isUberJar() && !result.getJar().getSboms().isEmpty()) {
+                        for (var sbom : result.getJar().getSboms()) {
+                            projectHelper.attachArtifact(mavenProject(), sbom.getFormat(), sbom.getClassifier(),
+                                    sbom.getSbomFile().toFile());
                         }
                     }
                 }
@@ -169,17 +186,6 @@ public class BuildMojo extends QuarkusBootstrapMojo {
         } catch (Exception e) {
             throw new MojoExecutionException("Failed to build quarkus application", e);
         }
-    }
-
-    boolean isNativeProfileEnabled(MavenProject mavenProject) {
-        // gotcha: mavenProject.getActiveProfiles() does not always contain all active profiles (sic!),
-        //         but getInjectedProfileIds() does (which has to be "flattened" first)
-        Stream<String> activeProfileIds = mavenProject.getInjectedProfileIds().values().stream().flatMap(List<String>::stream);
-        if (activeProfileIds.anyMatch(NATIVE_PROFILE_NAME::equalsIgnoreCase)) {
-            return true;
-        }
-        // recurse into parent (if available)
-        return Optional.ofNullable(mavenProject.getParent()).map(this::isNativeProfileEnabled).orElse(false);
     }
 
     @Override

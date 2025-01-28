@@ -9,15 +9,14 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.UniAsserter;
 
 @QuarkusTest
+@TestReactiveTransaction
 public class TestReactiveTransactionTest {
 
-    @TestReactiveTransaction
     @Test
     public void testTestTransaction(UniAsserter asserter) {
         asserter.assertNotNull(() -> Panache.currentTransaction());
     }
 
-    @TestReactiveTransaction
     @BeforeEach
     public void beforeEach(UniAsserter asserter) {
         asserter.assertNotNull(() -> Panache.currentTransaction());

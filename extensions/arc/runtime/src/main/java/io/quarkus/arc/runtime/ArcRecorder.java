@@ -7,16 +7,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
 
+import io.quarkus.arc.ActiveResult;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
+import io.quarkus.arc.ArcInitConfig;
 import io.quarkus.arc.CurrentContextFactory;
 import io.quarkus.arc.InjectableBean;
 import io.quarkus.arc.InjectableBean.Kind;
+import io.quarkus.arc.SyntheticCreationalContext;
 import io.quarkus.arc.impl.ArcContainerImpl;
 import io.quarkus.arc.runtime.test.PreloadedTestApplicationClassPredicate;
 import io.quarkus.runtime.ApplicationLifecycleManager;
@@ -36,15 +40,21 @@ public class ArcRecorder {
     /**
      * Used to hold the Supplier instances used for synthetic bean declarations.
      */
-    public static volatile Map<String, Supplier<?>> supplierMap;
+    public static volatile Map<String, Function<SyntheticCreationalContext<?>, ?>> syntheticBeanProviders;
 
-    public ArcContainer initContainer(ShutdownContext shutdown, RuntimeValue<CurrentContextFactory> currentContextFactory)
-            throws Exception {
-        ArcContainer container = Arc.initialize(currentContextFactory != null ? currentContextFactory.getValue() : null);
+    public static volatile Map<String, Supplier<ActiveResult>> syntheticBeanCheckActive;
+
+    public ArcContainer initContainer(ShutdownContext shutdown, RuntimeValue<CurrentContextFactory> currentContextFactory,
+            boolean strictCompatibility) throws Exception {
+        ArcInitConfig.Builder builder = ArcInitConfig.builder();
+        builder.setCurrentContextFactory(currentContextFactory != null ? currentContextFactory.getValue() : null);
+        builder.setStrictCompatibility(strictCompatibility);
+        ArcContainer container = Arc.initialize(builder.build());
         shutdown.addShutdownTask(new Runnable() {
             @Override
             public void run() {
                 Arc.shutdown();
+                syntheticBeanProviders = null;
             }
         });
         return container;
@@ -54,12 +64,16 @@ public class ArcRecorder {
         Arc.setExecutor(executor);
     }
 
-    public void initStaticSupplierBeans(Map<String, Supplier<?>> beans) {
-        supplierMap = new ConcurrentHashMap<>(beans);
+    public void initStaticSupplierBeans(Map<String, Function<SyntheticCreationalContext<?>, ?>> creationFunctions,
+            Map<String, Supplier<ActiveResult>> checkActiveSuppliers) {
+        syntheticBeanProviders = new ConcurrentHashMap<>(creationFunctions);
+        syntheticBeanCheckActive = new ConcurrentHashMap<>(checkActiveSuppliers);
     }
 
-    public void initRuntimeSupplierBeans(Map<String, Supplier<?>> beans) {
-        supplierMap.putAll(beans);
+    public void initRuntimeSupplierBeans(Map<String, Function<SyntheticCreationalContext<?>, ?>> creationFunctions,
+            Map<String, Supplier<ActiveResult>> checkActiveSuppliers) {
+        syntheticBeanProviders.putAll(creationFunctions);
+        syntheticBeanCheckActive.putAll(checkActiveSuppliers);
     }
 
     public BeanContainer initBeanContainer(ArcContainer container, List<BeanContainerListener> listeners)
@@ -107,11 +121,29 @@ public class ArcRecorder {
         });
     }
 
-    public Supplier<Object> createSupplier(RuntimeValue<?> value) {
-        return new Supplier<Object>() {
+    public Function<SyntheticCreationalContext<?>, Object> createFunction(RuntimeValue<?> value) {
+        return new Function<SyntheticCreationalContext<?>, Object>() {
             @Override
-            public Object get() {
+            public Object apply(SyntheticCreationalContext<?> t) {
                 return value.getValue();
+            }
+        };
+    }
+
+    public Function<SyntheticCreationalContext<?>, Object> createFunction(Supplier<?> supplier) {
+        return new Function<SyntheticCreationalContext<?>, Object>() {
+            @Override
+            public Object apply(SyntheticCreationalContext<?> t) {
+                return supplier.get();
+            }
+        };
+    }
+
+    public Function<SyntheticCreationalContext<?>, Object> createFunction(Object returnedProxy) {
+        return new Function<SyntheticCreationalContext<?>, Object>() {
+            @Override
+            public Object apply(SyntheticCreationalContext<?> t) {
+                return returnedProxy;
             }
         };
     }

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeMap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -30,7 +31,8 @@ final class SmartConfigMergeCodestartFileStrategyHandler implements CodestartFil
     }
 
     @Override
-    public void process(Path targetDirectory, String relativePath, List<TargetFile> codestartFiles, Map<String, Object> data)
+    public void process(Path targetDirectory, String relativePath, List<TargetFile> codestartFiles,
+            Map<String, Object> data)
             throws IOException {
         checkNotEmptyCodestartFiles(codestartFiles);
 
@@ -63,7 +65,8 @@ final class SmartConfigMergeCodestartFileStrategyHandler implements CodestartFil
 
     private void writePropertiesConfig(Path targetPath, Map<String, Object> config) throws IOException {
         final StringBuilder builder = new StringBuilder();
-        final HashMap<String, String> flat = new HashMap<>();
+        // Enforce properties are in consistent order.
+        final TreeMap<String, String> flat = new TreeMap<>();
         flatten("", flat, config);
         for (Map.Entry<String, String> entry : flat.entrySet()) {
             final String key = entry.getKey().replaceAll("\\.~$", "");
@@ -79,12 +82,20 @@ final class SmartConfigMergeCodestartFileStrategyHandler implements CodestartFil
     static void flatten(String prefix, Map<String, String> target, Map<String, ?> map) {
         for (Map.Entry entry : map.entrySet()) {
             if (entry.getValue() instanceof Map) {
-                flatten(prefix + entry.getKey() + ".", target, (Map) entry.getValue());
+                flatten(prefix + quote(entry.getKey().toString()) + ".", target, (Map) entry.getValue());
             } else {
                 // TODO: handle different types of values
-                target.put(prefix + entry.getKey(), entry.getValue().toString());
+                target.put(prefix + quote(entry.getKey().toString()), entry.getValue().toString());
             }
         }
+    }
+
+    private static String quote(String key) {
+        if (!key.contains(".")) {
+            return key;
+        }
+
+        return "\"" + key.replaceAll("\"", "\\\"") + "\"";
     }
 
     private static String getConfigType(Map<String, Object> data) {

@@ -1,17 +1,20 @@
 package io.quarkus.hibernate.search.orm.elasticsearch.runtime;
 
 import java.util.Map;
-import java.util.TreeMap;
 
 import io.quarkus.hibernate.orm.runtime.PersistenceUnitUtil;
 import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigDocSection;
-import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
+import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithDefault;
+import io.smallrye.config.WithParentName;
+import io.smallrye.config.WithUnnamedKey;
 
-@ConfigRoot(name = "hibernate-search-orm", phase = ConfigPhase.BUILD_AND_RUN_TIME_FIXED)
-public class HibernateSearchElasticsearchBuildTimeConfig {
+@ConfigMapping(prefix = "quarkus.hibernate-search-orm")
+@ConfigRoot(phase = ConfigPhase.BUILD_AND_RUN_TIME_FIXED)
+public interface HibernateSearchElasticsearchBuildTimeConfig {
 
     /**
      * Whether Hibernate Search is enabled **during the build**.
@@ -22,30 +25,20 @@ public class HibernateSearchElasticsearchBuildTimeConfig {
      *
      * @asciidoclet
      */
-    @ConfigItem(defaultValue = "true")
-    public boolean enabled;
+    @WithDefault("true")
+    boolean enabled();
 
     /**
-     * Configuration for the default persistence unit.
+     * Configuration for persistence units.
      */
-    @ConfigItem(name = ConfigItem.PARENT)
-    public HibernateSearchElasticsearchBuildTimeConfigPersistenceUnit defaultPersistenceUnit;
+    @WithParentName
+    @WithUnnamedKey(PersistenceUnitUtil.DEFAULT_PERSISTENCE_UNIT_NAME)
+    @ConfigDocMapKey("persistence-unit-name")
+    Map<String, HibernateSearchElasticsearchBuildTimeConfigPersistenceUnit> persistenceUnits();
 
     /**
-     * Configuration for additional named persistence units.
+     * Management interface.
      */
     @ConfigDocSection
-    @ConfigDocMapKey("persistence-unit-name")
-    @ConfigItem(name = ConfigItem.PARENT)
-    Map<String, HibernateSearchElasticsearchBuildTimeConfigPersistenceUnit> persistenceUnits;
-
-    public Map<String, HibernateSearchElasticsearchBuildTimeConfigPersistenceUnit> getAllPersistenceUnitConfigsAsMap() {
-        Map<String, HibernateSearchElasticsearchBuildTimeConfigPersistenceUnit> map = new TreeMap<>();
-        if (defaultPersistenceUnit != null) {
-            map.put(PersistenceUnitUtil.DEFAULT_PERSISTENCE_UNIT_NAME, defaultPersistenceUnit);
-        }
-        map.putAll(persistenceUnits);
-        return map;
-    }
-
+    HibernateSearchElasticsearchBuildTimeConfigManagement management();
 }

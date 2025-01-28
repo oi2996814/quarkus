@@ -2,6 +2,10 @@ package io.quarkus.runtime;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.UndeclaredThrowableException;
 import java.util.Locale;
 import java.util.function.BiConsumer;
 
@@ -56,6 +60,7 @@ public class Quarkus {
      *        has finished
      * @param args The command line parameters
      */
+    @SuppressWarnings("unchecked")
     public static void run(Class<? extends QuarkusApplication> quarkusApplication, BiConsumer<Integer, Throwable> exitHandler,
             String... args) {
         try {
@@ -67,18 +72,17 @@ public class Quarkus {
             //we already have an application, run it directly
             Class<? extends Application> appClass = (Class<? extends Application>) Class.forName(Application.APP_CLASS_NAME,
                     false, Thread.currentThread().getContextClassLoader());
-            Application application = appClass.getDeclaredConstructor().newInstance();
+            MethodHandle constructor = MethodHandles.lookup().findConstructor(appClass, MethodType.methodType(void.class));
+            Application application = (Application) constructor.invoke();
             ApplicationLifecycleManager.run(application, quarkusApplication, exitHandler, args);
             return;
         } catch (ClassNotFoundException e) {
             //ignore, this happens when running in dev mode
-        } catch (Exception e) {
-            if (exitHandler != null) {
-                exitHandler.accept(1, e);
-            } else {
-                Logger.getLogger(Quarkus.class).error("Error running Quarkus", e);
-                ApplicationLifecycleManager.getDefaultExitCodeHandler().accept(1, e);
-            }
+        } catch (RuntimeException | Error e) {
+            handleReflectiveInvocationIssue(exitHandler, e);
+            return;
+        } catch (Throwable t) {
+            handleReflectiveInvocationIssue(exitHandler, new UndeclaredThrowableException(t));
             return;
         }
 
@@ -87,6 +91,15 @@ public class Quarkus {
         //calling this method
         launchFromIDE(quarkusApplication, args);
 
+    }
+
+    private static void handleReflectiveInvocationIssue(BiConsumer<Integer, Throwable> exitHandler, Throwable t) {
+        if (exitHandler != null) {
+            exitHandler.accept(1, t);
+        } else {
+            Logger.getLogger(Quarkus.class).error("Error running Quarkus", t);
+            ApplicationLifecycleManager.getDefaultExitCodeHandler().accept(1, t);
+        }
     }
 
     private static void launchFromIDE(Class<? extends QuarkusApplication> quarkusApplication, String... args) {
@@ -181,8 +194,7 @@ public class Quarkus {
      * Must not be called by the main thread, or a deadlock will result.
      */
     public static void blockingExit() {
-        if (Thread.currentThread().getThreadGroup().getName().equals("main") &&
-                Thread.currentThread().getName().toLowerCase(Locale.ROOT).contains("main")) {
+        if (isMainThread(Thread.currentThread())) {
             Logger.getLogger(Quarkus.class).error(
                     "'Quarkus#blockingExit' was called on the main thread. This will result in deadlocking the application!");
         }
@@ -192,6 +204,11 @@ public class Quarkus {
         if (app != null) {
             app.awaitShutdown();
         }
+    }
+
+    public static boolean isMainThread(Thread thread) {
+        return thread.getThreadGroup().getName().equals("main") &&
+                thread.getName().toLowerCase(Locale.ROOT).contains("main");
     }
 
     private static Application manualApp;

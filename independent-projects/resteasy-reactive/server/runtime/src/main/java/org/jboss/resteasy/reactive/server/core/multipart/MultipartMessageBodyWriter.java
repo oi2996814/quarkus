@@ -1,6 +1,6 @@
 package org.jboss.resteasy.reactive.server.core.multipart;
 
-import static javax.ws.rs.core.HttpHeaders.CONTENT_TYPE;
+import static jakarta.ws.rs.core.HttpHeaders.CONTENT_TYPE;
 
 import java.io.File;
 import java.io.IOException;
@@ -15,24 +15,28 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.ext.MessageBodyWriter;
 
 import org.jboss.resteasy.reactive.common.core.Serialisers;
 import org.jboss.resteasy.reactive.common.reflection.ReflectionBeanFactoryCreator;
+import org.jboss.resteasy.reactive.common.util.QuarkusMultivaluedHashMap;
 import org.jboss.resteasy.reactive.multipart.FileDownload;
 import org.jboss.resteasy.reactive.server.NoopCloseAndFlushOutputStream;
 import org.jboss.resteasy.reactive.server.core.CurrentRequestManager;
 import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
 import org.jboss.resteasy.reactive.server.core.ServerSerialisers;
+import org.jboss.resteasy.reactive.server.multipart.MultipartFormDataOutput;
+import org.jboss.resteasy.reactive.server.multipart.PartItem;
 import org.jboss.resteasy.reactive.server.spi.ServerMessageBodyWriter;
 import org.jboss.resteasy.reactive.server.spi.ServerRequestContext;
 import org.jboss.resteasy.reactive.spi.BeanFactory;
 
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class MultipartMessageBodyWriter extends ServerMessageBodyWriter.AllWriteableMessageBodyWriter {
 
     private static final String DOUBLE_DASH = "--";
@@ -81,21 +85,27 @@ public class MultipartMessageBodyWriter extends ServerMessageBodyWriter.AllWrite
             throws IOException {
         Charset charset = requestContext.getDeployment().getRuntimeConfiguration().body().defaultCharset();
         String boundaryLine = "--" + boundary;
-        Map<String, PartItem> parts = formDataOutput.getFormData();
-        for (Map.Entry<String, PartItem> entry : parts.entrySet()) {
+        Map<String, List<PartItem>> parts = formDataOutput.getAllFormData();
+        for (var entry : parts.entrySet()) {
             String partName = entry.getKey();
-            PartItem part = entry.getValue();
-            Object partValue = part.getEntity();
-            if (partValue != null) {
-                if (isListOf(part, File.class) || isListOf(part, FileDownload.class)) {
-                    List<Object> list = (List<Object>) partValue;
-                    for (int i = 0; i < list.size(); i++) {
-                        writePart(partName, list.get(i), part, boundaryLine, charset, outputStream, requestContext);
+            List<PartItem> partItems = entry.getValue();
+            if (partItems.isEmpty()) {
+                continue;
+            }
+            for (PartItem part : partItems) {
+                Object partValue = part.getEntity();
+                if (partValue != null) {
+                    if (isListOf(part, File.class) || isListOf(part, FileDownload.class)) {
+                        List<Object> list = (List<Object>) partValue;
+                        for (int i = 0; i < list.size(); i++) {
+                            writePart(partName, list.get(i), part, boundaryLine, charset, outputStream, requestContext);
+                        }
+                    } else {
+                        writePart(partName, partValue, part, boundaryLine, charset, outputStream, requestContext);
                     }
-                } else {
-                    writePart(partName, partValue, part, boundaryLine, charset, outputStream, requestContext);
                 }
             }
+
         }
 
         // write boundary: -- ... --
@@ -151,7 +161,7 @@ public class MultipartMessageBodyWriter extends ServerMessageBodyWriter.AllWrite
         } else if (value instanceof FileDownload) {
             return "; filename=\"" + ((FileDownload) value).fileName() + "\"";
         } else if (partFileName != null) {
-            return partFileName;
+            return "; filename=\"" + partFileName + "\"";
         }
 
         return "";
@@ -189,7 +199,7 @@ public class MultipartMessageBodyWriter extends ServerMessageBodyWriter.AllWrite
                 try (NoopCloseAndFlushOutputStream writerOutput = new NoopCloseAndFlushOutputStream(os)) {
                     // FIXME: spec doesn't really say what headers we should use here
                     writer.writeTo(entity, entityClass, entityType, Serialisers.NO_ANNOTATION, mediaType,
-                            Serialisers.EMPTY_MULTI_MAP, writerOutput);
+                            new QuarkusMultivaluedHashMap<>(), writerOutput);
                     wrote = true;
                 }
 

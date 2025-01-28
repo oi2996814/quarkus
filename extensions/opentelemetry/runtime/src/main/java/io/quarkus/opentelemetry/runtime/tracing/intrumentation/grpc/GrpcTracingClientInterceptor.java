@@ -1,8 +1,8 @@
 package io.quarkus.opentelemetry.runtime.tracing.intrumentation.grpc;
 
-import static io.quarkus.opentelemetry.runtime.config.OpenTelemetryConfig.INSTRUMENTATION_NAME;
+import static io.quarkus.opentelemetry.runtime.config.build.OTelBuildConfig.INSTRUMENTATION_NAME;
 
-import javax.inject.Singleton;
+import jakarta.inject.Singleton;
 
 import io.grpc.CallOptions;
 import io.grpc.Channel;
@@ -17,10 +17,11 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapSetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.rpc.RpcClientAttributesExtractor;
 import io.quarkus.grpc.GlobalInterceptor;
+import io.quarkus.opentelemetry.runtime.config.runtime.OTelRuntimeConfig;
 
 @Singleton
 @GlobalInterceptor
@@ -28,13 +29,15 @@ public class GrpcTracingClientInterceptor implements ClientInterceptor {
     private final OpenTelemetry openTelemetry;
     private final Instrumenter<GrpcRequest, Status> instrumenter;
 
-    public GrpcTracingClientInterceptor(final OpenTelemetry openTelemetry) {
+    public GrpcTracingClientInterceptor(final OpenTelemetry openTelemetry, final OTelRuntimeConfig runtimeConfig) {
         this.openTelemetry = openTelemetry;
 
         InstrumenterBuilder<GrpcRequest, Status> builder = Instrumenter.builder(
                 openTelemetry,
                 INSTRUMENTATION_NAME,
                 new GrpcSpanNameExtractor());
+
+        builder.setEnabled(!runtimeConfig.sdkDisabled());
 
         builder.addAttributesExtractor(RpcClientAttributesExtractor.create(GrpcAttributesGetter.INSTANCE))
                 .addAttributesExtractor(new GrpcStatusCodeExtractor())
@@ -47,7 +50,7 @@ public class GrpcTracingClientInterceptor implements ClientInterceptor {
     public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
             final MethodDescriptor<ReqT, RespT> method, final CallOptions callOptions, final Channel next) {
 
-        GrpcRequest grpcRequest = GrpcRequest.client(method);
+        GrpcRequest grpcRequest = GrpcRequest.client(method, callOptions.getAuthority());
         Context parentContext = Context.current();
         boolean shouldStart = instrumenter.shouldStart(parentContext, grpcRequest);
         if (shouldStart) {

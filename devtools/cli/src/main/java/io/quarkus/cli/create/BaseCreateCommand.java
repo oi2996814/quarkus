@@ -1,6 +1,6 @@
 package io.quarkus.cli.create;
 
-import static io.quarkus.devtools.commands.CreateProjectHelper.computeJavaVersion;
+import static io.quarkus.devtools.project.JavaVersion.computeJavaVersion;
 
 import java.nio.file.Path;
 import java.util.Collection;
@@ -13,14 +13,14 @@ import java.util.concurrent.Callable;
 import io.quarkus.cli.common.HelpOption;
 import io.quarkus.cli.common.OutputOptionMixin;
 import io.quarkus.cli.common.RunModeOption;
-import io.quarkus.cli.common.TargetQuarkusVersionGroup;
+import io.quarkus.cli.common.TargetQuarkusPlatformGroup;
 import io.quarkus.cli.registry.ToggleRegistryClientMixin;
 import io.quarkus.devtools.commands.CreateProject.CreateProjectKey;
 import io.quarkus.devtools.commands.CreateProjectHelper;
-import io.quarkus.devtools.commands.SourceType;
 import io.quarkus.devtools.commands.data.QuarkusCommandInvocation;
 import io.quarkus.devtools.project.BuildTool;
 import io.quarkus.devtools.project.QuarkusProject;
+import io.quarkus.devtools.project.SourceType;
 import io.quarkus.registry.RegistryResolutionException;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
@@ -183,6 +183,7 @@ public class BaseCreateCommand implements Callable<Integer> {
 
         setValue(CreateProjectKey.NO_CODE, !codeGeneration.includeCode);
         setValue(CreateProjectKey.NO_BUILDTOOL_WRAPPER, !codeGeneration.includeWrapper);
+        setValue(CreateProjectKey.NO_DOCKERFILES, !codeGeneration.includeDockerfiles);
     }
 
     protected void setValue(String name, Object value) {
@@ -201,7 +202,7 @@ public class BaseCreateCommand implements Callable<Integer> {
      * @return Quarkus command invocation that can be printed (dry-run) or run to create the project
      * @throws RegistryResolutionException
      */
-    public QuarkusCommandInvocation build(BuildTool buildTool, TargetQuarkusVersionGroup targetVersion,
+    public QuarkusCommandInvocation build(BuildTool buildTool, TargetQuarkusPlatformGroup targetVersion,
             Map<String, String> properties, Collection<String> extensions)
             throws RegistryResolutionException {
 
@@ -230,7 +231,7 @@ public class BaseCreateCommand implements Callable<Integer> {
      * @return Resolved QuarkusProject for the given build tool and target quarkus version
      * @throws RegistryResolutionException
      */
-    public QuarkusProject getExtensionVersions(BuildTool buildTool, TargetQuarkusVersionGroup targetVersion)
+    public QuarkusProject getExtensionVersions(BuildTool buildTool, TargetQuarkusPlatformGroup targetVersion)
             throws RegistryResolutionException {
         return registryClient.createQuarkusProject(outputDirectory(), targetVersion, buildTool, output);
     }

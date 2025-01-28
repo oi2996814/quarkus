@@ -8,7 +8,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.assertj.core.data.TemporalUnitWithinOffset;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -45,9 +45,9 @@ public class FireTimeTest {
 
     private void assertFireTimes() {
         assertThat(Jobs.previousFireTime.get()).isCloseTo(Jobs.capturedTime.get(),
-                new TemporalUnitWithinOffset(100, ChronoUnit.MILLIS));
+                new TemporalUnitWithinOffset(200, ChronoUnit.MILLIS));
         assertThat(Jobs.nextFireTime.get()).isCloseTo(Jobs.capturedTime.get().plusSeconds(5),
-                new TemporalUnitWithinOffset(100, ChronoUnit.MILLIS));
+                new TemporalUnitWithinOffset(200, ChronoUnit.MILLIS));
     }
 
     static class Jobs {

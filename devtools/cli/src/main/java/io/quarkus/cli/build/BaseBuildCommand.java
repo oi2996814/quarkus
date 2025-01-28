@@ -2,8 +2,6 @@ package io.quarkus.cli.build;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 
 import io.quarkus.cli.common.HelpOption;
 import io.quarkus.cli.common.OutputOptionMixin;
@@ -30,7 +28,6 @@ public class BaseBuildCommand {
     protected PropertiesOptions propertiesOptions = new PropertiesOptions();
 
     Path projectRoot;
-    protected List<String> forcedExtensions = new ArrayList<>();
 
     public Path projectRoot() {
         if (projectRoot == null) {
@@ -47,12 +44,8 @@ public class BaseBuildCommand {
         return BuildSystemRunner.getRunner(output, propertiesOptions, registryClient, projectRoot(), buildTool);
     }
 
-    public List<String> getForcedExtensions() {
-        return forcedExtensions;
-    }
-
     /**
-     * Commands using `@ParentCommand` need to set the ouput.
+     * Commands using `@ParentCommand` need to set the output.
      * This is needed for testing purposes.
      * More specifically --cli-test-dir relies on this.
      *

@@ -10,7 +10,7 @@ on:
         description: 'JDK version'
         required: true
         # make sure to keep the matrix entries (see below) in sync!
-        default: '20'
+        default: '21'
       jdkDistribution:
         description: 'JDK distribution'
         required: true
@@ -43,8 +43,7 @@ jobs:
             github.event_name == 'workflow_dispatch'
             && format( '{{ "include": [{{ "version": "{0}", "dist": "{1}" }}] }}',
                 github.event.inputs.jdkVersion, github.event.inputs.jdkDistribution )
-            || '{ "include": [{ "version": 19, "dist": "jdk.java.net" },
-                { "version": 20, "dist": "jdk.java.net" }] }'
+            || '{ "include": [{ "version": 20, "dist": "jdk.java.net" }, { "version": 21, "dist": "jdk.java.net" }] }'
           )
         }}
     if: "github.repository == 'quarkusio/quarkus' || github.event_name == 'workflow_dispatch'"
@@ -60,7 +59,7 @@ jobs:
           release: ${{ matrix.version }}
       - name: Set up JDK from other provider than jdk.java.net
         if: matrix.dist != 'jdk.java.net'
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: ${{ matrix.dist }}
           java-version: ${{ matrix.version }}
@@ -73,23 +72,19 @@ jobs:
         run: |
           ss -ln
           sudo service mysql stop || true
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.ref || 'main' }}
-      - uses: n1hility/cancel-previous-runs@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: jdk-early-access-build.yml
       - name: Reclaim Disk Space
         run: .github/ci-prerequisites.sh
       - name: Get Date
         id: get-date
         run: |
-          echo "::set-output name=date::$(/bin/date -u "+%Y-%m")"
+          echo "date=$(/bin/date -u "+%Y-%m")" >> $GITHUB_OUTPUT
         shell: bash
       - name: Cache Maven Repository
         id: cache-maven
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           # refresh cache every month to avoid unlimited growth
@@ -122,7 +117,7 @@ jobs:
         shell: bash
         run: find . -name '*-reports' -type d -o -name '*.log' | tar -czf test-reports.tgz -T -
       - name: Upload failure Archive (if maven failed)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: test-reports-linux-jvm${{ matrix.version }}
@@ -132,14 +127,10 @@ jobs:
         shell: bash
         run: rm -r ~/.m2/repository/io/quarkus
       - name: Report status
-        if: "always() && github.repository == 'quarkusio/quarkus' && github.event_name != 'workflow_dispatch'"
-        shell: bash
-        run: |
-          curl -Ls https://sh.jbang.dev | bash -s - app setup
-          ~/.jbang/bin/jbang .github/NativeBuildReport.java \
-            issueNumber=15867 \
-            runId=${{ github.run_id }} \
-            status=${{ job.status }} \
-            token=${{ secrets.GITHUB_API_TOKEN }} \
-            issueRepo=${{ github.repository }} \
-            thisRepo=${{ github.repository }}
+        if: always() && github.repository == 'quarkusio/quarkus' && github.event_name != 'workflow_dispatch'
+        uses: quarkusio/report-status-in-issue@main
+        with:
+          github-token: ${{ secrets.GITHUB_API_TOKEN }}
+          status: ${{ job.status }}
+          issue-repository: ${{ github.repository }}
+          issue-number: 15867

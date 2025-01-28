@@ -10,13 +10,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.inject.Any;
-import javax.enterprise.inject.spi.InjectionPoint;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.spi.InjectionPoint;
 
 import io.quarkus.arc.InjectableBean;
 import io.quarkus.arc.InstanceHandle;
-import io.quarkus.arc.impl.CurrentInjectionPointProvider.InjectionPointImpl;
 
 public final class Instances {
 
@@ -60,35 +60,35 @@ public final class Instances {
     @SuppressWarnings("unchecked")
     public static <T> List<T> listOf(InjectableBean<?> targetBean, Type injectionPointType, Type requiredType,
             Set<Annotation> requiredQualifiers,
-            CreationalContextImpl<?> creationalContext, Set<Annotation> annotations, Member javaMember, int position) {
+            CreationalContext<T> creationalContext, Set<Annotation> annotations, Member javaMember, int position,
+            boolean isTransient) {
         List<InjectableBean<?>> beans = resolveAllBeans(requiredType, requiredQualifiers);
         if (beans.isEmpty()) {
             return Collections.emptyList();
         }
         List<T> list = new ArrayList<>(beans.size());
-        InjectionPoint prev = InjectionPointProvider
-                .set(new InjectionPointImpl(injectionPointType, requiredType, requiredQualifiers, targetBean,
-                        annotations, javaMember, position));
+        InjectionPoint prev = InjectionPointProvider.setCurrent(creationalContext, new InjectionPointImpl(injectionPointType,
+                requiredType, requiredQualifiers, targetBean, annotations, javaMember, position, isTransient));
         try {
             for (InjectableBean<?> bean : beans) {
-                list.add(getBeanInstance((CreationalContextImpl<T>) creationalContext, (InjectableBean<T>) bean));
+                list.add(getBeanInstance(CreationalContextImpl.unwrap(creationalContext), (InjectableBean<T>) bean));
             }
         } finally {
-            InjectionPointProvider.set(prev);
+            InjectionPointProvider.setCurrent(creationalContext, prev);
         }
 
         return List.copyOf(list);
     }
 
     public static <T> List<InstanceHandle<T>> listOfHandles(InjectableBean<?> targetBean, Type injectionPointType,
-            Type requiredType,
-            Set<Annotation> requiredQualifiers,
-            CreationalContextImpl<?> creationalContext, Set<Annotation> annotations, Member javaMember, int position) {
+            Type requiredType, Set<Annotation> requiredQualifiers,
+            CreationalContext<T> creationalContext, Set<Annotation> annotations, Member javaMember, int position,
+            boolean isTransient) {
         Supplier<InjectionPoint> supplier = new Supplier<InjectionPoint>() {
             @Override
             public InjectionPoint get() {
                 return new InjectionPointImpl(injectionPointType, requiredType, requiredQualifiers, targetBean,
-                        annotations, javaMember, position);
+                        annotations, javaMember, position, isTransient);
             }
         };
         return listOfHandles(supplier, requiredType, requiredQualifiers, creationalContext);
@@ -97,14 +97,14 @@ public final class Instances {
     @SuppressWarnings("unchecked")
     public static <T> List<InstanceHandle<T>> listOfHandles(Supplier<InjectionPoint> injectionPoint, Type requiredType,
             Set<Annotation> requiredQualifiers,
-            CreationalContextImpl<?> creationalContext) {
+            CreationalContext<T> creationalContext) {
         List<InjectableBean<?>> beans = resolveAllBeans(requiredType, requiredQualifiers);
         if (beans.isEmpty()) {
             return Collections.emptyList();
         }
         List<InstanceHandle<T>> list = new ArrayList<>(beans.size());
         for (InjectableBean<?> bean : beans) {
-            list.add(getHandle((CreationalContextImpl<T>) creationalContext, (InjectableBean<T>) bean, injectionPoint));
+            list.add(getHandle(CreationalContextImpl.unwrap(creationalContext), (InjectableBean<T>) bean, injectionPoint));
         }
         return List.copyOf(list);
     }
@@ -125,12 +125,11 @@ public final class Instances {
 
             @Override
             public T get() {
-                InjectionPoint prev = InjectionPointProvider
-                        .set(injectionPointSupplier.get());
+                InjectionPoint prev = InjectionPointProvider.setCurrent(ctx, injectionPointSupplier.get());
                 try {
                     return bean.get(ctx);
                 } finally {
-                    InjectionPointProvider.set(prev);
+                    InjectionPointProvider.setCurrent(ctx, prev);
                 }
             }
         }, null);

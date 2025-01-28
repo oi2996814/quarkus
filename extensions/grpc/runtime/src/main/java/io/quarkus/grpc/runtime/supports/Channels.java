@@ -3,6 +3,14 @@ package io.quarkus.grpc.runtime.supports;
 import static io.grpc.internal.GrpcUtil.DEFAULT_MAX_HEADER_LIST_SIZE;
 import static io.grpc.internal.GrpcUtil.DEFAULT_MAX_MESSAGE_SIZE;
 import static io.grpc.netty.NettyChannelBuilder.DEFAULT_FLOW_CONTROL_WINDOW;
+import static io.quarkus.grpc.runtime.GrpcTestPortUtils.testPort;
+import static io.quarkus.grpc.runtime.config.GrpcClientConfiguration.DNS;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configureJksKeyCertOptions;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configureJksTrustOptions;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configurePemKeyCertOptions;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configurePemTrustOptions;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configurePfxKeyCertOptions;
+import static io.quarkus.grpc.runtime.supports.SSLConfigHelper.configurePfxTrustOptions;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,8 +31,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import javax.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.context.spi.CreationalContext;
 
+import org.eclipse.microprofile.context.ManagedExecutor;
 import org.jboss.logging.Logger;
 
 import io.grpc.CallOptions;
@@ -33,6 +42,7 @@ import io.grpc.ClientCall;
 import io.grpc.ClientInterceptor;
 import io.grpc.ClientInterceptors;
 import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.grpc.MethodDescriptor;
 import io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.NegotiationType;
@@ -40,6 +50,7 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.quarkus.arc.Arc;
+import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.BeanDestroyer;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.grpc.GrpcClient;
@@ -49,9 +60,16 @@ import io.quarkus.grpc.runtime.GrpcClientInterceptorContainer;
 import io.quarkus.grpc.runtime.config.GrpcClientConfiguration;
 import io.quarkus.grpc.runtime.config.GrpcServerConfiguration;
 import io.quarkus.grpc.runtime.config.SslClientConfig;
+import io.quarkus.grpc.runtime.config.TlsClientConfig;
+import io.quarkus.grpc.runtime.stork.StorkGrpcChannel;
 import io.quarkus.grpc.runtime.stork.StorkMeasuringGrpcInterceptor;
+import io.quarkus.grpc.runtime.stork.VertxStorkMeasuringGrpcInterceptor;
+import io.quarkus.grpc.spi.GrpcBuilderProvider;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.util.ClassPathUtils;
+import io.quarkus.tls.TlsConfiguration;
+import io.quarkus.tls.TlsConfigurationRegistry;
+import io.quarkus.tls.runtime.config.TlsConfigUtils;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import io.smallrye.stork.Stork;
 import io.vertx.core.Vertx;
@@ -61,6 +79,7 @@ import io.vertx.core.net.PemKeyCertOptions;
 import io.vertx.core.net.PemTrustOptions;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.grpc.client.GrpcClientChannel;
+import io.vertx.grpc.client.GrpcClientOptions;
 
 @SuppressWarnings({ "OptionalIsPresent" })
 public class Channels {
@@ -71,9 +90,11 @@ public class Channels {
         // Avoid direct instantiation
     }
 
+    @SuppressWarnings("rawtypes")
     public static Channel createChannel(String name, Set<String> perClientInterceptors) throws Exception {
-        InstanceHandle<GrpcClientConfigProvider> instance = Arc.container().instance(GrpcClientConfigProvider.class);
+        ArcContainer container = Arc.container();
 
+        InstanceHandle<GrpcClientConfigProvider> instance = container.instance(GrpcClientConfigProvider.class);
         if (!instance.isAvailable()) {
             throw new IllegalStateException("Unable to find the GrpcClientConfigProvider");
         }
@@ -92,27 +113,42 @@ public class Channels {
             throw new IllegalStateException("gRPC client " + name + " is missing configuration.");
         }
 
+        GrpcBuilderProvider provider = GrpcBuilderProvider.findChannelBuilderProvider(config);
+
         boolean vertxGrpc = config.useQuarkusGrpcClient;
 
         String host = config.host;
+
+        // handle client port
         int port = config.port;
+        if (LaunchMode.current() == LaunchMode.TEST) {
+            port = config.testPort.orElse(testPort(configProvider.getServerConfiguration()));
+        }
+
         String nameResolver = config.nameResolver;
 
         boolean stork = Stork.STORK.equalsIgnoreCase(nameResolver);
 
         String[] resolverSplit = nameResolver.split(":");
+        String resolver = provider != null ? provider.resolver() : resolverSplit[0];
 
         // TODO -- does this work for Vert.x gRPC client?
-        if (!vertxGrpc && GrpcClientConfiguration.DNS.equalsIgnoreCase(resolverSplit[0])) {
-            host = "/" + host; // dns name resolver needs triple slash at the beginning
+        if (provider != null) {
+            host = provider.adjustHost(host);
+        } else if (!vertxGrpc && DNS.equalsIgnoreCase(resolver)) {
+            host = "/" + host; // dns or xds name resolver needs triple slash at the beginning
         }
 
         // Client-side interceptors
-        GrpcClientInterceptorContainer interceptorContainer = Arc.container()
+        GrpcClientInterceptorContainer interceptorContainer = container
                 .instance(GrpcClientInterceptorContainer.class).get();
         if (stork) {
             perClientInterceptors = new HashSet<>(perClientInterceptors);
-            perClientInterceptors.add(StorkMeasuringGrpcInterceptor.class.getName());
+            if (vertxGrpc) {
+                perClientInterceptors.add(VertxStorkMeasuringGrpcInterceptor.class.getName());
+            } else {
+                perClientInterceptors.add(StorkMeasuringGrpcInterceptor.class.getName());
+            }
         }
 
         boolean plainText = config.ssl.trustStore.isEmpty();
@@ -122,10 +158,11 @@ public class Channels {
         }
 
         if (!vertxGrpc) {
-            String target = String.format("%s://%s:%d", resolverSplit[0], host, port);
+            String target = String.format("%s://%s:%d", resolver, host, port);
+            LOGGER.debugf("Target for client '%s': %s", name, target);
 
             SslContext context = null;
-            if (!plainText) {
+            if (!plainText && provider == null) {
                 Path trustStorePath = config.ssl.trustStore.orElse(null);
                 Path certificatePath = config.ssl.certificate.orElse(null);
                 Path keyPath = config.ssl.key.orElse(null);
@@ -152,20 +189,25 @@ public class Channels {
 
             String loadBalancingPolicy = stork ? Stork.STORK : config.loadBalancingPolicy;
 
-            NettyChannelBuilder builder = NettyChannelBuilder
-                    .forTarget(target)
-                    // clients are intercepted using the IOThreadClientInterceptor interceptor which will decide on which
-                    // thread the messages should be processed.
-                    .directExecutor() // will use I/O thread - must not be blocked.
-                    .offloadExecutor(Infrastructure.getDefaultExecutor())
-                    .defaultLoadBalancingPolicy(loadBalancingPolicy)
-                    .flowControlWindow(config.flowControlWindow.orElse(DEFAULT_FLOW_CONTROL_WINDOW))
-                    .keepAliveWithoutCalls(config.keepAliveWithoutCalls)
-                    .maxHedgedAttempts(config.maxHedgedAttempts)
-                    .maxRetryAttempts(config.maxRetryAttempts)
-                    .maxInboundMetadataSize(config.maxInboundMetadataSize.orElse(DEFAULT_MAX_HEADER_LIST_SIZE))
-                    .maxInboundMessageSize(config.maxInboundMessageSize.orElse(DEFAULT_MAX_MESSAGE_SIZE))
-                    .negotiationType(NegotiationType.valueOf(config.negotiationType.toUpperCase()));
+            ManagedChannelBuilder<?> builder;
+            if (provider != null) {
+                builder = provider.createChannelBuilder(config, target);
+            } else {
+                builder = NettyChannelBuilder
+                        .forTarget(target)
+                        // clients are intercepted using the IOThreadClientInterceptor interceptor which will decide on which
+                        // thread the messages should be processed.
+                        .directExecutor() // will use I/O thread - must not be blocked.
+                        .offloadExecutor(Infrastructure.getDefaultExecutor())
+                        .defaultLoadBalancingPolicy(loadBalancingPolicy)
+                        .flowControlWindow(config.flowControlWindow.orElse(DEFAULT_FLOW_CONTROL_WINDOW))
+                        .keepAliveWithoutCalls(config.keepAliveWithoutCalls)
+                        .maxHedgedAttempts(config.maxHedgedAttempts)
+                        .maxRetryAttempts(config.maxRetryAttempts)
+                        .maxInboundMetadataSize(config.maxInboundMetadataSize.orElse(DEFAULT_MAX_HEADER_LIST_SIZE))
+                        .maxInboundMessageSize(config.maxInboundMessageSize.orElse(DEFAULT_MAX_MESSAGE_SIZE))
+                        .negotiationType(NegotiationType.valueOf(config.negotiationType.toUpperCase()));
+            }
 
             if (config.retry) {
                 builder.enableRetry();
@@ -200,44 +242,77 @@ public class Channels {
             }
             Optional<Duration> idleTimeout = config.idleTimeout;
             if (idleTimeout.isPresent()) {
-                builder.keepAliveTimeout(idleTimeout.get().toMillis(), TimeUnit.MILLISECONDS);
+                builder.idleTimeout(idleTimeout.get().toMillis(), TimeUnit.MILLISECONDS);
             }
 
-            if (plainText) {
+            if (plainText && provider == null) {
                 builder.usePlaintext();
             }
-            if (context != null) {
-                builder.sslContext(context);
+            if (context != null && (builder instanceof NettyChannelBuilder)) {
+                NettyChannelBuilder ncBuilder = (NettyChannelBuilder) builder;
+                ncBuilder.sslContext(context);
             }
 
             interceptorContainer.getSortedPerServiceInterceptors(perClientInterceptors).forEach(builder::intercept);
             interceptorContainer.getSortedGlobalInterceptors().forEach(builder::intercept);
 
-            LOGGER.info("Creating Netty gRPC channel ...");
+            LOGGER.info(String.format("Creating %s gRPC channel ...",
+                    provider != null ? provider.channelInfo(config) : "Netty"));
 
             return builder.build();
         } else {
-            HttpClientOptions options = new HttpClientOptions(); // TODO options
+            // Vert.x client
+            HttpClientOptions options = new HttpClientOptions();
+            options.setHttp2ClearTextUpgrade(false); // this fixes i30379
 
             if (!plainText) {
-                if (config.ssl.trustStore.isPresent()) {
-                    Optional<Path> trustStorePath = config.ssl.trustStore;
-                    if (trustStorePath.isPresent()) {
+                TlsConfigurationRegistry registry = Arc.container().select(TlsConfigurationRegistry.class).get();
+
+                // always set ssl + alpn for plain-text=false
+                options.setSsl(true);
+                options.setUseAlpn(true);
+
+                TlsConfiguration configuration = null;
+                if (config.tlsConfigurationName.isPresent()) {
+                    Optional<TlsConfiguration> maybeConfiguration = registry.get(config.tlsConfigurationName.get());
+                    if (!maybeConfiguration.isPresent()) {
+                        throw new IllegalStateException("Unable to find the TLS configuration "
+                                + config.tlsConfigurationName.get() + " for the gRPC client " + name + ".");
+                    }
+                    configuration = maybeConfiguration.get();
+                } else if (registry.getDefault().isPresent() && (registry.getDefault().get().getTrustStoreOptions() != null
+                        || registry.getDefault().get().isTrustAll())) {
+                    configuration = registry.getDefault().get();
+                }
+
+                if (configuration != null) {
+                    TlsConfigUtils.configure(options, configuration);
+                } else if (config.tls.enabled) {
+                    TlsClientConfig tls = config.tls;
+                    options.setSsl(true).setTrustAll(tls.trustAll);
+
+                    configurePemTrustOptions(options, tls.trustCertificatePem);
+                    configureJksTrustOptions(options, tls.trustCertificateJks);
+                    configurePfxTrustOptions(options, tls.trustCertificateP12);
+
+                    configurePemKeyCertOptions(options, tls.keyCertificatePem);
+                    configureJksKeyCertOptions(options, tls.keyCertificateJks);
+                    configurePfxKeyCertOptions(options, tls.keyCertificateP12);
+                    options.setVerifyHost(tls.verifyHostname);
+                } else {
+                    if (config.ssl.trustStore.isPresent()) {
+                        Optional<Path> trustStorePath = config.ssl.trustStore;
                         PemTrustOptions to = new PemTrustOptions();
                         to.addCertValue(bufferFor(trustStorePath.get(), "trust store"));
                         options.setTrustOptions(to);
-                        options.setSsl(true);
-                        options.setUseAlpn(true);
-                    }
-                    Optional<Path> certificatePath = config.ssl.certificate;
-                    Optional<Path> keyPath = config.ssl.key;
-                    if (certificatePath.isPresent() && keyPath.isPresent()) {
-                        PemKeyCertOptions cko = new PemKeyCertOptions();
-                        cko.setCertValue(bufferFor(certificatePath.get(), "certificate"));
-                        cko.setKeyValue(bufferFor(keyPath.get(), "key"));
-                        options.setKeyCertOptions(cko);
-                        options.setSsl(true);
-                        options.setUseAlpn(true);
+                        Optional<Path> certificatePath = config.ssl.certificate;
+                        Optional<Path> keyPath = config.ssl.key;
+                        if (certificatePath.isPresent() && keyPath.isPresent()) {
+                            PemKeyCertOptions cko = new PemKeyCertOptions();
+                            cko.setCertValue(bufferFor(certificatePath.get(), "certificate"));
+                            cko.setKeyValue(bufferFor(keyPath.get(), "key"));
+                            options.setKeyCertOptions(cko);
+                        }
                     }
                 }
             }
@@ -255,23 +330,38 @@ public class Channels {
                 options.setIdleTimeoutUnit(TimeUnit.MILLISECONDS);
             }
 
-            Vertx vertx = Arc.container().instance(Vertx.class).get();
-            io.vertx.grpc.client.GrpcClient client = io.vertx.grpc.client.GrpcClient.client(vertx, options);
-            Channel channel = new GrpcClientChannel(client, SocketAddress.inetSocketAddress(port, host));
+            // Use the convention defined by Quarkus Micrometer Vert.x metrics to create metrics prefixed with grpc.<name>.
+            // See io.quarkus.micrometer.runtime.binder.vertx.VertxMeterBinderAdapter.extractPrefix and
+            // io.quarkus.micrometer.runtime.binder.vertx.VertxMeterBinderAdapter.extractClientName
+            options.setMetricsName("grpc|" + name);
+
+            Vertx vertx = container.instance(Vertx.class).get();
+            io.vertx.grpc.client.GrpcClient client = io.vertx.grpc.client.GrpcClient.client(vertx,
+                    new GrpcClientOptions().setTransportOptions(options)
+                            .setMaxMessageSize(config.maxInboundMessageSize.orElse(DEFAULT_MAX_MESSAGE_SIZE)));
+            Channel channel;
+            if (stork) {
+                ManagedExecutor executor = container.instance(ManagedExecutor.class).get();
+                channel = new StorkGrpcChannel(client, config.host, config.stork, executor); // host = service-name
+            } else {
+                channel = new GrpcClientChannel(client, SocketAddress.inetSocketAddress(port, host));
+            }
+            LOGGER.debugf("Target for client '%s': %s", name, host + ":" + port);
 
             List<ClientInterceptor> interceptors = new ArrayList<>();
             interceptors.addAll(interceptorContainer.getSortedPerServiceInterceptors(perClientInterceptors));
             interceptors.addAll(interceptorContainer.getSortedGlobalInterceptors());
 
-            LOGGER.info("Creating Vert.x gRPC channel ...");
+            LOGGER.debug("Creating Vert.x gRPC channel ...");
 
-            return new InternalGrpcChannel(client, ClientInterceptors.intercept(channel, interceptors));
+            return new InternalGrpcChannel(client, channel, ClientInterceptors.intercept(channel, interceptors));
         }
     }
 
     private static GrpcClientConfiguration testConfig(GrpcServerConfiguration serverConfiguration) {
         GrpcClientConfiguration config = new GrpcClientConfiguration();
         config.port = serverConfiguration.testPort;
+        config.testPort = OptionalInt.empty();
         config.host = serverConfiguration.host;
         config.plainText = Optional.of(serverConfiguration.plainText);
         config.compression = Optional.empty();
@@ -285,7 +375,7 @@ public class Channels {
         config.maxInboundMetadataSize = OptionalInt.empty();
         config.maxRetryAttempts = 0;
         config.maxTraceEvents = OptionalInt.empty();
-        config.nameResolver = GrpcClientConfiguration.DNS;
+        config.nameResolver = DNS;
         config.negotiationType = "PLAINTEXT";
         config.overrideAuthority = Optional.empty();
         config.perRpcBufferLimit = OptionalLong.empty();
@@ -356,8 +446,12 @@ public class Channels {
                 }
             } else if (instance instanceof InternalGrpcChannel) {
                 InternalGrpcChannel channel = (InternalGrpcChannel) instance;
-                LOGGER.info("Shutting down Vert.x gRPC channel " + channel.delegate);
+                Channel original = channel.original;
+                LOGGER.info("Shutting down Vert.x gRPC channel " + original);
                 try {
+                    if (original instanceof StorkGrpcChannel) {
+                        ((StorkGrpcChannel) original).close();
+                    }
                     channel.client.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
                 } catch (ExecutionException | TimeoutException e) {
                     LOGGER.warn("Unable to shutdown channel after 10 seconds", e);
@@ -371,10 +465,12 @@ public class Channels {
 
     private static class InternalGrpcChannel extends Channel {
         private final io.vertx.grpc.client.GrpcClient client;
+        private final Channel original;
         private final Channel delegate;
 
-        public InternalGrpcChannel(io.vertx.grpc.client.GrpcClient client, Channel delegate) {
+        public InternalGrpcChannel(io.vertx.grpc.client.GrpcClient client, Channel original, Channel delegate) {
             this.client = client;
+            this.original = original;
             this.delegate = delegate;
         }
 

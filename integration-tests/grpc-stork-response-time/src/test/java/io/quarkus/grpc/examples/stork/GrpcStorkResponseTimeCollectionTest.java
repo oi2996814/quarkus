@@ -1,54 +1,16 @@
 package io.quarkus.grpc.examples.stork;
 
-import static io.restassured.RestAssured.get;
-import static io.restassured.RestAssured.given;
-import static io.restassured.RestAssured.post;
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.util.ArrayList;
-import java.util.List;
-
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import io.quarkus.test.junit.QuarkusTest;
-import io.restassured.response.Response;
 
 @QuarkusTest
-class GrpcStorkResponseTimeCollectionTest {
+class GrpcStorkResponseTimeCollectionTest extends GrpcStorkResponseTimeCollectionTestBase {
 
     @Test
+    @Disabled("Disabled because of https://github.com/grpc/grpc-java/commit/8844cf7b87a04dd2d2e4a74cd0f0e3f4fed14113 which does not call the load balancer for each call anymore.")
     public void shouldCallConfigurableIfFaster() {
-        given().body("0")
-                .when().post("/test/delay")
-                .then().statusCode(200);
-        List<String> responses = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-            Response response = get("/test/unary/1");
-            response.then().statusCode(200);
-            responses.add(response.asString());
-        }
 
-        assertThat(responses.stream().filter(r -> r.equals("moderately-slow")))
-                .hasSizeLessThan(5);
-        assertThat(responses.stream().filter(r -> r.equals("configurable")))
-                .hasSizeGreaterThan(5);
-    }
-
-    @Test
-    public void shouldCallModerateIfFaster() {
-        given().body("1000")
-                .when().post("/test/delay")
-                .then().statusCode(200);
-        List<String> responses = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-            Response response = get("/test/unary/2");
-            response.then().statusCode(200);
-            responses.add(response.asString());
-        }
-
-        assertThat(responses.stream().filter(r -> r.equals("moderately-slow")))
-                .hasSizeGreaterThan(5);
-        assertThat(responses.stream().filter(r -> r.equals("configurable")))
-                .hasSizeLessThan(5);
     }
 }

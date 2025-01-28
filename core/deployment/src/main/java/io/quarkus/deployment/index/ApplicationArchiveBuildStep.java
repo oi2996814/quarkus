@@ -6,16 +6,14 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
-import org.jboss.jandex.CompositeIndex;
 import org.jboss.jandex.Index;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Indexer;
@@ -49,34 +47,55 @@ import io.quarkus.paths.PathVisit;
 import io.quarkus.paths.PathVisitor;
 import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigDocSection;
-import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
+import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithParentName;
 
 public class ApplicationArchiveBuildStep {
 
     private static final Logger LOGGER = Logger.getLogger(ApplicationArchiveBuildStep.class);
 
-    IndexDependencyConfiguration config;
-
+    /**
+     * Indexing
+     */
+    @ConfigMapping(prefix = "quarkus.index-dependency")
     @ConfigRoot(phase = ConfigPhase.BUILD_TIME)
-    static final class IndexDependencyConfiguration {
+    interface IndexDependencyConfiguration {
         /**
          * Artifacts on the classpath that should also be indexed.
          * <p>
          * Their classes will be in the index and processed by Quarkus processors.
          */
-        @ConfigItem(name = ConfigItem.PARENT)
+        @WithParentName
         @ConfigDocSection
         @ConfigDocMapKey("dependency-name")
-        Map<String, IndexDependencyConfig> indexDependency;
+        Map<String, IndexDependencyConfig> indexDependency();
+
+        interface IndexDependencyConfig {
+            /**
+             * The maven groupId of the artifact.
+             */
+            String groupId();
+
+            /**
+             * The maven artifactId of the artifact (optional).
+             */
+            Optional<String> artifactId();
+
+            /**
+             * The maven classifier of the artifact (optional).
+             */
+            Optional<String> classifier();
+        }
     }
 
     @BuildStep
-    void addConfiguredIndexedDependencies(BuildProducer<IndexDependencyBuildItem> indexDependencyBuildItemBuildProducer) {
-        for (IndexDependencyConfig indexDependencyConfig : config.indexDependency.values()) {
-            indexDependencyBuildItemBuildProducer.produce(new IndexDependencyBuildItem(indexDependencyConfig.groupId,
-                    indexDependencyConfig.artifactId, indexDependencyConfig.classifier.orElse(null)));
+    void addConfiguredIndexedDependencies(IndexDependencyConfiguration config,
+            BuildProducer<IndexDependencyBuildItem> indexDependencyBuildItemBuildProducer) {
+        for (IndexDependencyConfiguration.IndexDependencyConfig indexDependencyConfig : config.indexDependency().values()) {
+            indexDependencyBuildItemBuildProducer.produce(new IndexDependencyBuildItem(indexDependencyConfig.groupId(),
+                    indexDependencyConfig.artifactId().orElse(null), indexDependencyConfig.classifier().orElse(null)));
         }
     }
 
@@ -123,7 +142,7 @@ public class ApplicationArchiveBuildStep {
 
         return new ApplicationArchivesBuildItem(
                 new ApplicationArchiveImpl(appindex.getIndex(), tree,
-                        curateOutcomeBuildItem.getApplicationModel().getAppArtifact().getKey()),
+                        curateOutcomeBuildItem.getApplicationModel().getAppArtifact()),
                 applicationArchives);
     }
 
@@ -144,8 +163,7 @@ public class ApplicationArchiveBuildStep {
             markers.add(marker.endsWith("/") ? marker.substring(0, marker.length() - 1) : marker);
         }
         markers.add(IndexingUtil.JANDEX_INDEX);
-        addMarkerFilePaths(markers, root, curateOutcomeBuildItem, indexedPaths, appArchives, buildCloseables,
-                indexCache, removedResources);
+        addMarkerFilePaths(markers, root, indexedPaths, appArchives, indexCache, removedResources);
 
         //get paths that are included via index-dependencies
         addIndexDependencyPaths(indexDependencyBuildItem, root, indexedPaths, appArchives, buildCloseables,
@@ -171,41 +189,43 @@ public class ApplicationArchiveBuildStep {
         if (indexDependencyBuildItems.isEmpty()) {
             return;
         }
-        final Collection<ResolvedDependency> userDeps = curateOutcomeBuildItem.getApplicationModel()
-                .getRuntimeDependencies();
-        final Map<ArtifactKey, ResolvedDependency> userMap = new HashMap<>(userDeps.size());
-        for (ResolvedDependency dep : userDeps) {
-            userMap.put(dep.getKey(), dep);
-        }
-        try {
-            for (IndexDependencyBuildItem indexDependencyBuildItem : indexDependencyBuildItems) {
-                final ArtifactKey key = ArtifactKey.of(indexDependencyBuildItem.getGroupId(),
+        final Set<ArtifactKey> indexDependencyKeys = new HashSet<>();
+        final Set<String> indexGroupIds = new HashSet<>();
+        for (IndexDependencyBuildItem indexDependencyBuildItem : indexDependencyBuildItems) {
+            if (indexDependencyBuildItem.getArtifactId() != null) {
+                indexDependencyKeys.add(ArtifactKey.of(indexDependencyBuildItem.getGroupId(),
                         indexDependencyBuildItem.getArtifactId(),
                         indexDependencyBuildItem.getClassifier(),
-                        ArtifactCoords.TYPE_JAR);
-                final ResolvedDependency artifact = userMap.get(key);
-                if (artifact == null) {
-                    throw new RuntimeException(
-                            "Could not resolve artifact " + key + " among the runtime dependencies of the application");
-                }
-                for (Path path : artifact.getContentTree().getRoots()) {
-                    if (!root.isExcludedFromIndexing(path) && !root.getResolvedPaths().contains(path)
+                        ArtifactCoords.TYPE_JAR));
+            } else {
+                indexGroupIds.add(indexDependencyBuildItem.getGroupId());
+            }
+        }
+        for (ResolvedDependency dep : curateOutcomeBuildItem.getApplicationModel().getDependencies()) {
+            if (dep.isRuntimeCp()
+                    && (indexDependencyKeys.contains(dep.getKey()) || indexGroupIds.contains(dep.getGroupId()))) {
+                for (Path path : dep.getContentTree().getRoots()) {
+                    if (!root.isExcludedFromIndexing(path)
+                            && !root.getResolvedPaths().contains(path)
                             && indexedDeps.add(path)) {
-                        appArchives.add(createApplicationArchive(buildCloseables, indexCache, path, key,
-                                removedResources));
+                        try {
+                            appArchives.add(createApplicationArchive(buildCloseables, indexCache, path, dep,
+                                    removedResources));
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
                     }
                 }
             }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 
     private static ApplicationArchive createApplicationArchive(QuarkusBuildCloseablesBuildItem buildCloseables,
-            IndexCache indexCache, Path dep, ArtifactKey artifactKey, Map<ArtifactKey, Set<String>> removedResources)
+            IndexCache indexCache, Path dep, ResolvedDependency resolvedDependency,
+            Map<ArtifactKey, Set<String>> removedResources)
             throws IOException {
         LOGGER.debugf("Indexing dependency: %s", dep);
-        final Set<String> removed = removedResources.get(artifactKey);
+        final Set<String> removed = resolvedDependency != null ? removedResources.get(resolvedDependency.getKey()) : null;
         final OpenPathTree openTree;
         final IndexView index;
         if (Files.isDirectory(dep)) {
@@ -215,12 +235,11 @@ public class ApplicationArchiveBuildStep {
             openTree = buildCloseables.add(PathTree.ofArchive(dep).open());
             index = handleJarPath(dep, indexCache, removed);
         }
-        return new ApplicationArchiveImpl(index, openTree, artifactKey);
+        return new ApplicationArchiveImpl(index, openTree, resolvedDependency);
     }
 
     private static void addMarkerFilePaths(Set<String> applicationArchiveMarkers,
-            ArchiveRootBuildItem root, CurateOutcomeBuildItem curateOutcomeBuildItem, Set<Path> indexedPaths,
-            List<ApplicationArchive> appArchives, QuarkusBuildCloseablesBuildItem buildCloseables,
+            ArchiveRootBuildItem root, Set<Path> indexedPaths, List<ApplicationArchive> appArchives,
             IndexCache indexCache, Map<ArtifactKey, Set<String>> removed)
             throws IOException {
         final QuarkusClassLoader cl = ((QuarkusClassLoader) Thread.currentThread().getContextClassLoader());
@@ -251,14 +270,13 @@ public class ApplicationArchiveBuildStep {
                         Index index = indexCache.cache.get(rootPath);
                         if (index == null) {
                             try {
-                                index = IndexingUtil.indexTree(tree,
-                                        dependencyKey == null ? Collections.emptySet() : removed.get(dependencyKey));
+                                index = IndexingUtil.indexTree(tree, removed.get(dependencyKey));
                             } catch (IOException ioe) {
                                 throw new UncheckedIOException(ioe);
                             }
                             indexCache.cache.put(rootPath, index);
                         }
-                        appArchives.add(new ApplicationArchiveImpl(index, tree, dependencyKey));
+                        appArchives.add(new ApplicationArchiveImpl(index, tree, cpe.getResolvedDependency()));
                         return null;
                     }
 
@@ -266,15 +284,13 @@ public class ApplicationArchiveBuildStep {
                         if (visit == null || root.isExcludedFromIndexing(visit.getRoot())) {
                             return null;
                         }
-                        final List<IndexView> indexes = new ArrayList<>(tree.getRoots().size());
+                        final Index index;
                         try {
-                            indexes.add(indexPathTree(tree, removed.get(dependencyKey)));
+                            index = indexPathTree(tree, removed.get(dependencyKey));
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
                         }
-                        return new ApplicationArchiveImpl(
-                                indexes.size() == 1 ? indexes.get(0) : CompositeIndex.create(indexes),
-                                tree, dependencyKey);
+                        return new ApplicationArchiveImpl(index, tree, cpe.getResolvedDependency());
                     });
                     if (archive != null) {
                         appArchives.add(archive);

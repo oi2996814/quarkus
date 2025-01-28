@@ -1,5 +1,7 @@
 package io.quarkus.it.infinispan.client;
 
+import static io.quarkus.it.infinispan.client.CacheSetup.AUTHORS_CACHE;
+
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
@@ -8,32 +10,31 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import org.infinispan.client.hotrod.RemoteCache;
-import org.infinispan.client.hotrod.Search;
 import org.infinispan.client.hotrod.jmx.RemoteCacheClientStatisticsMXBean;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.commons.api.query.Query;
 import org.infinispan.counter.api.CounterConfiguration;
 import org.infinispan.counter.api.CounterManager;
 import org.infinispan.counter.api.CounterType;
 import org.infinispan.counter.api.Storage;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.WeakCounter;
-import org.infinispan.query.dsl.Query;
-import org.infinispan.query.dsl.QueryFactory;
 
+import io.quarkus.infinispan.client.InfinispanClientName;
 import io.quarkus.infinispan.client.Remote;
 import io.smallrye.common.annotation.Blocking;
 
@@ -53,8 +54,13 @@ public class TestServlet {
     RemoteCache<String, Magazine> magazineCache;
 
     @Inject
-    @Remote(CacheSetup.AUTHORS_CACHE)
-    RemoteCache<String, Author> authorsCache;
+    @Remote(AUTHORS_CACHE)
+    RemoteCache<String, Author> authorsCacheDefault;
+
+    @Inject
+    @InfinispanClientName("another")
+    @Remote(AUTHORS_CACHE)
+    RemoteCache<String, Author> authorsCacheAnother;
 
     @Inject
     CounterManager counterManager;
@@ -62,7 +68,6 @@ public class TestServlet {
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public List<String> getIDs() {
-        cacheSetup.ensureStarted();
         log.info("Retrieving all IDs");
         return cache.keySet().stream().sorted().collect(Collectors.toList());
     }
@@ -71,29 +76,24 @@ public class TestServlet {
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public String getCachedValue(@PathParam("id") String id) {
-        cacheSetup.ensureStarted();
         Book book = cache.get(id);
-        return book != null ? book.getTitle() : "NULL";
+        return book != null ? book.title() : "NULL";
     }
 
     @Path("query/{id}")
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public String queryAuthorSurname(@PathParam("id") String name) {
-        cacheSetup.ensureStarted();
-        QueryFactory queryFactory = Search.getQueryFactory(cache);
-        Query query = queryFactory.from(Book.class)
-                .having("authors.name").like("%" + name + "%")
-                .build();
+        Query<Book> query = cache.query("from book_sample.Book b where b.authors.name like '%" + name + "%'");
         List<Book> list = query.execute().list();
         if (list.isEmpty()) {
             return "No one found for " + name;
         }
 
         return list.stream()
-                .map(Book::getAuthors)
+                .map(Book::authors)
                 .flatMap(Set::stream)
-                .map(author -> author.getName() + " " + author.getSurname())
+                .map(author -> author.name() + " " + author.surname())
                 .sorted()
                 .collect(Collectors.joining(",", "[", "]"));
     }
@@ -102,17 +102,15 @@ public class TestServlet {
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public String ickleQueryAuthorSurname(@PathParam("id") String name) {
-        cacheSetup.ensureStarted();
-        QueryFactory queryFactory = Search.getQueryFactory(cache);
-        Query query = queryFactory.create("from book_sample.Book b where b.authors.name like '%" + name + "%'");
+        Query<Book> query = cache.query("from book_sample.Book b where b.authors.name like '%" + name + "%'");
         List<Book> list = query.execute().list();
         if (list.isEmpty()) {
             return "No one found for " + name;
         }
         return list.stream()
-                .map(Book::getAuthors)
+                .map(Book::authors)
                 .flatMap(Set::stream)
-                .map(author -> author.getName() + " " + author.getSurname())
+                .map(author -> author.name() + " " + author.surname())
                 .sorted()
                 .collect(Collectors.joining(",", "[", "]"));
     }
@@ -123,7 +121,6 @@ public class TestServlet {
     @Blocking
     public boolean defineCounter(@PathParam("id") String id, @QueryParam("type") String type,
             @QueryParam("storage") String storage) {
-        cacheSetup.ensureStarted();
         CounterConfiguration configuration = counterManager.getConfiguration(id);
         if (configuration == null) {
             configuration = CounterConfiguration.builder(CounterType.valueOf(type)).storage(Storage.valueOf(storage)).build();
@@ -137,7 +134,6 @@ public class TestServlet {
     @Produces(MediaType.TEXT_PLAIN)
     @Blocking
     public CompletionStage<Long> incrementCounter(@PathParam("id") String id) {
-        cacheSetup.ensureStarted();
         CounterConfiguration configuration = counterManager.getConfiguration(id);
         if (configuration == null) {
             return CompletableFuture.completedFuture(0L);
@@ -157,18 +153,17 @@ public class TestServlet {
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public String continuousQuery() {
-        cacheSetup.ensureStarted();
         return cacheSetup.getMatches().values().stream()
-                .mapToInt(Book::getPublicationYear)
+                .mapToInt(Book::publicationYear)
                 .mapToObj(Integer::toString)
                 .collect(Collectors.joining(","));
+
     }
 
     @Path("nearcache")
     @GET
     @Produces(MediaType.TEXT_PLAIN)
     public String nearCache() {
-        cacheSetup.ensureStarted();
         RemoteCacheClientStatisticsMXBean stats = cache.clientStatistics();
         long nearCacheMisses = stats.getNearCacheMisses();
         long nearCacheHits = stats.getNearCacheHits();
@@ -238,7 +233,6 @@ public class TestServlet {
     @PUT
     @Consumes(MediaType.TEXT_PLAIN)
     public Response createItem(String value, @PathParam("id") String id) {
-        cacheSetup.ensureStarted();
         Book book = new Book(id, value, 2019, Collections.emptySet(), Type.PROGRAMMING, new BigDecimal("9.99"));
         Book previous = cache.putIfAbsent(id, book);
         if (previous == null) {
@@ -255,9 +249,8 @@ public class TestServlet {
     @Path("magazinequery/{id}")
     @GET
     public String magazineQuery(@PathParam("id") String name) {
-        cacheSetup.ensureStarted();
-        QueryFactory queryFactory = Search.getQueryFactory(magazineCache);
-        Query query = queryFactory.create("from magazine_sample.Magazine m where m.name like '%" + name + "%'");
+        Query<Magazine> query = magazineCache.query(
+                "from magazine_sample.Magazine m where m.name like '%" + name + "%'");
         List<Magazine> list = query.execute().list();
         if (list.isEmpty()) {
             return "No one found for " + name;
@@ -270,9 +263,11 @@ public class TestServlet {
     @Path("create-cache-default-config/authors")
     @GET
     public String magazineQuery() {
-        cacheSetup.ensureStarted();
-        return authorsCache.values().stream()
-                .map(a -> a.getName())
-                .collect(Collectors.joining(",", "[", "]"));
+        List<String> names1 = authorsCacheDefault.values().stream().map(a -> a.name()).collect(Collectors.toList());
+        List<String> names2 = authorsCacheAnother.values().stream().map(a -> a.name())
+                .collect(Collectors.toList());
+
+        names1.addAll(names2);
+        return names1.stream().sorted().collect(Collectors.joining(",", "[", "]"));
     }
 }

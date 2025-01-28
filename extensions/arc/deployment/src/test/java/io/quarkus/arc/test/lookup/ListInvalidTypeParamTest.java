@@ -7,9 +7,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import javax.enterprise.inject.spi.DeploymentException;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.spi.DeploymentException;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -36,7 +36,7 @@ public class ListInvalidTypeParamTest {
         fail();
     }
 
-    @Singleton
+    @Dependent
     static class Foo<T> {
 
         @Inject

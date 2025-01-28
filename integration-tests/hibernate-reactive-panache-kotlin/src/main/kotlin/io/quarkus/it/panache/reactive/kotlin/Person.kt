@@ -6,32 +6,44 @@ import io.quarkus.hibernate.reactive.panache.kotlin.PanacheEntity
 import io.quarkus.hibernate.reactive.panache.kotlin.PanacheQuery
 import io.quarkus.hibernate.reactive.panache.kotlin.runtime.KotlinJpaOperations.Companion.INSTANCE
 import io.smallrye.mutiny.Uni
+import jakarta.persistence.CascadeType
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.FetchType
+import jakarta.persistence.ManyToOne
+import jakarta.persistence.NamedQueries
+import jakarta.persistence.NamedQuery
+import jakarta.persistence.OneToMany
+import jakarta.persistence.Transient
+import jakarta.xml.bind.annotation.XmlRootElement
+import jakarta.xml.bind.annotation.XmlTransient
 import org.hibernate.annotations.Filter
 import org.hibernate.annotations.FilterDef
 import org.hibernate.annotations.ParamDef
-import javax.persistence.CascadeType
-import javax.persistence.Column
-import javax.persistence.Entity
-import javax.persistence.EnumType
-import javax.persistence.Enumerated
-import javax.persistence.FetchType
-import javax.persistence.ManyToOne
-import javax.persistence.NamedQueries
-import javax.persistence.NamedQuery
-import javax.persistence.OneToMany
-import javax.persistence.Transient
-import javax.xml.bind.annotation.XmlRootElement
-import javax.xml.bind.annotation.XmlTransient
 
 @XmlRootElement
 @NamedQueries(
     NamedQuery(name = "Person.getByName", query = "from Person2 where name = :name"),
     NamedQuery(name = "Person.countAll", query = "select count(*) from Person2"),
-    NamedQuery(name = "Person.countByName", query = "select count(*) from Person2 where name = :name"),
-    NamedQuery(name = "Person.countByName.ordinal", query = "select count(*) from Person2 where name = ?1"),
+    NamedQuery(
+        name = "Person.countByName",
+        query = "select count(*) from Person2 where name = :name"
+    ),
+    NamedQuery(
+        name = "Person.countByName.ordinal",
+        query = "select count(*) from Person2 where name = ?1"
+    ),
     NamedQuery(name = "Person.updateAllNames", query = "Update Person2 p set p.name = :name"),
-    NamedQuery(name = "Person.updateNameById", query = "Update Person2 p set p.name = :name where p.id = :id"),
-    NamedQuery(name = "Person.updateNameById.ordinal", query = "Update Person2 p set p.name = ?1 where p.id = ?2"),
+    NamedQuery(
+        name = "Person.updateNameById",
+        query = "Update Person2 p set p.name = :name where p.id = :id"
+    ),
+    NamedQuery(
+        name = "Person.updateNameById.ordinal",
+        query = "Update Person2 p set p.name = ?1 where p.id = ?2"
+    ),
     NamedQuery(name = "Person.deleteAll", query = "delete from Person2"),
     NamedQuery(name = "Person.deleteById", query = "delete from Person2 p where p.id = :id"),
     NamedQuery(name = "Person.deleteById.ordinal", query = "delete from Person2 p where p.id = ?1")
@@ -39,7 +51,7 @@ import javax.xml.bind.annotation.XmlTransient
 @FilterDef(
     name = "Person.hasName",
     defaultCondition = "name = :name",
-    parameters = [ParamDef(name = "name", type = "string")]
+    parameters = [ParamDef(name = "name", type = String::class)]
 )
 @Filter(name = "Person.isAlive")
 @Filter(name = "Person.hasName")
@@ -58,28 +70,34 @@ class Person : PanacheEntity() {
         }
 
         @Suppress("UNUSED_PARAMETER")
-        fun methodWithPrimitiveParams(b: Boolean, bb: Byte, s: Short, i: Int, l: Long, f: Float, d: Double, c: Char) = 0
+        fun methodWithPrimitiveParams(
+            b: Boolean,
+            bb: Byte,
+            s: Short,
+            i: Int,
+            l: Long,
+            f: Float,
+            d: Double,
+            c: Char
+        ) = 0
     }
 
     var name: String? = null
 
-    @Column(unique = true)
-    var uniqueName: String? = null
+    @Column(unique = true) var uniqueName: String? = null
 
-    @ManyToOne(cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
-    var address: Address? = null
+    @ManyToOne(cascade = [CascadeType.ALL], fetch = FetchType.LAZY) var address: Address? = null
 
-    @Enumerated(EnumType.STRING)
-    var status: Status? = null
+    @Enumerated(EnumType.STRING) var status: Status? = null
 
     @OneToMany(mappedBy = "owner", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
     var dogs = mutableListOf<Dog>()
 
-    // note that this annotation is automatically added for mapped fields, which is not the case here
+    // note that this annotation is automatically added for mapped fields, which is not the case
+    // here
     // so we do it manually to emulate a mapped field situation
     @Transient
     @XmlTransient
     var serialisationTrick = 0
-        @JsonProperty
-        get() = ++field
+        @JsonProperty get() = ++field
 }

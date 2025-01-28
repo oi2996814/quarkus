@@ -5,8 +5,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Variant;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Variant;
 
 /**
  * {@link Variant} selection.
@@ -14,6 +14,7 @@ import javax.ws.rs.core.Variant;
  * @author Pascal S. de Kloe
  * @see "RFC 2296"
  */
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class ServerDrivenNegotiation {
 
     private Map<MediaType, QualityValue> requestedMediaTypes = null;

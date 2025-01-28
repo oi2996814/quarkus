@@ -1,7 +1,5 @@
 package org.jboss.resteasy.reactive.client.impl;
 
-import static org.jboss.resteasy.reactive.client.api.QuarkusRestClientProperties.READ_TIMEOUT;
-
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Locale;
@@ -9,20 +7,20 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-import javax.ws.rs.ProcessingException;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.client.CompletionStageRxInvoker;
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.client.Invocation;
-import javax.ws.rs.client.RxInvoker;
-import javax.ws.rs.client.RxInvokerProvider;
-import javax.ws.rs.core.CacheControl;
-import javax.ws.rs.core.Cookie;
-import javax.ws.rs.core.GenericType;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.client.CompletionStageRxInvoker;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.client.Invocation;
+import jakarta.ws.rs.client.RxInvoker;
+import jakarta.ws.rs.client.RxInvokerProvider;
+import jakarta.ws.rs.core.CacheControl;
+import jakarta.ws.rs.core.Cookie;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
 
 import org.jboss.resteasy.reactive.common.core.BlockingNotAllowedException;
 import org.jboss.resteasy.reactive.common.jaxrs.ConfigurationImpl;
@@ -33,8 +31,6 @@ import io.vertx.core.http.HttpClient;
 
 public class InvocationBuilderImpl implements Invocation.Builder {
 
-    private static final long DEFAULT_READ_TIMEOUT = 30_000L;
-
     final URI uri;
     final HttpClient httpClient;
     final WebTargetImpl target;
@@ -44,7 +40,6 @@ public class InvocationBuilderImpl implements Invocation.Builder {
     final ClientImpl restClient;
     final HandlerChain handlerChain;
     final ThreadSetupAction requestContext;
-    final long readTimeoutMs;
 
     public InvocationBuilderImpl(URI uri, ClientImpl restClient, HttpClient httpClient,
             WebTargetImpl target,
@@ -57,12 +52,6 @@ public class InvocationBuilderImpl implements Invocation.Builder {
         this.configuration = configuration;
         this.handlerChain = handlerChain;
         this.requestContext = requestContext;
-        Object readTimeoutMs = configuration.getProperty(READ_TIMEOUT);
-        if (readTimeoutMs == null) {
-            this.readTimeoutMs = DEFAULT_READ_TIMEOUT;
-        } else {
-            this.readTimeoutMs = (long) readTimeoutMs;
-        }
     }
 
     @Override

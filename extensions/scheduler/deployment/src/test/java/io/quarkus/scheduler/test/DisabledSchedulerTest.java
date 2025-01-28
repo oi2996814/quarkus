@@ -1,8 +1,10 @@
 package io.quarkus.scheduler.test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
@@ -16,7 +18,7 @@ public class DisabledSchedulerTest {
 
     @RegisterExtension
     static final QuarkusUnitTest test = new QuarkusUnitTest()
-            .withApplicationRoot((jar) -> jar
+            .withApplicationRoot(root -> root
                     .addClasses(Jobs.class)
                     .addAsResource(new StringAsset("quarkus.scheduler.enabled=false"),
                             "application.properties"));
@@ -25,8 +27,19 @@ public class DisabledSchedulerTest {
     Scheduler scheduler;
 
     @Test
-    public void testNoSchedulerInvocations() throws InterruptedException {
+    public void testSchedulerInvocations() throws InterruptedException {
+        assertNotNull(scheduler);
+        assertFalse(scheduler.isStarted());
         assertFalse(scheduler.isRunning());
+        assertNotNull(scheduler.implementation());
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.newJob("foo"));
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.unscheduleJob("foo"));
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.pause());
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.pause("foo"));
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.resume());
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.resume("foo"));
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.getScheduledJobs());
+        assertThrows(UnsupportedOperationException.class, () -> scheduler.getScheduledJob("bar"));
     }
 
     static class Jobs {

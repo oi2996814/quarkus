@@ -1,6 +1,8 @@
 package io.quarkus.deployment.pkg.steps;
 
+import static io.quarkus.deployment.pkg.PackageConfig.JarConfig.JarType.*;
 import static io.quarkus.deployment.pkg.steps.LinuxIDUtil.getLinuxID;
+import static io.quarkus.deployment.util.ContainerRuntimeUtil.detectContainerRuntime;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,6 +29,7 @@ import io.quarkus.deployment.pkg.builditem.CompiledJavaVersionBuildItem;
 import io.quarkus.deployment.pkg.builditem.JarBuildItem;
 import io.quarkus.deployment.pkg.builditem.OutputTargetBuildItem;
 import io.quarkus.deployment.steps.MainClassBuildStep;
+import io.quarkus.deployment.util.ContainerRuntimeUtil.ContainerRuntime;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.utilities.JavaBinFinder;
 
@@ -47,14 +50,14 @@ public class AppCDSBuildStep {
         producer.produce(new AppCDSRequestedBuildItem(outputTarget.getOutputDirectory().resolve("appcds")));
     }
 
-    @BuildStep
+    @BuildStep(onlyIfNot = NativeOrNativeSourcesBuild.class)
     public void build(Optional<AppCDSRequestedBuildItem> appCDsRequested,
             JarBuildItem jarResult, OutputTargetBuildItem outputTarget, PackageConfig packageConfig,
             CompiledJavaVersionBuildItem compiledJavaVersion,
             Optional<AppCDSContainerImageBuildItem> appCDSContainerImage,
             BuildProducer<AppCDSResultBuildItem> appCDS,
             BuildProducer<ArtifactResultBuildItem> artifactResult) throws Exception {
-        if (!appCDsRequested.isPresent()) {
+        if (appCDsRequested.isEmpty()) {
             return;
         }
 
@@ -73,28 +76,11 @@ public class AppCDSBuildStep {
             }
         }
 
-        boolean useArchiveClassesAtExit = compiledJavaVersion.getJavaVersion()
-                .isJava17OrHigher() == CompiledJavaVersionBuildItem.JavaVersion.Status.TRUE;
-
-        Path classesListPath = null;
-        if (!useArchiveClassesAtExit) {
-            classesListPath = createClassesList(jarResult, outputTarget, javaBinPath, containerImage,
-                    appCDsRequested.get().getAppCDSDir(), packageConfig.isFastJar());
-            if (classesListPath == null) {
-                return;
-            }
-            log.debugf("'%s' successfully created.", CLASSES_LIST_FILE_NAME);
-        }
-
         Path appCDSPath;
         log.info("Launching AppCDS creation process.");
-        if (useArchiveClassesAtExit) {
-            appCDSPath = createAppCDSFromExit(jarResult, outputTarget, javaBinPath, containerImage,
-                    packageConfig.isFastJar());
-        } else {
-            appCDSPath = createAppCDSFromClassesList(jarResult, outputTarget, javaBinPath, containerImage, classesListPath,
-                    packageConfig.isFastJar());
-        }
+        boolean isFastJar = packageConfig.jar().type() == FAST_JAR;
+        appCDSPath = createAppCDSFromExit(jarResult, outputTarget, javaBinPath, containerImage,
+                isFastJar);
 
         if (appCDSPath == null) {
             log.warn("Unable to create AppCDS.");
@@ -116,10 +102,10 @@ public class AppCDSBuildStep {
 
     private String determineContainerImage(PackageConfig packageConfig,
             Optional<AppCDSContainerImageBuildItem> appCDSContainerImage) {
-        if (!packageConfig.appcdsUseContainer) {
+        if (!packageConfig.jar().appcds().useContainer()) {
             return null;
-        } else if (packageConfig.appcdsBuilderImage.isPresent()) {
-            return packageConfig.appcdsBuilderImage.get();
+        } else if (packageConfig.jar().appcds().builderImage().isPresent()) {
+            return packageConfig.jar().appcds().builderImage().get();
         } else if (appCDSContainerImage.isPresent()) {
             return appCDSContainerImage.get().getContainerImage();
         }
@@ -201,18 +187,27 @@ public class AppCDSBuildStep {
     // generate the classes file on the host
     private List<String> dockerRunCommands(OutputTargetBuildItem outputTarget, String containerImage,
             String containerWorkingDir) {
+        ContainerRuntime containerRuntime = detectContainerRuntime(true);
+
         List<String> command = new ArrayList<>(10);
-        command.add("docker");
+        command.add(containerRuntime.getExecutableName());
         command.add("run");
         command.add("-v");
         command.add(outputTarget.getOutputDirectory().toAbsolutePath().toString() + ":" + CONTAINER_IMAGE_BASE_BUILD_DIR
                 + ":z");
         if (SystemUtils.IS_OS_LINUX) {
-            String uid = getLinuxID("-ur");
-            String gid = getLinuxID("-gr");
-            if (uid != null && gid != null && !uid.isEmpty() && !gid.isEmpty()) {
-                command.add("--user");
-                command.add(uid + ":" + gid);
+            if (containerRuntime.isDocker() && containerRuntime.isRootless()) {
+                Collections.addAll(command, "--user", String.valueOf(0));
+            } else {
+                String uid = getLinuxID("-ur");
+                String gid = getLinuxID("-gr");
+                if (uid != null && gid != null && !uid.isEmpty() && !gid.isEmpty()) {
+                    Collections.addAll(command, "--user", uid + ":" + gid);
+                    if (containerRuntime.isPodman() && containerRuntime.isRootless()) {
+                        // Needed to avoid AccessDeniedExceptions
+                        command.add("--userns=keep-id");
+                    }
+                }
             }
         }
         command.add("-w");
@@ -276,9 +271,13 @@ public class AppCDSBuildStep {
         Path workingDirectory = appCDSPathsContainer.workingDirectory;
         Path appCDSPath = appCDSPathsContainer.resultingFile;
 
-        List<String> javaArgs = new ArrayList<>(3);
+        boolean debug = log.isDebugEnabled();
+        List<String> javaArgs = new ArrayList<>(debug ? 4 : 3);
         javaArgs.add("-XX:ArchiveClassesAtExit=" + appCDSPath.getFileName().toString());
         javaArgs.add(String.format("-D%s=true", MainClassBuildStep.GENERATE_APP_CDS_SYSTEM_PROPERTY));
+        if (debug) {
+            javaArgs.add("-Xlog:cds=debug");
+        }
         javaArgs.add("-jar");
 
         List<String> command;
@@ -301,10 +300,10 @@ public class AppCDSBuildStep {
             command.addAll(javaArgs);
             if (isFastJar) {
                 command
-                        .add(jarResult.getLibraryDir().getParent().resolve(JarResultBuildStep.QUARKUS_RUN_JAR).toAbsolutePath()
-                                .toString());
+                        .add(jarResult.getLibraryDir().getParent().resolve(JarResultBuildStep.QUARKUS_RUN_JAR)
+                                .getFileName().toString());
             } else {
-                command.add(jarResult.getPath().toAbsolutePath().toString());
+                command.add(jarResult.getPath().getFileName().toString());
             }
         }
 
@@ -359,11 +358,7 @@ public class AppCDSBuildStep {
                 return false;
             }
 
-            if (!packageConfig.createAppcds || !packageConfig.isAnyJarType()) {
-                return false;
-            }
-
-            return true;
+            return packageConfig.jar().appcds().enabled() && packageConfig.jar().enabled();
         }
     }
 

@@ -6,7 +6,7 @@ import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNa
 import java.lang.reflect.Modifier;
 import java.util.List;
 
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MediaType;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationValue;
@@ -19,10 +19,10 @@ import org.jboss.jandex.Type;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.common.processor.JavaBeanUtil;
 import org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames;
-import org.jboss.resteasy.reactive.server.core.multipart.MultipartFormDataOutput;
 import org.jboss.resteasy.reactive.server.core.multipart.MultipartMessageBodyWriter;
 import org.jboss.resteasy.reactive.server.core.multipart.MultipartOutputInjectionTarget;
-import org.jboss.resteasy.reactive.server.core.multipart.PartItem;
+import org.jboss.resteasy.reactive.server.multipart.MultipartFormDataOutput;
+import org.jboss.resteasy.reactive.server.multipart.PartItem;
 
 import io.quarkus.gizmo.AssignableResultHandle;
 import io.quarkus.gizmo.ClassCreator;

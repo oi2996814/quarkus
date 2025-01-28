@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Optional;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -31,7 +31,7 @@ public class RecordedBuildProfileInRuntimeTest {
         ConfigValue profile = config.getConfigValue("quarkus.test.profile");
         assertEquals("test", profile.getValue());
         // Recorded by ProfileBuildStep
-        assertEquals("RunTime Defaults", profile.getConfigSourceName());
+        assertEquals("DefaultValuesConfigSource", profile.getConfigSourceName());
 
         Optional<ConfigSource> defaultValuesConfigSource = config.getConfigSource("DefaultValuesConfigSource");
         assertTrue(defaultValuesConfigSource.isPresent());

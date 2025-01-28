@@ -3,15 +3,16 @@ package io.quarkus.undertow.runtime;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 import io.undertow.httpcore.OutputChannel;
@@ -24,7 +25,7 @@ import io.undertow.util.MimeMappings;
 public class KnownPathResourceManager implements ResourceManager {
 
     private final NavigableSet<String> files;
-    private final Set<String> directories;
+    private final NavigableSet<String> directories;
     private final ResourceManager underlying;
 
     public KnownPathResourceManager(Set<String> files, Set<String> directories, ResourceManager underlying) {
@@ -51,7 +52,7 @@ public class KnownPathResourceManager implements ResourceManager {
             tmp.add(i);
         }
         tmp.add("");
-        this.directories = Collections.unmodifiableSet(tmp);
+        this.directories = new TreeSet<>(tmp);
     }
 
     @Override
@@ -64,6 +65,9 @@ public class KnownPathResourceManager implements ResourceManager {
         }
         if (directories.contains(path)) {
             return new DirectoryResource(path);
+        }
+        if (!files.contains(path)) {
+            return null;
         }
         return underlying.getResource(path);
     }
@@ -78,7 +82,11 @@ public class KnownPathResourceManager implements ResourceManager {
         private final String path;
 
         private DirectoryResource(String path) {
-            this.path = path;
+            this.path = evaluatePath(path);
+        }
+
+        private String evaluatePath(String path) {
+            return path.replace('\\', '/');
         }
 
         @Override
@@ -118,18 +126,40 @@ public class KnownPathResourceManager implements ResourceManager {
         @Override
         public List<Resource> list() {
             List<Resource> ret = new ArrayList<>();
-            String slashPath = path + "/";
-            for (String i : files.headSet(path)) {
-                if (i.startsWith(slashPath)) {
-                    try {
-                        ret.add(underlying.getResource(i));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
+            String slashPath = path.isEmpty() ? path : path + "/";
+
+            SortedSet<String> fileSet = files.tailSet(slashPath);
+            SortedSet<String> dirSet = directories.tailSet(slashPath);
+
+            for (var s : List.of(fileSet, dirSet)) {
+                for (String file : s) {
+                    var i = file;
+                    if (i.equals(slashPath)) {
+                        continue;
                     }
-                } else {
-                    break;
+                    if (i.startsWith(slashPath)) {
+                        i = evaluatePath(i);
+                        if (!i.substring(slashPath.length()).contains("/")) {
+                            try {
+                                Resource resource = underlying.getResource(i);
+                                if (resource == null && directories.contains(file)) {
+                                    resource = new DirectoryResource(file);
+                                }
+                                if (resource == null) {
+                                    throw new RuntimeException("Unable to get listed resource " + i + " from directory " + path
+                                            + " for path " + slashPath + " from underlying manager " + underlying);
+                                }
+                                ret.add(resource);
+                            } catch (IOException e) {
+                                throw new UncheckedIOException(e);
+                            }
+                        }
+                    } else {
+                        break;
+                    }
                 }
             }
+
             return ret;
         }
 

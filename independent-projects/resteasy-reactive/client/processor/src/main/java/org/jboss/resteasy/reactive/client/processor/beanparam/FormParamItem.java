@@ -1,19 +1,22 @@
 package org.jboss.resteasy.reactive.client.processor.beanparam;
 
+import org.jboss.jandex.Type;
+
 public class FormParamItem extends Item {
 
     private final String formParamName;
-    private final String paramType;
+    private final Type paramType;
     private final String paramSignature;
     private final String mimeType;
     private final String fileName;
     private final String sourceName;
 
-    public FormParamItem(String formParamName, String paramType, String paramSignature,
+    public FormParamItem(String fieldName, String formParamName, Type paramType, String paramSignature,
             String sourceName,
             String mimeType, String fileName,
+            boolean encoded,
             ValueExtractor valueExtractor) {
-        super(ItemType.FORM_PARAM, valueExtractor);
+        super(fieldName, ItemType.FORM_PARAM, encoded, valueExtractor);
         this.formParamName = formParamName;
         this.paramType = paramType;
         this.paramSignature = paramSignature;
@@ -26,7 +29,7 @@ public class FormParamItem extends Item {
         return formParamName;
     }
 
-    public String getParamType() {
+    public Type getParamType() {
         return paramType;
     }
 

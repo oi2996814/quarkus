@@ -33,6 +33,20 @@ public class JsonLogConfig {
     @ConfigItem(name = "file.json")
     JsonConfig fileJson;
 
+    /**
+     * Syslog logging.
+     */
+    @ConfigDocSection
+    @ConfigItem(name = "syslog.json")
+    JsonConfig syslogJson;
+
+    /**
+     * Socket logging.
+     */
+    @ConfigDocSection
+    @ConfigItem(name = "socket.json")
+    JsonConfig socketJson;
+
     @ConfigGroup
     public static class JsonConfig {
         /**
@@ -41,7 +55,7 @@ public class JsonLogConfig {
         @ConfigItem(name = ConfigItem.PARENT, defaultValue = "true")
         boolean enable;
         /**
-         * Enable "pretty printing" of the JSON record. Note that some JSON parsers will fail to read pretty printed output.
+         * Enable "pretty printing" of the JSON record. Note that some JSON parsers will fail to read the pretty printed output.
          */
         @ConfigItem
         boolean prettyPrint;
@@ -51,7 +65,7 @@ public class JsonLogConfig {
         @ConfigItem(defaultValue = "default")
         String dateFormat;
         /**
-         * The special end-of-record delimiter to be used. By default, newline is used as delimiter.
+         * The special end-of-record delimiter to be used. By default, newline is used.
          */
         @ConfigItem
         Optional<String> recordDelimiter;
@@ -69,7 +83,7 @@ public class JsonLogConfig {
          * Enable printing of more details in the log.
          * <p>
          * Printing the details can be expensive as the values are retrieved from the caller. The details include the
-         * source class name, source file name, source method name and source line number.
+         * source class name, source file name, source method name, and source line number.
          */
         @ConfigItem
         boolean printDetails;
@@ -80,16 +94,27 @@ public class JsonLogConfig {
         Optional<String> keyOverrides;
 
         /**
-         * Keys to be excluded from the Json output.
+         * Keys to be excluded from the JSON output.
          */
         @ConfigItem
         Optional<Set<String>> excludedKeys;
 
         /**
-         * Additional fields to be appended in the json logs.
+         * Additional fields to be appended in the JSON logs.
          */
         @ConfigItem
         @ConfigDocMapKey("field-name")
         Map<String, AdditionalFieldConfig> additionalField;
+
+        /**
+         * Specify the format of the produced JSON
+         */
+        @ConfigItem(defaultValue = "DEFAULT")
+        LogFormat logFormat;
+
+        public enum LogFormat {
+            DEFAULT,
+            ECS
+        }
     }
 }

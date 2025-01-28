@@ -27,6 +27,7 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.HotDeploymentWatchedFileBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.devui.deployment.menu.EndpointsProcessor;
 import io.quarkus.maven.dependency.GACT;
 import io.quarkus.runtime.configuration.ConfigurationException;
 import io.quarkus.smallrye.openapi.common.deployment.SmallRyeOpenApiConfig;
@@ -99,10 +100,10 @@ public class SwaggerUiProcessor {
                         Set.of("quarkus.swagger-ui.path"));
             }
 
-            if (openapi.path.equalsIgnoreCase(swaggerUiConfig.path)) {
+            if (openapi.path().equalsIgnoreCase(swaggerUiConfig.path)) {
                 throw new ConfigurationException(
                         "quarkus.smallrye-openapi.path and quarkus.swagger-ui.path was set to the same value, this is not allowed as the paths needs to be unique ["
-                                + openapi.path + "].",
+                                + openapi.path() + "].",
                         Set.of("quarkus.smallrye-openapi.path", "quarkus.swagger-ui.path"));
 
             }
@@ -119,7 +120,8 @@ public class SwaggerUiProcessor {
                 }
             }
 
-            String openApiPath = nonApplicationRootPathBuildItem.resolvePath(openapi.path);
+            String openApiPath = nonApplicationRootPathBuildItem.resolvePath(openapi.path());
+
             String swaggerUiPath = nonApplicationRootPathBuildItem.resolvePath(swaggerUiConfig.path);
             ThemeHref theme = swaggerUiConfig.theme.orElse(ThemeHref.feeling_blue);
 
@@ -180,6 +182,7 @@ public class SwaggerUiProcessor {
                     runtimeConfig, shutdownContext);
 
             routes.produce(nonApplicationRootPathBuildItem.routeBuilder()
+                    .management("quarkus.smallrye-openapi.management.enabled")
                     .route(swaggerUiConfig.path)
                     .displayOnNotFoundPage("Open API UI")
                     .routeConfigKey("quarkus.swagger-ui.path")
@@ -187,6 +190,7 @@ public class SwaggerUiProcessor {
                     .build());
 
             routes.produce(nonApplicationRootPathBuildItem.routeBuilder()
+                    .management("quarkus.smallrye-openapi.management.enabled")
                     .route(swaggerUiConfig.path + "*")
                     .handler(handler)
                     .build());
@@ -201,7 +205,7 @@ public class SwaggerUiProcessor {
 
         options.put(Option.selfHref, swaggerUiPath);
         if (nonApplicationRootPath != null) {
-            options.put(Option.backHref, nonApplicationRootPath.resolvePath("dev"));
+            options.put(Option.backHref, nonApplicationRootPath.resolvePath(EndpointsProcessor.DEV_UI) + "/");
         } else {
             options.put(Option.backHref, swaggerUiPath);
         }
@@ -344,6 +348,11 @@ public class SwaggerUiProcessor {
             options.put(Option.plugins, plugins);
         }
 
+        if (swaggerUiConfig.scripts.isPresent()) {
+            String scripts = String.join(",", swaggerUiConfig.scripts.get());
+            options.put(Option.scripts, scripts);
+        }
+
         if (swaggerUiConfig.presets.isPresent()) {
             String presets = swaggerUiConfig.presets.get().toString();
             options.put(Option.presets, presets);
@@ -372,6 +381,9 @@ public class SwaggerUiProcessor {
         if (swaggerUiConfig.oauthScopes.isPresent()) {
             String oauthScopes = swaggerUiConfig.oauthScopes.get();
             options.put(Option.oauthScopes, oauthScopes);
+        }
+        if (swaggerUiConfig.queryConfigEnabled) {
+            options.put(Option.queryConfigEnabled, "true");
         }
 
         ObjectMapper objectMapper = new ObjectMapper();
@@ -423,6 +435,9 @@ public class SwaggerUiProcessor {
         if (swaggerUiConfig.preauthorizeApiKeyApiKeyValue.isPresent()) {
             String preauthorizeApiKeyApiKeyValue = swaggerUiConfig.preauthorizeApiKeyApiKeyValue.get();
             options.put(Option.preauthorizeApiKeyApiKeyValue, preauthorizeApiKeyApiKeyValue);
+        }
+        if (swaggerUiConfig.tryItOutEnabled) {
+            options.put(Option.tryItOutEnabled, "true");
         }
 
         return IndexHtmlCreator.createIndexHtml(urlsMap, swaggerUiConfig.urlsPrimaryName.orElse(null), options);

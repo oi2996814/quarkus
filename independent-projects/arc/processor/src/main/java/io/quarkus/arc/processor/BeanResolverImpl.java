@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.AmbiguousResolutionException;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassType;
@@ -94,6 +94,11 @@ class BeanResolverImpl implements BeanResolver {
         return false;
     }
 
+    @Override
+    public boolean hasQualifier(Collection<AnnotationInstance> qualifiers, AnnotationInstance requiredQualifier) {
+        return Beans.hasQualifier(beanDeployment, requiredQualifier, qualifiers);
+    }
+
     protected BeanResolver getBeanResolver(BeanInfo bean) {
         return bean.getDeployment().beanResolver;
     }
@@ -126,6 +131,22 @@ class BeanResolverImpl implements BeanResolver {
         return resolved.isEmpty() ? Collections.emptyList() : resolved;
     }
 
+    List<BeanInfo> findUnrestrictedTypeMatching(TypeAndQualifiers typeAndQualifiers) {
+        List<BeanInfo> resolved = new ArrayList<>();
+        for (BeanInfo b : beanDeployment.getBeans()) {
+            if (!Beans.hasQualifiers(b, typeAndQualifiers.qualifiers)) {
+                continue;
+            }
+            for (Type type : b.getUnrestrictedTypes()) {
+                if (matches(typeAndQualifiers.type, type)) {
+                    resolved.add(b);
+                    break;
+                }
+            }
+        }
+        return resolved.isEmpty() ? Collections.emptyList() : resolved;
+    }
+
     Collection<BeanInfo> potentialBeans(Type type) {
         if ((type.kind() == CLASS || type.kind() == PARAMETERIZED_TYPE) && !type.name().equals(DotNames.OBJECT)) {
             return beanDeployment.getBeansByRawType(type.name());
@@ -145,7 +166,7 @@ class BeanResolverImpl implements BeanResolver {
         if (ARRAY.equals(requiredType.kind())) {
             if (ARRAY.equals(beanType.kind())) {
                 // Array types are considered to match only if their element types are identical
-                return matchesNoBoxing(requiredType.asArrayType().component(), beanType.asArrayType().component());
+                return matchesNoBoxing(requiredType.asArrayType().constituent(), beanType.asArrayType().constituent());
             }
         } else if (CLASS.equals(requiredType.kind())) {
             if (CLASS.equals(beanType.kind())) {
@@ -180,19 +201,19 @@ class BeanResolverImpl implements BeanResolver {
                     throw new IllegalArgumentException("Invalid argument combination " + requiredType + "; " + beanType);
                 }
                 for (int i = 0; i < requiredTypeArguments.size(); i++) {
-                    if (!parametersMatch(requiredTypeArguments.get(i), beanTypeArguments.get(i))) {
+                    if (!matchTypeArguments(requiredTypeArguments.get(i), beanTypeArguments.get(i))) {
                         return false;
                     }
                 }
                 return true;
             }
         } else if (WILDCARD_TYPE.equals(requiredType.kind())) {
-            return parametersMatch(requiredType, beanType);
+            return matchTypeArguments(requiredType, beanType);
         }
         return false;
     }
 
-    boolean parametersMatch(Type requiredParameter, Type beanParameter) {
+    public boolean matchTypeArguments(Type requiredParameter, Type beanParameter) {
         if (isActualType(requiredParameter) && isActualType(beanParameter)) {
             /*
              * the required type parameter and the bean type parameter are actual types with identical raw type, and, if the
@@ -277,13 +298,20 @@ class BeanResolverImpl implements BeanResolver {
         bounds = getUppermostBounds(bounds);
         stricterBounds = getUppermostBounds(stricterBounds);
         for (Type bound : bounds) {
-            for (Type stricterBound : stricterBounds) {
-                if (!beanDeployment.getAssignabilityCheck().isAssignableFrom(bound, stricterBound)) {
-                    return false;
-                }
+            if (!isAssignableFromAtLeastOne(bound, stricterBounds)) {
+                return false;
             }
         }
         return true;
+    }
+
+    boolean isAssignableFromAtLeastOne(Type type1, List<Type> types2) {
+        for (Type type2 : types2) {
+            if (beanDeployment.getAssignabilityCheck().isAssignableFrom(type1, type2)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     boolean lowerBoundsOfWildcardMatch(Type parameter, WildcardType requiredParameter) {

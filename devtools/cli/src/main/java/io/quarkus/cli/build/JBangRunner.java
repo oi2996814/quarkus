@@ -15,7 +15,9 @@ import io.quarkus.cli.common.ListFormatOptions;
 import io.quarkus.cli.common.OutputOptionMixin;
 import io.quarkus.cli.common.PropertiesOptions;
 import io.quarkus.cli.common.RunModeOption;
+import io.quarkus.cli.common.TargetQuarkusVersionGroup;
 import io.quarkus.cli.registry.RegistryClientMixin;
+import io.quarkus.cli.update.RewriteGroup;
 import io.quarkus.devtools.project.BuildTool;
 
 public class JBangRunner implements BuildSystemRunner {
@@ -70,12 +72,13 @@ public class JBangRunner implements BuildSystemRunner {
     }
 
     @Override
-    public Integer info(boolean perModule) {
+    public Integer projectInfo(boolean perModule) {
         throw new UnsupportedOperationException("Not there yet. ;)");
     }
 
     @Override
-    public Integer update(boolean rectify, boolean recommendedState, boolean perModule) {
+    public Integer updateProject(TargetQuarkusVersionGroup targetQuarkusVersion, RewriteGroup rewrite, boolean perModule)
+            throws Exception {
         throw new UnsupportedOperationException("Not there yet. ;)");
     }
 
@@ -108,6 +111,11 @@ public class JBangRunner implements BuildSystemRunner {
     @Override
     public BuildCommandArgs prepareBuild(BuildOptions buildOptions, RunModeOption runMode, List<String> params) {
         return prepareAction("build", buildOptions, runMode, params);
+    }
+
+    @Override
+    public BuildCommandArgs prepareTest(BuildOptions buildOptions, RunModeOption runMode, List<String> params, String filter) {
+        throw new UnsupportedOperationException("Not there yet. ;)");
     }
 
     @Override

@@ -2,9 +2,9 @@ package org.jboss.resteasy.reactive.server.vertx.test.resource.basic;
 
 import java.util.function.Supplier;
 
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.ClientBuilder;
+import jakarta.ws.rs.core.Response;
 
 import org.jboss.resteasy.reactive.server.vertx.test.framework.ResteasyReactiveUnitTest;
 import org.jboss.resteasy.reactive.server.vertx.test.resource.basic.resource.ApplicationScopeObject;
@@ -94,6 +94,20 @@ public class ParameterSubResTest {
         Response response = client.target(generateURL("/path/sub/fred")).request().get();
         Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         Assertions.assertEquals("Boo! - fred", response.readEntity(String.class), "Wrong content of response");
+    }
+
+    @Test
+    @DisplayName("Test Sub Resource - HEAD")
+    public void testSubResourceHead() throws Exception {
+        Response response = client.target(generateURL("/path/sub/fred")).request().head();
+        Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    @DisplayName("Test Sub Resource - OPTIONS")
+    public void testSubResourceOptions() throws Exception {
+        Response response = client.target(generateURL("/path/sub/fred")).request().options();
+        Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
     }
 
     @Test

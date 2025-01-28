@@ -7,10 +7,12 @@ import java.util.Locale;
 import java.util.TimeZone;
 import java.util.UUID;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+
+import org.hibernate.annotations.JavaType;
 
 @Entity
 public class BasicTypeData {
@@ -21,6 +23,7 @@ public class BasicTypeData {
 
     private Double doubleValue;
     private BigDecimal bigDecimalValue;
+    @JavaType(FixedLocaleJavaType.class) // Workaround for https://hibernate.atlassian.net/browse/HHH-17466
     private Locale locale;
     private TimeZone timeZone;
     private java.net.URL url;

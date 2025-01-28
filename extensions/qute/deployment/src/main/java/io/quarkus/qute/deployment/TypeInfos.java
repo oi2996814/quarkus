@@ -81,6 +81,11 @@ final class TypeInfos {
                         rawClass = null;
                     } else {
                         rawClass = getClassInfo(classStr, index, templateIdToPathFun, expressionOrigin);
+                        // Comparable<Integer> -> java.lang.Comparable<Integer>
+                        if (rawClass.name().packagePrefix().equals("java.lang")
+                                && !classStr.contains(Types.JAVA_LANG_PREFIX)) {
+                            classStr = Types.JAVA_LANG_PREFIX + classStr;
+                        }
                         resolvedType = resolveType(classStr);
                     }
                 }
@@ -97,6 +102,27 @@ final class TypeInfos {
             }
             return new PropertyInfo(part.getName(), part, hint);
         }
+    }
+
+    static Type resolveTypeFromTypeInfo(String typeInfo) {
+        if (typeInfo.startsWith(TYPE_INFO_SEPARATOR)) {
+            int endIdx = typeInfo.substring(1, typeInfo.length()).indexOf(Expressions.TYPE_INFO_SEPARATOR);
+            if (endIdx < 1) {
+                throw new IllegalArgumentException("Invalid type info: " + typeInfo);
+            }
+            String typeInfoStr = typeInfo.substring(1, endIdx + 1);
+            if (!isArray(typeInfoStr)) {
+                Type primitiveType = decodePrimitive(typeInfoStr);
+                if (primitiveType == null) {
+                    return resolveType(typeInfoStr);
+                }
+            }
+        }
+        return null;
+    }
+
+    static boolean isArray(String typeInfo) {
+        return typeInfo == null ? false : typeInfo.indexOf(ARRAY_DIM) > 0;
     }
 
     private static ClassInfo getClassInfo(String val, IndexView index, Function<String, String> templateIdToPathFun,

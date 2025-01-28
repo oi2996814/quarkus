@@ -17,19 +17,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.MessageBodyWriter;
 
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.common.ResteasyReactiveConfig;
@@ -54,11 +52,13 @@ import org.jboss.resteasy.reactive.server.core.parameters.HeaderParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.InjectParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.LocatableResourcePathParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.MatrixParamExtractor;
+import org.jboss.resteasy.reactive.server.core.parameters.MultipartDataInputExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.MultipartFormParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.NullParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.ParameterExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.PathParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.QueryParamExtractor;
+import org.jboss.resteasy.reactive.server.core.parameters.RecordBeanParamExtractor;
 import org.jboss.resteasy.reactive.server.core.parameters.converters.ParameterConverter;
 import org.jboss.resteasy.reactive.server.core.parameters.converters.RuntimeResolvedConverter;
 import org.jboss.resteasy.reactive.server.core.serialization.DynamicEntityWriter;
@@ -96,6 +96,7 @@ import org.jboss.resteasy.reactive.server.spi.ServerRestHandler;
 import org.jboss.resteasy.reactive.server.util.ScoreSystem;
 import org.jboss.resteasy.reactive.spi.BeanFactory;
 
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class RuntimeResourceDeployment {
 
     private static final ServerRestHandler[] EMPTY_REST_HANDLER_ARRAY = new ServerRestHandler[0];
@@ -148,7 +149,7 @@ public class RuntimeResourceDeployment {
         Map<String, Integer> pathParameterIndexes = buildParamIndexMap(classPathTemplate, methodPathTemplate);
         MediaType streamElementType = null;
         if (method.getStreamElementType() != null) {
-            streamElementType = MediaType.valueOf(method.getStreamElementType());
+            streamElementType = MediaTypeHelper.valueOf(method.getStreamElementType());
         }
         List<MediaType> consumesMediaTypes;
         if (method.getConsumes() == null) {
@@ -156,7 +157,7 @@ public class RuntimeResourceDeployment {
         } else {
             consumesMediaTypes = new ArrayList<>(method.getConsumes().length);
             for (String s : method.getConsumes()) {
-                consumesMediaTypes.add(MediaType.valueOf(s));
+                consumesMediaTypes.add(MediaTypeHelper.valueOf(s));
             }
         }
 
@@ -174,20 +175,9 @@ public class RuntimeResourceDeployment {
             }
         }
 
-        Annotation[] resourceClassAnnotations = resourceClass.getAnnotations();
-        Set<String> classAnnotationNames;
-        if (resourceClassAnnotations.length == 0) {
-            classAnnotationNames = Collections.emptySet();
-        } else {
-            classAnnotationNames = new HashSet<>(resourceClassAnnotations.length);
-            for (Annotation annotation : resourceClassAnnotations) {
-                classAnnotationNames.add(annotation.annotationType().getName());
-            }
-        }
-
         ResteasyReactiveResourceInfo lazyMethod = new ResteasyReactiveResourceInfo(method.getName(), resourceClass,
-                parameterDeclaredUnresolvedTypes, classAnnotationNames, method.getMethodAnnotationNames(),
-                !defaultBlocking && !method.isBlocking());
+                parameterDeclaredUnresolvedTypes,
+                !defaultBlocking && !method.isBlocking(), method.getActualDeclaringClassName());
 
         RuntimeInterceptorDeployment.MethodInterceptorContext interceptorDeployment = runtimeInterceptorDeployment
                 .forMethod(method, lazyMethod);
@@ -195,7 +185,8 @@ public class RuntimeResourceDeployment {
         //setup reader and writer interceptors first
         ServerRestHandler interceptorHandler = interceptorDeployment.setupInterceptorHandler();
         //we want interceptors in the abort handler chain
-        List<ServerRestHandler> abortHandlingChain = new ArrayList<>(3 + (interceptorHandler != null ? 1 : 0));
+        List<ServerRestHandler> abortHandlingChain = new ArrayList<>(
+                3 + (interceptorHandler != null ? 1 : 0) + (info.getPreExceptionMapperHandler() != null ? 1 : 0));
 
         List<ServerRestHandler> handlers = new ArrayList<>(HANDLERS_CAPACITY);
         // we add null as the first item to make sure that subsequent items are added in the proper positions
@@ -209,27 +200,29 @@ public class RuntimeResourceDeployment {
 
         // when a method is blocking, we also want all the request filters to run on the worker thread
         // because they can potentially set thread local variables
-        //we don't need to run this for Servlet and other runtimes that default to blocking
+        // we don't need to run this for Servlet and other runtimes that default to blocking
         Optional<Integer> blockingHandlerIndex = Optional.empty();
         if (!defaultBlocking) {
             if (method.isBlocking()) {
                 if (method.isRunOnVirtualThread()) {
                     handlers.add(blockingHandlerVirtualThread);
+                    score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionVirtualThread);
                 } else {
                     handlers.add(blockingHandler);
+                    score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionBlocking);
                 }
                 blockingHandlerIndex = Optional.of(handlers.size() - 1);
-                score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionBlocking);
             } else {
                 if (method.isRunOnVirtualThread()) {
                     //should not happen
-                    log.error("a method was both non blocking and @RunOnVirtualThread, it is now considered " +
+                    log.error("a method was both non-blocking and @RunOnVirtualThread, it is now considered " +
                             "@RunOnVirtual and blocking");
                     handlers.add(blockingHandlerVirtualThread);
+                    score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionVirtualThread);
                 } else {
                     handlers.add(NonBlockingHandler.INSTANCE);
+                    score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionNonBlocking);
                 }
-                score.add(ScoreSystem.Category.Execution, ScoreSystem.Diagnostic.ExecutionNonBlocking);
             }
         }
 
@@ -264,6 +257,7 @@ public class RuntimeResourceDeployment {
             for (ResourceRequestFilterHandler handler : containerRequestFilterHandlers) {
                 if (handler.isWithFormRead()) {
                     hasWithFormReadRequestFilters = true;
+                    break;
                 }
             }
         }
@@ -283,16 +277,19 @@ public class RuntimeResourceDeployment {
         }
         // form params can be everywhere (field, beanparam, param)
         boolean checkWithFormReadRequestFilters = false;
+        boolean inputHandlerEngaged = false;
         if (method.isFormParamRequired() || hasWithFormReadRequestFilters) {
             // read the body as multipart in one go
             handlers.add(new FormBodyHandler(bodyParameter != null, executorSupplier, method.getFileFormNames()));
             checkWithFormReadRequestFilters = true;
-        } else if (bodyParameter != null) {
+        }
+        if (bodyParameter != null) {
             if (!defaultBlocking) {
                 if (!method.isBlocking()) {
                     // allow the body to be read by chunks
                     handlers.add(new InputHandler(resteasyReactiveConfig.getInputBufferSize(), executorSupplier));
                     checkWithFormReadRequestFilters = true;
+                    inputHandlerEngaged = true;
                 }
             }
         }
@@ -321,6 +318,10 @@ public class RuntimeResourceDeployment {
             }
             handlers.add(new RequestDeserializeHandler(typeClass, genericType, consumesMediaTypes, serialisers,
                     bodyParameterIndex));
+            if (inputHandlerEngaged) {
+                handlers.add(NonBlockingHandler.INSTANCE);
+            }
+
         }
 
         // given that we may inject form params in the endpoint we need to make sure we read the body before
@@ -340,6 +341,8 @@ public class RuntimeResourceDeployment {
         addHandlers(handlers, clazz, method, info, HandlerChainCustomizer.Phase.RESOLVE_METHOD_PARAMETERS);
         for (int i = 0; i < parameters.length; i++) {
             ServerMethodParameter param = (ServerMethodParameter) parameters[i];
+            if (param.parameterType.equals(ParameterType.SKIPPED))
+                continue;
             ParameterExtractor extractor = parameterExtractor(pathParameterIndexes, locatableResource, param);
             ParameterConverter converter = null;
             ParamConverterProviders paramConverterProviders = info.getParamConverterProviders();
@@ -404,7 +407,7 @@ public class RuntimeResourceDeployment {
             if (method.getProduces() != null && method.getProduces().length > 0) {
                 //the method can only produce a single content type, which is the most common case
                 if (method.getProduces().length == 1) {
-                    MediaType mediaType = MediaType.valueOf(method.getProduces()[0]);
+                    MediaType mediaType = MediaTypeHelper.valueOf(method.getProduces()[0]);
                     //its a wildcard type, makes it hard to determine statically
                     if (mediaType.isWildcardType() || mediaType.isWildcardSubtype()) {
                         handlers.add(new VariableProducesHandler(serverMediaType, serialisers));
@@ -478,6 +481,9 @@ public class RuntimeResourceDeployment {
             // so we can invoke it
             abortHandlingChain.add(instanceHandler);
         }
+        if (info.getPreExceptionMapperHandler() != null) {
+            abortHandlingChain.add(info.getPreExceptionMapperHandler());
+        }
         abortHandlingChain.add(ExceptionHandler.INSTANCE);
         abortHandlingChain.add(ResponseHandler.NO_CUSTOMIZER_INSTANCE);
         abortHandlingChain.addAll(responseFilterHandlers);
@@ -514,6 +520,8 @@ public class RuntimeResourceDeployment {
                     Type genericType = genericArguments[0];
                     if (genericType instanceof Class) {
                         genericTypeClassName = ((Class<?>) genericType).getName();
+                    } else if (genericType instanceof ParameterizedType) {
+                        genericTypeClassName = ((ParameterizedType) genericType).getRawType().getTypeName();
                     } else if (genericType instanceof WildcardType) {
                         WildcardType genericTypeWildcardType = (WildcardType) genericType;
                         Type[] upperBounds = genericTypeWildcardType.getUpperBounds();
@@ -545,8 +553,16 @@ public class RuntimeResourceDeployment {
     }
 
     private static boolean isNotVoid(Class<?> rawEffectiveReturnType) {
-        return rawEffectiveReturnType != Void.class
-                && rawEffectiveReturnType != void.class;
+        if (rawEffectiveReturnType == Void.class) {
+            return false;
+        }
+        if (rawEffectiveReturnType == void.class) {
+            return false;
+        }
+        if ("kotlin.Unit".equals(rawEffectiveReturnType.getName())) {
+            return false;
+        }
+        return true;
     }
 
     private void addResponseHandler(ServerResourceMethod method, List<ServerRestHandler> handlers) {
@@ -676,18 +692,25 @@ public class RuntimeResourceDeployment {
             case CONTEXT:
                 return new ContextParamExtractor(param.type);
             case ASYNC_RESPONSE:
-                return new AsyncResponseExtractor();
+                return AsyncResponseExtractor.INSTANCE;
             case QUERY:
                 extractor = new QueryParamExtractor(param.name, param.isSingle(), param.encoded, param.separator);
                 return extractor;
             case BODY:
-                return new BodyParamExtractor();
+                return BodyParamExtractor.INSTANCE;
             case MATRIX:
                 extractor = new MatrixParamExtractor(param.name, param.isSingle(), param.encoded);
                 return extractor;
             case BEAN:
             case MULTI_PART_FORM:
-                return new InjectParamExtractor((BeanFactory<Object>) info.getFactoryCreator().apply(loadClass(param.type)));
+                Class<?> paramClass = loadClass(param.type);
+                if (paramClass.isRecord()) {
+                    return new RecordBeanParamExtractor(paramClass);
+                } else {
+                    return new InjectParamExtractor((BeanFactory<Object>) info.getFactoryCreator().apply(paramClass));
+                }
+            case MULTI_PART_DATA_INPUT:
+                return MultipartDataInputExtractor.INSTANCE;
             case CUSTOM:
                 return param.customParameterExtractor;
             default:

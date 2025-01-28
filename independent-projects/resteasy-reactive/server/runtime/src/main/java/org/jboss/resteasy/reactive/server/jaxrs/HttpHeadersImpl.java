@@ -6,13 +6,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.ws.rs.core.Cookie;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Cookie;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
 
 import org.jboss.resteasy.reactive.common.headers.HeaderUtil;
 import org.jboss.resteasy.reactive.common.util.CaseInsensitiveMap;
+import org.jboss.resteasy.reactive.common.util.MediaTypeHelper;
 import org.jboss.resteasy.reactive.common.util.UnmodifiableMultivaluedMap;
 
 /**
@@ -23,7 +24,6 @@ public class HttpHeadersImpl implements HttpHeaders {
 
     private final MultivaluedMap<String, String> requestHeaders;
     private final MultivaluedMap<String, String> unmodifiableRequestHeaders;
-    private Map<String, Cookie> cookies;
 
     public HttpHeadersImpl(Iterable<Map.Entry<String, String>> vertxHeaders) {
         requestHeaders = new CaseInsensitiveMap<>();
@@ -50,10 +50,7 @@ public class HttpHeadersImpl implements HttpHeaders {
 
     @Override
     public Map<String, Cookie> getCookies() {
-        if (cookies == null) {
-            cookies = Collections.unmodifiableMap(HeaderUtil.getCookies(requestHeaders));
-        }
-        return cookies;
+        return Collections.unmodifiableMap(HeaderUtil.getCookies(requestHeaders));
     }
 
     @Override
@@ -89,7 +86,7 @@ public class HttpHeadersImpl implements HttpHeaders {
         if (obj == cachedMediaTypeString)
             return cachedMediaType;
         cachedMediaTypeString = obj;
-        cachedMediaType = MediaType.valueOf(obj);
+        cachedMediaType = MediaTypeHelper.valueOf(obj);
         return cachedMediaType;
     }
 

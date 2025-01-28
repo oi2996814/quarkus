@@ -1,13 +1,13 @@
 package io.quarkus.vertx.http;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.ext.web.Router;
 
 @ApplicationScoped
-class ForwardedHandlerInitializer {
+public class ForwardedHandlerInitializer {
 
     public void register(@Observes Router router) {
         router.route("/forward").handler(rc -> rc.response()
@@ -19,6 +19,17 @@ class ForwardedHandlerInitializer {
                         + "|" + rc.request().remoteAddress().toString()
                         + "|" + rc.request().uri()
                         + "|" + rc.request().absoluteURI()));
+        router.route("/trusted-proxy").handler(rc -> rc.response()
+                .end(rc.request().scheme() + "|" + rc.request().getHeader(HttpHeaders.HOST) + "|"
+                        + rc.request().remoteAddress().toString()
+                        + "|" + rc.request().getHeader("X-Forwarded-Trusted-Proxy")));
+        router.route("/path-trusted-proxy").handler(rc -> rc.response()
+                .end(rc.request().scheme()
+                        + "|" + rc.request().getHeader(HttpHeaders.HOST)
+                        + "|" + rc.request().remoteAddress().toString()
+                        + "|" + rc.request().uri()
+                        + "|" + rc.request().absoluteURI()
+                        + "|" + rc.request().getHeader("X-Forwarded-Trusted-Proxy")));
     }
 
 }

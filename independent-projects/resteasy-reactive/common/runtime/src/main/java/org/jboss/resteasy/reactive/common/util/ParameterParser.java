@@ -15,6 +15,7 @@ import java.util.Map;
  * @author <a href="mailto:oleg@ural.ru">Oleg Kalnichevski</a>
  */
 
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class ParameterParser {
     /**
      * String to be parsed.
@@ -303,7 +304,7 @@ public class ParameterParser {
 
         int start = offset;
 
-        StringBuffer newChars = new StringBuffer();
+        StringBuilder newChars = new StringBuilder();
 
         while (hasChar()) {
             paramName = parseToken(new char[] { '=', separator });

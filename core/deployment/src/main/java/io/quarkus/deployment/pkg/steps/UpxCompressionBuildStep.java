@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -19,10 +20,11 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.pkg.NativeConfig;
 import io.quarkus.deployment.pkg.builditem.ArtifactResultBuildItem;
 import io.quarkus.deployment.pkg.builditem.NativeImageBuildItem;
+import io.quarkus.deployment.pkg.builditem.NativeImageRunnerBuildItem;
 import io.quarkus.deployment.pkg.builditem.UpxCompressedBuildItem;
+import io.quarkus.deployment.util.ContainerRuntimeUtil;
 import io.quarkus.deployment.util.FileUtil;
 import io.quarkus.deployment.util.ProcessUtil;
-import io.quarkus.runtime.util.ContainerRuntimeUtil;
 
 public class UpxCompressionBuildStep {
 
@@ -34,28 +36,38 @@ public class UpxCompressionBuildStep {
     private static final String PATH = "PATH";
 
     @BuildStep(onlyIf = NativeBuild.class)
-    public void compress(NativeConfig nativeConfig, NativeImageBuildItem image,
+    public void compress(NativeConfig nativeConfig, NativeImageRunnerBuildItem nativeImageRunner,
+            NativeImageBuildItem image,
             BuildProducer<UpxCompressedBuildItem> upxCompressedProducer,
             BuildProducer<ArtifactResultBuildItem> artifactResultProducer) {
-        if (nativeConfig.compression.level.isEmpty()) {
+
+        if (nativeConfig.compression().level().isEmpty()) {
             log.debug("UPX compression disabled");
             return;
         }
+        if (image.isReused()) {
+            log.debug("Native executable reused: skipping compression");
+            return;
+        }
 
-        String effectiveBuilderImage = nativeConfig.getEffectiveBuilderImage();
+        String effectiveBuilderImage = nativeConfig.builderImage().getEffectiveImage();
         Optional<File> upxPathFromSystem = getUpxFromSystem();
         if (upxPathFromSystem.isPresent()) {
             log.debug("Running UPX from system path");
             if (!runUpxFromHost(upxPathFromSystem.get(), image.getPath().toFile(), nativeConfig)) {
                 throw new IllegalStateException("Unable to compress the native executable");
             }
-        } else if (nativeConfig.isContainerBuild()) {
-            log.infof("Running UPX from a container using the builder image: " + effectiveBuilderImage);
+        } else if (nativeConfig.remoteContainerBuild()) {
+            log.error("Compression of native executables is not yet implemented for remote container builds.");
+            throw new IllegalStateException(
+                    "Unable to compress the native executable: Compression of native executables is not yet supported for remote container builds");
+        } else if (nativeImageRunner.isContainerBuild()) {
+            log.info("Running UPX from a container using the builder image: " + effectiveBuilderImage);
             if (!runUpxInContainer(image, nativeConfig, effectiveBuilderImage)) {
                 throw new IllegalStateException("Unable to compress the native executable");
             }
         } else {
-            log.errorf("Unable to compress the native executable. Either install `upx` from https://upx.github.io/" +
+            log.error("Unable to compress the native executable. Either install `upx` from https://upx.github.io/" +
                     " on your machine, or enable in-container build using `-Dquarkus.native.container-build=true`.");
             throw new IllegalStateException("Unable to compress the native executable: `upx` not available");
         }
@@ -64,11 +76,13 @@ public class UpxCompressionBuildStep {
     }
 
     private boolean runUpxFromHost(File upx, File executable, NativeConfig nativeConfig) {
-        String level = getCompressionLevel(nativeConfig.compression.level.getAsInt());
-        List<String> extraArgs = nativeConfig.compression.additionalArgs.orElse(Collections.emptyList());
-        List<String> args = Stream.concat(
-                Stream.concat(Stream.of(upx.getAbsolutePath(), level), extraArgs.stream()),
+        List<String> extraArgs = nativeConfig.compression().additionalArgs().orElse(Collections.emptyList());
+        List<String> args = Stream.of(
+                Stream.of(upx.getAbsolutePath()),
+                nativeConfig.compression().level().stream().mapToObj(this::getCompressionLevel),
+                extraArgs.stream(),
                 Stream.of(executable.getAbsolutePath()))
+                .flatMap(Function.identity())
                 .collect(Collectors.toList());
         log.infof("Executing %s", String.join(" ", args));
         final ProcessBuilder processBuilder = new ProcessBuilder(args)
@@ -81,12 +95,12 @@ public class UpxCompressionBuildStep {
             ProcessUtil.streamOutputToSysOut(process);
             final int exitCode = process.waitFor();
             if (exitCode != 0) {
-                log.errorf("Command: " + String.join(" ", args) + " failed with exit code " + exitCode);
+                log.error("Command: " + String.join(" ", args) + " failed with exit code " + exitCode);
                 return false;
             }
             return true;
         } catch (Exception e) {
-            log.errorf("Command: " + String.join(" ", args) + " failed", e);
+            log.error("Command: " + String.join(" ", args) + " failed", e);
             return false;
         } finally {
             if (process != null) {
@@ -98,12 +112,10 @@ public class UpxCompressionBuildStep {
 
     private boolean runUpxInContainer(NativeImageBuildItem nativeImage, NativeConfig nativeConfig,
             String effectiveBuilderImage) {
-        String level = getCompressionLevel(nativeConfig.compression.level.getAsInt());
-        List<String> extraArgs = nativeConfig.compression.additionalArgs.orElse(Collections.emptyList());
+        List<String> extraArgs = nativeConfig.compression().additionalArgs().orElse(Collections.emptyList());
 
         List<String> commandLine = new ArrayList<>();
-        ContainerRuntimeUtil.ContainerRuntime containerRuntime = nativeConfig.containerRuntime
-                .orElseGet(ContainerRuntimeUtil::detectContainerRuntime);
+        ContainerRuntimeUtil.ContainerRuntime containerRuntime = ContainerRuntimeUtil.detectContainerRuntime();
         commandLine.add(containerRuntime.getExecutableName());
 
         commandLine.add("run");
@@ -112,7 +124,7 @@ public class UpxCompressionBuildStep {
         commandLine.add("--rm");
         commandLine.add("--entrypoint=upx");
 
-        String containerName = "upx-" + RandomStringUtils.random(5, true, false);
+        String containerName = "upx-" + RandomStringUtils.insecure().next(5, true, false);
         commandLine.add("--name");
         commandLine.add(containerName);
 
@@ -124,7 +136,7 @@ public class UpxCompressionBuildStep {
             String gid = getLinuxID("-gr");
             if (uid != null && gid != null && !uid.isEmpty() && !gid.isEmpty()) {
                 Collections.addAll(commandLine, "--user", uid + ":" + gid);
-                if (containerRuntime == ContainerRuntimeUtil.ContainerRuntime.PODMAN) {
+                if (containerRuntime.isPodman() && containerRuntime.isRootless()) {
                     // Needed to avoid AccessDeniedExceptions
                     commandLine.add("--userns=keep-id");
                 }
@@ -135,7 +147,9 @@ public class UpxCompressionBuildStep {
                 volumeOutputPath + ":" + NativeImageBuildStep.CONTAINER_BUILD_VOLUME_PATH + ":z");
 
         commandLine.add(effectiveBuilderImage);
-        commandLine.add(level);
+        if (nativeConfig.compression().level().isPresent()) {
+            commandLine.add(getCompressionLevel(nativeConfig.compression().level().getAsInt()));
+        }
         commandLine.addAll(extraArgs);
 
         commandLine.add(nativeImage.getPath().toFile().getName());
@@ -160,7 +174,7 @@ public class UpxCompressionBuildStep {
             }
             return true;
         } catch (Exception e) {
-            log.errorf("Command: " + String.join(" ", commandLine) + " failed", e);
+            log.error("Command: " + String.join(" ", commandLine) + " failed", e);
             return false;
         } finally {
             if (process != null) {

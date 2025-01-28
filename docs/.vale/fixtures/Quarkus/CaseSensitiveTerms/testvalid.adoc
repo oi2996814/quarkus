@@ -17,6 +17,7 @@ Cygmon
 denial of service
 denial-of-service
 DevOps
+dev mode
 Disk Druid
 DNS
 DVD writer
@@ -25,6 +26,7 @@ Exif
 FAQ
 Fedora™ Project
 Fortran
+Fluentd
 FQDN
 GB
 Gbps
@@ -37,6 +39,8 @@ GNU
 GPL
 GraalVM
 Gradle
+Graylog
+gRPC
 GRUB
 GTK+
 Hibernate ORM
@@ -58,9 +62,11 @@ IPsec
 ISeries
 ISO
 ISO image
+Istio service mesh
 Itanium
 Itanium 2
 JBoss Community
+JBoss Logging
 JetBrains
 JUnit
 JVM
@@ -70,6 +76,7 @@ Kickstart
 KVM
 LAN
 Linux
+Logstash
 Mandrel
 MicroProfile
 Microsoft
@@ -149,6 +156,7 @@ web UI
 WebAuthn
 WebSocket
 Window Maker
+xDS
 XEmacs
 xterm
 YAML

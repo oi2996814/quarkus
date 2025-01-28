@@ -2,6 +2,9 @@ package io.quarkus.smallrye.graphql.runtime.spi.datafetcher;
 
 import java.util.List;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+
+import jakarta.validation.ConstraintViolationException;
 
 import org.eclipse.microprofile.graphql.GraphQLException;
 
@@ -16,6 +19,7 @@ import io.smallrye.graphql.execution.datafetcher.AbstractDataFetcher;
 import io.smallrye.graphql.schema.model.Operation;
 import io.smallrye.graphql.schema.model.Type;
 import io.smallrye.graphql.transformation.AbstractDataFetcherException;
+import io.smallrye.graphql.validation.BeanValidationUtil;
 import io.smallrye.mutiny.Uni;
 
 public abstract class AbstractAsyncDataFetcher<K, T> extends AbstractDataFetcher<K, T> {
@@ -31,39 +35,52 @@ public abstract class AbstractAsyncDataFetcher<K, T> extends AbstractDataFetcher
             DataFetchingEnvironment dfe,
             DataFetcherResult.Builder<Object> resultBuilder,
             Object[] transformedArguments) throws Exception {
-
         ManagedContext requestContext = Arc.container().requestContext();
+
         try {
+            measurementIds.add(metricsEmitter.start(c));
             RequestContextHelper.reactivate(requestContext, dfe);
             Uni<?> uni = handleUserMethodCall(dfe, transformedArguments);
             return (O) uni
                     .onItemOrFailure()
                     .transformToUni((result, throwable, emitter) -> {
 
-                        emitter.onTermination(() -> {
-                            deactivate(requestContext);
-                        });
-
-                        if (throwable != null) {
-                            eventEmitter.fireOnDataFetchError(c, throwable);
-                            if (throwable instanceof GraphQLException) {
-                                GraphQLException graphQLException = (GraphQLException) throwable;
-                                errorResultHelper.appendPartialResult(resultBuilder, dfe, graphQLException);
-                            } else if (throwable instanceof Exception) {
-                                emitter.fail(SmallRyeGraphQLServerMessages.msg.dataFetcherException(operation, throwable));
-                                return;
-                            } else if (throwable instanceof Error) {
-                                emitter.fail(throwable);
-                                return;
+                        try {
+                            emitter.onTermination(() -> {
+                                deactivate(requestContext);
+                            });
+                            if (throwable != null) {
+                                if (throwable instanceof ExecutionException && throwable.getCause() != null) {
+                                    throwable = throwable.getCause();
+                                }
+                                eventEmitter.fireOnDataFetchError(c, throwable);
+                                if (throwable instanceof GraphQLException) {
+                                    GraphQLException graphQLException = (GraphQLException) throwable;
+                                    errorResultHelper.appendPartialResult(resultBuilder, dfe, graphQLException);
+                                } else if (throwable instanceof ConstraintViolationException) {
+                                    BeanValidationUtil.addConstraintViolationsToDataFetcherResult(
+                                            ((ConstraintViolationException) throwable).getConstraintViolations(),
+                                            operationInvoker.getMethod(), resultBuilder, dfe);
+                                } else if (throwable instanceof Exception) {
+                                    emitter.fail(SmallRyeGraphQLServerMessages.msg.dataFetcherException(operation, throwable));
+                                    return;
+                                } else if (throwable instanceof Error) {
+                                    emitter.fail(throwable);
+                                    return;
+                                }
+                            } else {
+                                try {
+                                    resultBuilder.data(fieldHelper.transformOrAdaptResponse(result, dfe));
+                                } catch (AbstractDataFetcherException te) {
+                                    te.appendDataFetcherResult(resultBuilder, dfe);
+                                } finally {
+                                    eventEmitter.fireAfterDataFetch(c);
+                                }
                             }
-                        } else {
-                            try {
-                                resultBuilder.data(fieldHelper.transformOrAdaptResponse(result, dfe));
-                            } catch (AbstractDataFetcherException te) {
-                                te.appendDataFetcherResult(resultBuilder, dfe);
-                            }
+                            emitter.complete(resultBuilder.build());
+                        } finally {
+                            metricsEmitter.end(measurementIds.remove());
                         }
-                        emitter.complete(resultBuilder.build());
                     })
                     .onCancellation().invoke(() -> {
                         deactivate(requestContext);

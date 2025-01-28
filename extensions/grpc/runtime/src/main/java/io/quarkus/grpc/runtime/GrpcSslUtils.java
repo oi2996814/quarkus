@@ -52,7 +52,6 @@ public class GrpcSslUtils {
         final Optional<Path> certFile = sslConfig.certificate;
         final Optional<Path> keyFile = sslConfig.key;
         final Optional<Path> keyStoreFile = sslConfig.keyStore;
-        final String keystorePassword = sslConfig.keyStorePassword;
         final Optional<Path> trustStoreFile = sslConfig.trustStore;
         final Optional<String> trustStorePassword = sslConfig.trustStorePassword;
 
@@ -77,15 +76,31 @@ public class GrpcSslUtils {
             switch (type) {
                 case "pkcs12": {
                     PfxOptions o = new PfxOptions()
-                            .setPassword(keystorePassword)
                             .setValue(Buffer.buffer(data));
+                    if (sslConfig.keyStorePassword.isPresent()) {
+                        o.setPassword(sslConfig.keyStorePassword.get());
+                    }
+                    if (sslConfig.keyStoreAlias.isPresent()) {
+                        o.setAlias(sslConfig.keyStoreAlias.get());
+                        if (sslConfig.keyStoreAliasPassword.isPresent()) {
+                            o.setAliasPassword(sslConfig.keyStoreAliasPassword.get());
+                        }
+                    }
                     options.setPfxKeyCertOptions(o);
                     break;
                 }
                 case "jks": {
                     JksOptions o = new JksOptions()
-                            .setPassword(keystorePassword)
                             .setValue(Buffer.buffer(data));
+                    if (sslConfig.keyStorePassword.isPresent()) {
+                        o.setPassword(sslConfig.keyStorePassword.get());
+                    }
+                    if (sslConfig.keyStoreAlias.isPresent()) {
+                        o.setAlias(sslConfig.keyStoreAlias.get());
+                        if (sslConfig.keyStoreAliasPassword.isPresent()) {
+                            o.setAliasPassword(sslConfig.keyStoreAliasPassword.get());
+                        }
+                    }
                     options.setKeyStoreOptions(o);
                     break;
                 }
@@ -97,7 +112,7 @@ public class GrpcSslUtils {
         }
 
         if (trustStoreFile.isPresent()) {
-            if (!trustStorePassword.isPresent()) {
+            if (trustStorePassword.isEmpty()) {
                 throw new IllegalArgumentException("No trust store password provided");
             }
             String type;
@@ -114,12 +129,7 @@ public class GrpcSslUtils {
         for (String cipher : sslConfig.cipherSuites.orElse(Collections.emptyList())) {
             options.addEnabledCipherSuite(cipher);
         }
-
-        for (String protocol : sslConfig.protocols) {
-            if (!protocol.isEmpty()) {
-                options.addEnabledSecureTransportProtocol(protocol);
-            }
-        }
+        options.setEnabledSecureTransportProtocols(sslConfig.protocols);
         options.setClientAuth(sslConfig.clientAuth);
         return false;
     }

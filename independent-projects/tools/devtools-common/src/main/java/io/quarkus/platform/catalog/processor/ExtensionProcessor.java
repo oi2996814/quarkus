@@ -7,6 +7,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -48,6 +49,10 @@ public final class ExtensionProcessor {
 
     public static String getGuide(Extension extension) {
         return getMetadataValue(extension, MD_GUIDE).asString();
+    }
+
+    public static Integer getMinimumJavaVersion(Extension extension) {
+        return getMetadataValue(extension, MD_MINIMUM_JAVA_VERSION).asInteger();
     }
 
     public static List<String> getCategories(Extension extension) {
@@ -100,6 +105,10 @@ public final class ExtensionProcessor {
 
     public static List<String> getKeywords(Extension extension) {
         return getMetadataValue(extension, MD_KEYWORDS).asStringList();
+    }
+
+    public static Set<String> getCliPlugins(Extension extension) {
+        return new HashSet<>(getMetadataValue(extension, MD_CLI_PLUGINS).asStringList());
     }
 
     /**
@@ -200,6 +209,10 @@ public final class ExtensionProcessor {
         return getKeywords(extension);
     }
 
+    public Integer getMinimumJavaVersion() {
+        return getMinimumJavaVersion(extension);
+    }
+
     /**
      * List of strings to use for matching.
      * <br/>
@@ -212,6 +225,10 @@ public final class ExtensionProcessor {
      */
     public Set<String> getExtendedKeywords() {
         return getExtendedKeywords(extension);
+    }
+
+    public Set<String> getCliPlugins() {
+        return getCliPlugins(extension);
     }
 
     public Map<String, Collection<String>> getSyntheticMetadata() {

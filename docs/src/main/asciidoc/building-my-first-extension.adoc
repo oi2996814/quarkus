@@ -7,6 +7,7 @@ https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 include::_attributes.adoc[]
 :categories: writing-extensions
 :summary: Learn step by step how to build a simple extension.
+:topics: extensions
 
 Quarkus extensions enhance your application just as projects dependencies do.
 The role of the extensions is to leverage Quarkus paradigms to integrate seamlessly a library into Quarkus architecture - e.g. do more things at build time.
@@ -27,6 +28,12 @@ Keep in mind it's not representative of the power of moving things to build time
 :prerequisites-time: 30 minutes
 :prerequisites-no-graalvm:
 include::{includes}/prerequisites.adoc[]
+
+[CAUTION]
+====
+Writing extension with any other than Java and Maven has **not** been tested by the Quarkus team so your mileage may vary
+if you stray off this path
+====
 
 == Basic Concepts
 
@@ -102,11 +109,11 @@ It will try to auto-detect its options:
 * in other cases it will use the 'Standalone' extension layout and defaults.
 * we may introduce other layout types in the future.
 
-TIP: You may call it without any parameter to use the interactive mode: `mvn io.quarkus.platform:quarkus-maven-plugin:{quarkus-version}:create-extension -N`
+TIP: You may call it without any parameter to use the interactive mode: `mvn {quarkus-platform-groupid}:quarkus-maven-plugin:{quarkus-version}:create-extension -N`
 
 [source,shell,subs=attributes+]
 ----
-$ mvn io.quarkus.platform:quarkus-maven-plugin:{quarkus-version}:create-extension -N \
+$ mvn {quarkus-platform-groupid}:quarkus-maven-plugin:{quarkus-version}:create-extension -N \
     -DgroupId=org.acme \ #<1>
     -DextensionId=greeting-extension \  #<2>
     -DwithoutTests #<3>
@@ -164,13 +171,13 @@ Your extension is a multi-module project. So let's start by checking out the par
     <module>runtime</module>
   </modules>
   <properties>
-    <compiler-plugin.version>3.10.1</compiler-plugin.version><!--2-->
+    <compiler-plugin.version>3.13.0</compiler-plugin.version><!--2-->
     <failsafe-plugin.version>${surefire-plugin.version}</failsafe-plugin.version>
-    <maven.compiler.release>11</maven.compiler.release>
+    <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <quarkus.version>{quarkus-version}</quarkus.version>
-    <surefire-plugin.version>3.0.0-M7</surefire-plugin.version>
+    <surefire-plugin.version>3.0.0</surefire-plugin.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -212,9 +219,7 @@ Your extension is a multi-module project. So let's start by checking out the par
           <artifactId>maven-compiler-plugin</artifactId>
           <version>${compiler-plugin.version}</version>
           <configuration>
-            <compilerArgs>
-              <arg>-parameters</arg><!--5-->
-            </compilerArgs>
+            <parameters>true</parameters>
           </configuration>
         </plugin>
       </plugins>
@@ -227,7 +232,6 @@ Your extension is a multi-module project. So let's start by checking out the par
 <2> Quarkus requires a recent version of the Maven compiler plugin supporting the annotationProcessorPaths configuration.
 <3> The `quarkus-bom` aligns your dependencies with those used by Quarkus during the augmentation phase.
 <4> Quarkus requires these configs to run tests properly.
-<5> Setting the `parameters` flag this way works around https://issues.apache.org/jira/browse/MCOMPILER-413[MCOMPILER-413].
 
 ==== The Deployment module
 
@@ -530,10 +534,10 @@ mkdir -p ./greeting-extension/runtime/src/main/java/org/acme/greeting/extension
 ----
 package org.acme.greeting.extension;
 
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 @WebServlet
@@ -546,7 +550,7 @@ public class GreetingExtensionServlet extends HttpServlet { // <1>
 }
 ----
 
-<1> As usual, defining a servlet requires to extend `javax.servlet.http.HttpServlet`.
+<1> As usual, defining a servlet requires to extend `jakarta.servlet.http.HttpServlet`.
 <2> Since we want to respond to the HTTP GET verb, we override the `doGet` method and write `Hello` in the Servlet response's output stream.
 
 === Deploying the Greeting feature
@@ -787,7 +791,7 @@ Edsger W. Dijkstra
 ==== Debugging your application build
 
 Since your extension deployment is made during the application build, this process is triggered by your build tool.
-That means if you want to debug this phase you need to launch your build tool with the remote debug mode switched one.
+That means if you want to debug this phase you need to launch your build tool with the remote debug mode switched on.
 
 ===== Maven
 
@@ -796,7 +800,7 @@ You can launch your application with the following command line:
 
 [source,bash]
 ----
-mvnDebug clean compile quarkus:dev
+mvnDebug quarkus:dev
 ----
 
 By default, Maven will wait for a connection on `localhost:8000`.
@@ -845,7 +849,7 @@ mvn clean install
 Then from another directory, use our tooling to create a new `greeting-app` Quarkus application with your new extension:
 [source,bash, subs=attributes+]
 ----
-mvn io.quarkus.platform:quarkus-maven-plugin:{quarkus-version}:create \
+mvn {quarkus-platform-groupid}:quarkus-maven-plugin:{quarkus-version}:create \
      -DprojectGroupId=org.acme \
      -DprojectArtifactId=greeting-app \
      -Dextensions="org.acme:greeting-extension:1.0.0-SNAPSHOT" \
@@ -861,22 +865,14 @@ Run the application and notice the `Installed Features` list contains the `greet
 
 [source,shell,subs=attributes+]
 ----
-$ mvn clean compile quarkus:dev
+$ mvn quarkus:dev
 [INFO] Scanning for projects...
 [INFO]
 [INFO] -----------------------< org.acme:greeting-app >------------------------
 [INFO] Building greeting-app 1.0.0-SNAPSHOT
 [INFO] --------------------------------[ jar ]---------------------------------
 [INFO]
-[INFO] --- maven-clean-plugin:2.5:clean (default-clean) @ greeting-app ---
-[INFO]
-[INFO] --- quarkus-maven-plugin:{quarkus-version}:generate-code (default) @ greeting-app ---
-[INFO]
-[INFO] --- maven-resources-plugin:2.6:resources (default-resources) @ greeting-app ---
-[INFO] Using 'UTF-8' encoding to copy filtered resources.
-[INFO] Copying 1 resource
-[INFO]
-[INFO] --- maven-compiler-plugin:3.10.1:compile (default-compile) @ greeting-app ---
+[INFO] --- maven-compiler-plugin:3.13.0:compile (default-compile) @ greeting-app ---
 [INFO] Nothing to compile - all classes are up to date
 [INFO]
 [INFO] --- quarkus-maven-plugin:{quarkus-version}:dev (default-cli) @ greeting-app ---
@@ -885,9 +881,9 @@ __  ____  __  _____   ___  __ ____  ______
  --/ __ \/ / / / _ | / _ \/ //_/ / / / __/
  -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \
 --\___\_\____/_/ |_/_/|_/_/|_|\____/___/
-2021-01-27 10:28:07,240 INFO  [io.quarkus] (Quarkus Main Thread) greeting-app 1.0.0-SNAPSHOT on JVM (powered by Quarkus {quarkus-version}) started in 0.531s. Listening on: http://localhost:8080
-2021-01-27 10:28:07,242 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
-2021-01-27 10:28:07,243 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [cdi, greeting-extension, servlet]
+2022-11-20 04:25:36,885 INFO  [io.quarkus] (Quarkus Main Thread) greeting-app 1.0.0-SNAPSHOT on JVM (powered by Quarkus {quarkus-version}) started in 4.591s. Listening on: http://localhost:8080
+2022-11-20 04:25:36,911 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+2022-11-20 04:25:36,913 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [cdi, greetin-extension, resteasy-reactive, smallrye-context-propagation, vertx]
 ----
 
 From an extension developer standpoint the Maven publication strategy is very handy and fast but Quarkus wants to go one step further by also ensuring a reliability of the ecosystem for the people who will use the extensions.
@@ -897,13 +893,13 @@ That's why there is the Quarkus Platform.
 *Quarkus Platform*
 
 Quarkus platform is a set of extensions that target the primary use-cases of Quarkus as a development framework and can safely be used in any combination in the same application without creating a dependency conflict.
-From an application developer perspective, a Quarkus platform is represented as one or more Maven BOMs, for example `io.quarkus.platform:quarkus-bom:{quarkus-version}`, `io.quarkus.platform:quarkus-kogito-bom:{quarkus-version}`, etc, whose dependency version constraints were globally aligned so that these BOMs can be imported in the same application in any order without introducing a dependency conflict.
+From an application developer perspective, a Quarkus platform is represented as one or more Maven BOMs, for example `{quarkus-platform-groupid}:quarkus-bom:{quarkus-version}`, `{quarkus-platform-groupid}:quarkus-camel-bom:{quarkus-version}`, etc, whose dependency version constraints were globally aligned so that these BOMs can be imported in the same application in any order without introducing a dependency conflict.
 
 *Quarkiverse Hub*
 
 link:https://github.com/quarkiverse[Quarkiverse Hub] is the GitHub organization that provides repository hosting (including build, CI and release publishing setup) for Quarkus extension projects contributed by the community.
 
-In case you are wondering about creating a new Quarkus extension and adding it to the Quarkus ecosystem so that the Quarkus community can discover it using the Quarkus dev tools (including the https://quarkus.io/guides/cli-tooling[Quarkus CLI] and https://code.quarkus.io[code.quarkus.io]), the https://github.com/quarkiverse[Quarkiverse Hub] GitHub organization will be a good home for it.
+In case you are wondering about creating a new Quarkus extension and adding it to the Quarkus ecosystem so that the Quarkus community can discover it using the Quarkus dev tools (including the xref:cli-tooling.adoc[Quarkus CLI] and https://code.quarkus.io[code.quarkus.io]), the https://github.com/quarkiverse[Quarkiverse Hub] GitHub organization will be a good home for it.
 
 You can get started by creating an link:https://github.com/quarkusio/quarkus/issues/new/choose[Extension Request] issue (check first if one wasn't already submitted link:https://github.com/quarkusio/quarkus/labels/kind%2Fextension-proposal[here]) and asking to lead it.
 

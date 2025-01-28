@@ -7,11 +7,12 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
-import javax.ws.rs.core.Application;
-import javax.ws.rs.ext.ParamConverter;
-import javax.ws.rs.ext.ParamConverterProvider;
+import jakarta.ws.rs.core.Application;
+import jakarta.ws.rs.ext.ParamConverter;
+import jakarta.ws.rs.ext.ParamConverterProvider;
 
 import org.jboss.resteasy.reactive.common.ResteasyReactiveConfig;
 import org.jboss.resteasy.reactive.common.jaxrs.ConfigurationImpl;
@@ -46,12 +47,14 @@ public class Deployment {
     private final ArrayList<RequestMapper.RequestPath<RestInitialHandler.InitialMatch>> classMappers;
     private final List<GenericRuntimeConfigurableServerRestHandler<?>> runtimeConfigurableServerRestHandlers;
     private final RuntimeExceptionMapper exceptionMapper;
-    private final boolean resumeOn404;
+    private final boolean servletPresent;
     private final ResteasyReactiveConfig resteasyReactiveConfig;
+    private final Map<String, List<String>> disabledEndpoints;
     //this is not final, as it is set after startup
     private RuntimeConfiguration runtimeConfiguration;
 
-    public Deployment(ExceptionMapping exceptionMapping, ContextResolvers contextResolvers,
+    public Deployment(ExceptionMapping exceptionMapping,
+            ContextResolvers contextResolvers,
             ServerSerialisers serialisers,
             ServerRestHandler[] abortHandlerChain,
             EntityWriter dynamicEntityWriter, String prefix, ParamConverterProviders paramConverterProviders,
@@ -61,8 +64,9 @@ public class Deployment {
             ArrayList<RequestMapper.RequestPath<RestInitialHandler.InitialMatch>> classMappers,
             List<GenericRuntimeConfigurableServerRestHandler<?>> runtimeConfigurableServerRestHandlers,
             RuntimeExceptionMapper exceptionMapper,
-            boolean resumeOn404,
-            ResteasyReactiveConfig resteasyReactiveConfig) {
+            boolean servletPresent,
+            ResteasyReactiveConfig resteasyReactiveConfig,
+            Map<String, List<String>> disabledEndpoints) {
         this.exceptionMapping = exceptionMapping;
         this.contextResolvers = contextResolvers;
         this.serialisers = serialisers;
@@ -78,8 +82,9 @@ public class Deployment {
         this.classMappers = classMappers;
         this.runtimeConfigurableServerRestHandlers = runtimeConfigurableServerRestHandlers;
         this.exceptionMapper = exceptionMapper;
-        this.resumeOn404 = resumeOn404;
+        this.servletPresent = servletPresent;
         this.resteasyReactiveConfig = resteasyReactiveConfig;
+        this.disabledEndpoints = disabledEndpoints;
     }
 
     public RuntimeExceptionMapper getExceptionMapper() {
@@ -102,6 +107,10 @@ public class Deployment {
         return exceptionMapping;
     }
 
+    public boolean isServletPresent() {
+        return servletPresent;
+    }
+
     public ContextResolvers getContextResolvers() {
         return contextResolvers;
     }
@@ -116,10 +125,6 @@ public class Deployment {
 
     public EntityWriter getDynamicEntityWriter() {
         return dynamicEntityWriter;
-    }
-
-    public boolean isResumeOn404() {
-        return resumeOn404;
     }
 
     /**
@@ -205,5 +210,9 @@ public class Deployment {
         }
         this.runtimeConfiguration = runtimeConfiguration;
         return this;
+    }
+
+    public Map<String, List<String>> getDisabledEndpoints() {
+        return disabledEndpoints;
     }
 }

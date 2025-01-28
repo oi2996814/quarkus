@@ -7,10 +7,10 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 
-import javax.enterprise.context.ContextNotActiveException;
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.spi.BeanManager;
-import javax.enterprise.util.TypeLiteral;
+import jakarta.enterprise.context.ContextNotActiveException;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.BeanManager;
+import jakarta.enterprise.util.TypeLiteral;
 
 /**
  * Represents a container instance.
@@ -21,7 +21,7 @@ public interface ArcContainer {
 
     /**
      * Unlike {@link BeanManager#getContext(Class)} this method does not throw
-     * {@link javax.enterprise.context.ContextNotActiveException} if there is no active context for the given
+     * {@link jakarta.enterprise.context.ContextNotActiveException} if there is no active context for the given
      * scope.
      *
      * @param scopeType
@@ -33,7 +33,7 @@ public interface ArcContainer {
     /**
      *
      * @param scopeType
-     * @return the matching context objects, never null
+     * @return immutable list of the matching context objects, never null
      */
     List<InjectableContext> getContexts(Class<? extends Annotation> scopeType);
 
@@ -88,33 +88,12 @@ public interface ArcContainer {
     /**
      * Returns a supplier that can be used to create new instances, or null if no matching bean can be found.
      *
-     * Note that if there are multiple sub classes of the given type this will return the exact match. This means
-     * that this can be used to directly instantiate superclasses of other beans without causing problems. This behavior differs
-     * to standard CDI rules where an ambiguous dependency would exist.
-     *
-     * see https://github.com/quarkusio/quarkus/issues/3369
-     *
      * @param type
      * @param qualifiers
      * @param <T>
      * @return
      */
     <T> Supplier<InstanceHandle<T>> beanInstanceSupplier(Class<T> type, Annotation... qualifiers);
-
-    /**
-     * This method is deprecated and will be removed in future versions.
-     * Use {@link #beanInstanceSupplier(Class, Annotation...)} instead.
-     * </p>
-     * As opposed to {@link #beanInstanceSupplier(Class, Annotation...)}, this method does <b>NOT</b> follow CDI
-     * resolution rules and in case of ambiguous resolution performs a choice based on the class type parameter.
-     *
-     * @param type
-     * @param qualifiers
-     * @return
-     * @param <T>
-     */
-    @Deprecated
-    <T> Supplier<InstanceHandle<T>> instanceSupplier(Class<T> type, Annotation... qualifiers);
 
     /**
      *
@@ -182,6 +161,16 @@ public interface ArcContainer {
     <T> List<InstanceHandle<T>> listAll(TypeLiteral<T> type, Annotation... qualifiers);
 
     /**
+     *
+     * @param <X>
+     * @param type
+     * @param qualifiers
+     * @return the list of handles for the disambiguated beans
+     * @see #listAll(Class, Annotation...)
+     */
+    <X> List<InstanceHandle<X>> listAll(Type type, Annotation... qualifiers);
+
+    /**
      * Returns true if Arc container is running.
      * This can be used as a quick check to determine CDI availability in Quarkus.
      *
@@ -199,7 +188,7 @@ public interface ArcContainer {
 
     /**
      * Note that ambiguous names are detected at build time. Therefore, unlike
-     * {@link javax.enterprise.inject.spi.BeanManager.getBeans(String)} this method either returns a resolved bean or
+     * {@link jakarta.enterprise.inject.spi.BeanManager.getBeans(String)} this method either returns a resolved bean or
      * {@code null} if no bean matches.
      *
      * @param name
@@ -211,9 +200,16 @@ public interface ArcContainer {
     /**
      * This method never throws {@link ContextNotActiveException}.
      *
-     * @return the built-in context for {@link javax.enterprise.context.RequestScoped}
+     * @return the built-in context for {@link jakarta.enterprise.context.RequestScoped}
      */
     ManagedContext requestContext();
+
+    /**
+     * This method never throws {@link ContextNotActiveException}.
+     *
+     * @return the built-in context for {@link jakarta.enterprise.context.SessionScoped}
+     */
+    ManagedContext sessionContext();
 
     /**
      * NOTE: Not all methods are supported!
@@ -233,4 +229,20 @@ public interface ArcContainer {
      * @see CurrentContext
      */
     CurrentContextFactory getCurrentContextFactory();
+
+    /**
+     * Indicates whether container runs in strict compatibility mode.
+     * Default value is false.
+     *
+     * @return true is strict mode is enabled, false otherwise.
+     */
+    boolean strictCompatibility();
+
+    /**
+     *
+     * @param eventType
+     * @param eventQualifiers
+     * @return an ordered list of observer methods
+     */
+    <T> List<InjectableObserverMethod<? super T>> resolveObserverMethods(Type eventType, Annotation... eventQualifiers);
 }

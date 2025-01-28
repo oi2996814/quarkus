@@ -1,87 +1,60 @@
 package io.quarkus.oidc.runtime;
 
+import java.util.List;
+import java.util.function.Supplier;
+
 import javax.crypto.SecretKey;
 
+import io.quarkus.oidc.OidcConfigurationMetadata;
+import io.quarkus.oidc.OidcRedirectFilter;
 import io.quarkus.oidc.OidcTenantConfig;
-import io.quarkus.oidc.common.runtime.OidcCommonUtils;
-import io.smallrye.jwt.util.KeyUtils;
+import io.quarkus.oidc.Redirect;
+import io.smallrye.mutiny.Uni;
 
-public class TenantConfigContext {
-
-    /**
-     * OIDC Provider
-     */
-    final OidcProvider provider;
+public sealed interface TenantConfigContext permits TenantConfigContextImpl, LazyTenantConfigContext {
 
     /**
      * Tenant configuration
      */
-    final OidcTenantConfig oidcConfig;
+    OidcTenantConfig oidcConfig();
 
     /**
-     * PKCE Secret Key
+     * OIDC Provider
      */
-    private final SecretKey pkceSecretKey;
+    OidcProvider provider();
+
+    boolean ready();
+
+    OidcTenantConfig getOidcTenantConfig();
+
+    OidcConfigurationMetadata getOidcMetadata();
+
+    OidcProviderClientImpl getOidcProviderClient();
+
+    SecretKey getStateEncryptionKey();
+
+    SecretKey getTokenEncSecretKey();
+
+    SecretKey getInternalIdTokenSecretKey();
+
+    List<OidcRedirectFilter> getOidcRedirectFilters(Redirect.Location loc);
 
     /**
-     * Token Encryption Secret Key
+     * Only static tenants that are not {@link #ready()} can and need to be initialized.
+     *
+     * @return self, or in case of not {@link #ready()}, possibly ready self
      */
-    private final SecretKey tokenEncSecretKey;
-
-    final boolean ready;
-
-    public TenantConfigContext(OidcProvider client, OidcTenantConfig config) {
-        this(client, config, true);
+    default Uni<TenantConfigContext> initialize() {
+        return Uni.createFrom().item(this);
     }
 
-    public TenantConfigContext(OidcProvider client, OidcTenantConfig config, boolean ready) {
-        this.provider = client;
-        this.oidcConfig = config;
-        this.ready = ready;
-
-        pkceSecretKey = createPkceSecretKey(config);
-        tokenEncSecretKey = createTokenEncSecretKey(config);
+    static TenantConfigContext createReady(OidcProvider provider, OidcTenantConfig config) {
+        return new TenantConfigContextImpl(provider, config);
     }
 
-    private static SecretKey createPkceSecretKey(OidcTenantConfig config) {
-        if (config.authentication.pkceRequired.orElse(false)) {
-            String pkceSecret = config.authentication.pkceSecret
-                    .orElse(OidcCommonUtils.clientSecret(config.credentials));
-            if (pkceSecret == null) {
-                throw new RuntimeException("Secret key for encrypting PKCE code verifier is missing");
-            }
-            if (pkceSecret.length() != 32) {
-                throw new RuntimeException("Secret key for encrypting PKCE code verifier must be 32 characters long");
-            }
-            return KeyUtils.createSecretKeyFromSecret(pkceSecret);
-        }
-        return null;
-    }
-
-    private static SecretKey createTokenEncSecretKey(OidcTenantConfig config) {
-        if (config.tokenStateManager.encryptionRequired.orElse(false)) {
-            String encSecret = config.tokenStateManager.encryptionSecret
-                    .orElse(OidcCommonUtils.clientSecret(config.credentials));
-            if (encSecret == null) {
-                throw new RuntimeException("Secret key for encrypting tokens is missing");
-            }
-            if (encSecret.length() != 32) {
-                throw new RuntimeException("Secret key for encrypting tokens must be 32 characters long");
-            }
-            return KeyUtils.createSecretKeyFromSecret(encSecret);
-        }
-        return null;
-    }
-
-    public OidcTenantConfig getOidcTenantConfig() {
-        return oidcConfig;
-    }
-
-    public SecretKey getPkceSecretKey() {
-        return pkceSecretKey;
-    }
-
-    public SecretKey getTokenEncSecretKey() {
-        return tokenEncSecretKey;
+    static TenantConfigContext createNotReady(OidcProvider provider, OidcTenantConfig config,
+            Supplier<Uni<TenantConfigContext>> staticTenantCreator) {
+        var notReadyContext = new TenantConfigContextImpl(provider, config, false);
+        return new LazyTenantConfigContext(notReadyContext, staticTenantCreator);
     }
 }

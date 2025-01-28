@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -14,10 +13,10 @@ import java.util.stream.Stream;
 
 class PathTreeVisit implements PathVisit {
 
-    static void walk(Path root, Path rootDir, PathFilter pathFilter, Map<String, String> multiReleaseMapping,
+    static void walk(Path root, Path rootDir, Path walkDir, PathFilter pathFilter, Map<String, String> multiReleaseMapping,
             PathVisitor visitor) {
         final PathTreeVisit visit = new PathTreeVisit(root, rootDir, pathFilter, multiReleaseMapping);
-        try (Stream<Path> files = Files.walk(rootDir)) {
+        try (Stream<Path> files = Files.walk(walkDir)) {
             final Iterator<Path> i = files.iterator();
             while (i.hasNext()) {
                 if (!visit.setCurrent(i.next())) {
@@ -35,7 +34,7 @@ class PathTreeVisit implements PathVisit {
     }
 
     static <T> T process(Path root, Path rootDir, Path path, PathFilter pathFilter, Function<PathVisit, T> func) {
-        final PathTreeVisit visit = new PathTreeVisit(root, rootDir, pathFilter, Collections.emptyMap());
+        final PathTreeVisit visit = new PathTreeVisit(root, rootDir, pathFilter, Map.of());
         if (visit.setCurrent(path)) {
             return func.apply(visit);
         }
@@ -43,7 +42,7 @@ class PathTreeVisit implements PathVisit {
     }
 
     static void consume(Path root, Path rootDir, Path path, PathFilter pathFilter, Consumer<PathVisit> func) {
-        final PathTreeVisit visit = new PathTreeVisit(root, rootDir, pathFilter, Collections.emptyMap());
+        final PathTreeVisit visit = new PathTreeVisit(root, rootDir, pathFilter, Map.of());
         if (visit.setCurrent(path)) {
             func.accept(visit);
         } else {
@@ -64,7 +63,7 @@ class PathTreeVisit implements PathVisit {
         this.root = root;
         this.baseDir = rootDir;
         this.pathFilter = pathFilter;
-        this.multiReleaseMapping = multiReleaseMapping == null || multiReleaseMapping.isEmpty() ? Collections.emptyMap()
+        this.multiReleaseMapping = multiReleaseMapping == null || multiReleaseMapping.isEmpty() ? Map.of()
                 : new HashMap<>(multiReleaseMapping);
     }
 
@@ -90,7 +89,7 @@ class PathTreeVisit implements PathVisit {
     @Override
     public String getRelativePath(String separator) {
         if (relativePath == null) {
-            return PathUtils.asString(baseDir.relativize(current), separator);
+            return PathTreeUtils.asString(baseDir.relativize(current), separator);
         }
         if (!current.getFileSystem().getSeparator().equals(separator)) {
             return relativePath.replace(current.getFileSystem().getSeparator(), separator);

@@ -2,9 +2,9 @@ package io.quarkus.it.faulttolerance;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 @Path("/ft")
 public class FaultToleranceTestResource {
@@ -27,4 +27,11 @@ public class FaultToleranceTestResource {
         return counter + ":" + name;
     }
 
+    @GET
+    @Path("/fallback")
+    public String fallback() {
+        AtomicInteger counter = new AtomicInteger();
+        String name = service.fallbackMethod(counter);
+        return counter + ":" + name;
+    }
 }

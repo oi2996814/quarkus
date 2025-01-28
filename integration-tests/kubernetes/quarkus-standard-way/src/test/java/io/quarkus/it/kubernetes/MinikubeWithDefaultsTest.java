@@ -70,7 +70,9 @@ public class MinikubeWithDefaultsTest {
 
                 assertThat(s.getSpec()).satisfies(spec -> {
                     assertEquals("NodePort", spec.getType());
-                    assertThat(spec.getPorts()).hasSize(1).singleElement().satisfies(p -> {
+                    assertThat(spec.getPorts()).hasSize(1);
+                    assertThat(spec.getPorts()).anySatisfy(p -> {
+                        assertThat(p.getName()).isEqualTo("http");
                         assertThat(p.getNodePort()).isNotNull();
                     });
                 });

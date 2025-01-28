@@ -1,16 +1,13 @@
 package io.quarkus.it.resteasy.reactive.kotlin.ft
 
+import jakarta.inject.Inject
+import jakarta.ws.rs.GET
+import jakarta.ws.rs.Path
 import org.eclipse.microprofile.rest.client.inject.RestClient
-import javax.inject.Inject
-import javax.ws.rs.GET
-import javax.ws.rs.Path
 
 @Path("/ft/client")
 class ClientResource {
-    @Inject
-    @RestClient
-    private lateinit var client: HelloClient
+    @Inject @RestClient private lateinit var client: HelloClient
 
-    @GET
-    suspend fun get() = client.hello()
+    @GET suspend fun get() = client.hello()
 }

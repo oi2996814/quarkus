@@ -6,7 +6,6 @@ import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
 import static org.objectweb.asm.Opcodes.ACC_VOLATILE;
 
-import java.lang.reflect.Member;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -23,21 +22,18 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import javax.enterprise.context.ContextNotActiveException;
-import javax.enterprise.context.spi.Contextual;
-import javax.enterprise.event.Reception;
-import javax.enterprise.event.TransactionPhase;
-import javax.enterprise.inject.spi.EventContext;
-import javax.enterprise.inject.spi.ObserverMethod;
+import jakarta.enterprise.context.spi.Contextual;
+import jakarta.enterprise.event.Reception;
+import jakarta.enterprise.event.TransactionPhase;
+import jakarta.enterprise.inject.spi.EventContext;
+import jakarta.enterprise.inject.spi.ObserverMethod;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 
-import io.quarkus.arc.InjectableBean;
 import io.quarkus.arc.InjectableObserverMethod;
 import io.quarkus.arc.impl.CreationalContextImpl;
-import io.quarkus.arc.impl.CurrentInjectionPointProvider;
 import io.quarkus.arc.impl.Mockable;
 import io.quarkus.arc.processor.BeanProcessor.PrivateMembersCollector;
 import io.quarkus.arc.processor.BuiltinBean.GeneratorContext;
@@ -140,7 +136,7 @@ public class ObserverGenerator extends AbstractGenerator {
         } else {
             baseNameBuilder.append(observer.getObserverMethod().name());
         }
-        baseNameBuilder.append(UNDERSCORE).append(Hashes.sha1(sigBuilder.toString()));
+        baseNameBuilder.append(UNDERSCORE).append(Hashes.sha1_base64(sigBuilder.toString()));
         String baseName = baseNameBuilder.toString();
         this.observerToGeneratedBaseName.put(observer, baseName);
 
@@ -182,7 +178,8 @@ public class ObserverGenerator extends AbstractGenerator {
             return Collections.emptyList();
         }
 
-        boolean isApplicationClass = applicationClassPredicate.test(observer.getBeanClass());
+        boolean isApplicationClass = applicationClassPredicate.test(observer.getBeanClass())
+                || observer.isForceApplicationClass();
         ResourceClassOutput classOutput = new ResourceClassOutput(isApplicationClass,
                 name -> name.equals(generatedName) ? SpecialType.OBSERVER : null, generateSources);
 
@@ -226,6 +223,9 @@ public class ObserverGenerator extends AbstractGenerator {
 
         implementGetBeanClass(observerCreator, observer.getBeanClass());
         implementNotify(observer, observerCreator, injectionPointToProviderField, reflectionRegistration, isApplicationClass);
+        if (Reception.IF_EXISTS == observer.getReception()) {
+            implementIfExistsGetReception(observerCreator);
+        }
         if (observer.getPriority() != ObserverMethod.DEFAULT_PRIORITY) {
             implementGetPriority(observerCreator, observer);
         }
@@ -256,6 +256,12 @@ public class ObserverGenerator extends AbstractGenerator {
             }
             injectionPointToProvider.put(injectionPoint, "observerProviderSupplier" + providerIdx++);
         }
+    }
+
+    protected void implementIfExistsGetReception(ClassCreator observerCreator) {
+        MethodCreator getReception = observerCreator.getMethodCreator("getReception", Reception.class)
+                .setModifiers(ACC_PUBLIC);
+        getReception.returnValue(getReception.load(Reception.IF_EXISTS));
     }
 
     protected void implementGetObservedType(ClassCreator observerCreator, FieldDescriptor observedTypeField) {
@@ -405,8 +411,8 @@ public class ObserverGenerator extends AbstractGenerator {
                 ResultHandle context = notify.invokeInterfaceMethod(MethodDescriptors.ARC_CONTAINER_GET_ACTIVE_CONTEXT,
                         container,
                         scope);
-                notify.ifNull(context).trueBranch().throwException(ContextNotActiveException.class,
-                        "Context not active: " + observer.getDeclaringBean().getScope().getDotName());
+                // if the context isn't active, don't notify the observer
+                notify.ifNull(context).trueBranch().returnVoid();
                 notify.assign(declaringProviderInstanceHandle,
                         notify.invokeInterfaceMethod(MethodDescriptors.CONTEXT_GET_IF_PRESENT, context,
                                 declaringProviderHandle));
@@ -431,15 +437,18 @@ public class ObserverGenerator extends AbstractGenerator {
                 referenceHandles[i] = notify.invokeInterfaceMethod(MethodDescriptors.EVENT_CONTEXT_GET_METADATA,
                         notify.getMethodParam(0));
             } else {
+                InjectionPointInfo injectionPoint = injectionPointsIterator.next();
                 ResultHandle childCtxHandle = notify.invokeStaticMethod(MethodDescriptors.CREATIONAL_CTX_CHILD, ctxHandle);
                 ResultHandle providerSupplierHandle = notify
                         .readInstanceField(FieldDescriptor.of(observerCreator.getClassName(),
-                                injectionPointToProviderField.get(injectionPointsIterator.next()),
+                                injectionPointToProviderField.get(injectionPoint),
                                 Supplier.class.getName()), notify.getThis());
                 ResultHandle providerHandle = notify.invokeInterfaceMethod(MethodDescriptors.SUPPLIER_GET,
                         providerSupplierHandle);
-                ResultHandle referenceHandle = notify.invokeInterfaceMethod(MethodDescriptors.INJECTABLE_REF_PROVIDER_GET,
-                        providerHandle, childCtxHandle);
+                AssignableResultHandle referenceHandle = notify.createVariable(Object.class);
+                notify.assign(referenceHandle, notify.invokeInterfaceMethod(MethodDescriptors.INJECTABLE_REF_PROVIDER_GET,
+                        providerHandle, childCtxHandle));
+                BeanGenerator.checkPrimitiveInjection(notify, injectionPoint, referenceHandle);
                 referenceHandles[i] = referenceHandle;
             }
         }
@@ -540,34 +549,15 @@ public class ObserverGenerator extends AbstractGenerator {
                                     injectionPointToProviderField.get(injectionPoint),
                                     annotationLiterals, observer, reflectionRegistration, injectionPointAnnotationsPredicate));
                 } else {
-                    if (injectionPoint.getResolvedBean().getAllInjectionPoints().stream()
-                            .anyMatch(ip -> BuiltinBean.INJECTION_POINT.hasRawTypeDotName(ip.getRequiredType().name()))) {
-                        // IMPL NOTE: Injection point resolves to a dependent bean that injects InjectionPoint metadata and so we need to wrap the injectable
-                        // reference provider
-                        ResultHandle requiredQualifiersHandle = BeanGenerator.collectInjectionPointQualifiers(classOutput,
-                                observerCreator,
-                                observer.getDeclaringBean().getDeployment(), constructor,
-                                injectionPoint,
-                                annotationLiterals);
-                        ResultHandle annotationsHandle = BeanGenerator.collectInjectionPointAnnotations(classOutput,
-                                observerCreator,
-                                observer.getDeclaringBean().getDeployment(), constructor, injectionPoint, annotationLiterals,
-                                injectionPointAnnotationsPredicate);
-                        ResultHandle javaMemberHandle = BeanGenerator.getJavaMemberHandle(constructor, injectionPoint,
-                                reflectionRegistration);
-
+                    if (injectionPoint.isCurrentInjectionPointWrapperNeeded()) {
                         // Wrap the constructor arg in a Supplier so we can pass it to CurrentInjectionPointProvider c'tor.
                         ResultHandle delegateSupplier = constructor.newInstance(
                                 MethodDescriptors.FIXED_VALUE_SUPPLIER_CONSTRUCTOR, constructor.getMethodParam(paramIdx));
 
-                        ResultHandle wrapHandle = constructor.newInstance(
-                                MethodDescriptor.ofConstructor(CurrentInjectionPointProvider.class, InjectableBean.class,
-                                        Supplier.class, java.lang.reflect.Type.class,
-                                        Set.class, Set.class, Member.class, int.class),
-                                constructor.loadNull(), delegateSupplier,
-                                Types.getTypeHandle(constructor, injectionPoint.getType()),
-                                requiredQualifiersHandle, annotationsHandle, javaMemberHandle,
-                                constructor.load(injectionPoint.getPosition()));
+                        ResultHandle wrapHandle = BeanGenerator.wrapCurrentInjectionPoint(observer.getDeclaringBean(),
+                                constructor, injectionPoint, constructor.loadNull(), delegateSupplier,
+                                null, annotationLiterals, reflectionRegistration,
+                                injectionPointAnnotationsPredicate);
                         ResultHandle wrapSupplierHandle = constructor.newInstance(
                                 MethodDescriptors.FIXED_VALUE_SUPPLIER_CONSTRUCTOR, wrapHandle);
 

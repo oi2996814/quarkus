@@ -2,11 +2,11 @@ package io.quarkus.it.spring.data.jpa;
 
 import java.util.Set;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
 
 import io.quarkus.it.spring.data.jpa.PhoneCall.CallAgent;
 
@@ -21,13 +21,6 @@ public class PhoneCallResource {
     @Produces("application/json")
     public PhoneCall phoneCallById(@PathParam("areaCode") String areaCode, @PathParam("number") String number) {
         return repository.findById(new PhoneCallId(areaCode, number)).orElse(null);
-    }
-
-    @Path("{areaCode}")
-    @GET
-    @Produces("application/json")
-    public PhoneCall phoneCallByAreaCode(@PathParam("areaCode") String areaCode) {
-        return repository.findByIdAreaCode(areaCode);
     }
 
     @Path("ids")

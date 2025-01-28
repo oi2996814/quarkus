@@ -4,9 +4,10 @@ import javax.inject.Inject;
 
 import org.gradle.api.artifacts.Configuration;
 
+import io.quarkus.deployment.dev.DevModeCommandLineBuilder;
 import io.quarkus.gradle.extension.QuarkusPluginExtension;
 
-public class QuarkusRemoteDev extends QuarkusDev {
+public abstract class QuarkusRemoteDev extends QuarkusDev {
 
     @Inject
     public QuarkusRemoteDev(Configuration quarkusDevConfiguration, QuarkusPluginExtension extension) {
@@ -16,7 +17,7 @@ public class QuarkusRemoteDev extends QuarkusDev {
                 extension);
     }
 
-    protected void modifyDevModeContext(GradleDevModeLauncher.Builder builder) {
+    protected void modifyDevModeContext(DevModeCommandLineBuilder builder) {
         builder.remoteDev(true);
     }
 }

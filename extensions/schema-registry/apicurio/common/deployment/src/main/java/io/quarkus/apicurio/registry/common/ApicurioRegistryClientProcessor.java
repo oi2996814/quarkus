@@ -8,6 +8,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ExtensionSslNativeSupportBuildItem;
+import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
 import io.quarkus.smallrye.openapi.deployment.spi.IgnoreStaticDocumentBuildItem;
@@ -18,17 +19,17 @@ public class ApicurioRegistryClientProcessor {
     @BuildStep
     public void apicurioRegistryClient(BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
             BuildProducer<ExtensionSslNativeSupportBuildItem> sslNativeSupport) {
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, true,
-                "io.apicurio.rest.client.auth.exception.NotAuthorizedException",
-                "io.apicurio.rest.client.auth.exception.ForbiddenException",
-                "io.apicurio.rest.client.auth.exception.AuthException",
-                "io.apicurio.rest.client.auth.exception.AuthErrorHandler",
-                "io.apicurio.rest.client.auth.request.TokenRequestsProvider",
-                "io.apicurio.rest.client.request.Request",
-                "io.apicurio.rest.client.auth.AccessTokenResponse",
-                "io.apicurio.rest.client.auth.Auth",
-                "io.apicurio.rest.client.auth.BasicAuth",
-                "io.apicurio.rest.client.auth.OidcAuth"));
+        reflectiveClass
+                .produce(ReflectiveClassBuildItem.builder("io.apicurio.rest.client.auth.exception.NotAuthorizedException",
+                        "io.apicurio.rest.client.auth.exception.ForbiddenException",
+                        "io.apicurio.rest.client.auth.exception.AuthException",
+                        "io.apicurio.rest.client.auth.exception.AuthErrorHandler",
+                        "io.apicurio.rest.client.auth.request.TokenRequestsProvider",
+                        "io.apicurio.rest.client.request.Request",
+                        "io.apicurio.rest.client.auth.AccessTokenResponse",
+                        "io.apicurio.rest.client.auth.Auth",
+                        "io.apicurio.rest.client.auth.BasicAuth",
+                        "io.apicurio.rest.client.auth.OidcAuth").methods().fields().build());
     }
 
     @BuildStep
@@ -48,7 +49,10 @@ public class ApicurioRegistryClientProcessor {
 
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
-    public void apicurioRegistryClient(VertxBuildItem vertx, ApicurioRegistryClient client) {
+    public void apicurioRegistryClient(VertxBuildItem vertx, ApicurioRegistryClient client, LaunchModeBuildItem launchMode) {
+        if (launchMode.getLaunchMode().isDevOrTest()) {
+            client.clearHttpClient();
+        }
         client.setup(vertx.getVertx());
     }
 

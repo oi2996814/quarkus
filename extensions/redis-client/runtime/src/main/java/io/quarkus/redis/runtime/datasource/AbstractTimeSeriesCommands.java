@@ -4,6 +4,7 @@ import static io.smallrye.mutiny.helpers.ParameterValidation.doesNotContainNull;
 import static io.smallrye.mutiny.helpers.ParameterValidation.nonNull;
 import static io.smallrye.mutiny.helpers.ParameterValidation.positive;
 
+import java.lang.reflect.Type;
 import java.time.Duration;
 
 import io.quarkus.redis.datasource.timeseries.AddArgs;
@@ -23,7 +24,7 @@ import io.vertx.mutiny.redis.client.Response;
 
 public class AbstractTimeSeriesCommands<K> extends AbstractRedisCommands {
 
-    AbstractTimeSeriesCommands(RedisCommandExecutor redis, Class<K> k) {
+    AbstractTimeSeriesCommands(RedisCommandExecutor redis, Type k) {
         super(redis, new Marshaller(k));
     }
 
@@ -64,6 +65,13 @@ public class AbstractTimeSeriesCommands<K> extends AbstractRedisCommands {
         nonNull(key, "key");
 
         RedisCommand cmd = RedisCommand.of(Command.TS_ADD).put(marshaller.encode(key)).put("*").put(value);
+        return execute(cmd);
+    }
+
+    Uni<Response> _tsAdd(K key, double value, AddArgs args) {
+        nonNull(key, "key");
+        nonNull(args, "args");
+        RedisCommand cmd = RedisCommand.of(Command.TS_ADD).put(marshaller.encode(key)).put("*").put(value).putArgs(args);
         return execute(cmd);
     }
 

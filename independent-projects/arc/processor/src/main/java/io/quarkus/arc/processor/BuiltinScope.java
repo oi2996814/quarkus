@@ -2,10 +2,12 @@ package io.quarkus.arc.processor;
 
 import java.lang.annotation.Annotation;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Dependent;
-import javax.enterprise.context.RequestScoped;
-import javax.inject.Singleton;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ConversationScoped;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.context.SessionScoped;
+import jakarta.inject.Singleton;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -16,7 +18,9 @@ public enum BuiltinScope {
     DEPENDENT(Dependent.class, false),
     SINGLETON(Singleton.class, false),
     APPLICATION(ApplicationScoped.class, true),
-    REQUEST(RequestScoped.class, true);
+    REQUEST(RequestScoped.class, true),
+    SESSION(SessionScoped.class, true),
+    CONVERSATION(ConversationScoped.class, true);
 
     private ScopeInfo info;
 
@@ -43,7 +47,7 @@ public enum BuiltinScope {
 
     public static BuiltinScope from(ClassInfo clazz) {
         for (BuiltinScope scope : BuiltinScope.values()) {
-            if (clazz.classAnnotation(scope.getName()) != null) {
+            if (clazz.hasDeclaredAnnotation(scope.getName())) {
                 return scope;
             }
         }
@@ -58,6 +62,10 @@ public enum BuiltinScope {
         return getInfo().equals(scope);
     }
 
+    public boolean isDeclaredBy(BeanInfo bean) {
+        return is(bean.getScope());
+    }
+
     public static boolean isIn(Iterable<AnnotationInstance> annotations) {
         for (AnnotationInstance annotation : annotations) {
             if (from(annotation.name()) != null) {
@@ -69,7 +77,7 @@ public enum BuiltinScope {
 
     public static boolean isDeclaredOn(ClassInfo clazz) {
         for (BuiltinScope scope : BuiltinScope.values()) {
-            if (clazz.classAnnotation(scope.getName()) != null) {
+            if (clazz.hasDeclaredAnnotation(scope.getName())) {
                 return true;
             }
         }

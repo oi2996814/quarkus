@@ -1,5 +1,8 @@
 package io.quarkus.smallrye.reactivemessaging.kafka.deployment;
 
+import static io.quarkus.smallrye.reactivemessaging.kafka.deployment.SmallRyeReactiveMessagingKafkaProcessor.getChannelPropertyKey;
+
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -15,8 +18,8 @@ import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
-import org.jboss.jandex.Type;
 
+import io.quarkus.deployment.util.JandexUtil;
 import io.quarkus.smallrye.reactivemessaging.deployment.items.ChannelDirection;
 import io.quarkus.smallrye.reactivemessaging.deployment.items.ConnectorManagedChannelBuildItem;
 import io.smallrye.reactive.messaging.kafka.KafkaConnector;
@@ -34,7 +37,7 @@ class DefaultSerdeDiscoveryState {
 
     private Boolean hasConfluent;
     private Boolean hasApicurio1;
-    private Boolean hasApicurio2;
+    private Boolean hasApicurio2Avro;
     private Boolean hasJsonb;
 
     DefaultSerdeDiscoveryState(IndexView index) {
@@ -57,7 +60,7 @@ class DefaultSerdeDiscoveryState {
 
         String channelType = incoming ? "incoming" : "outgoing";
         return isKafkaConnector.computeIfAbsent(channelType + "|" + channelName, ignored -> {
-            String connectorKey = "mp.messaging." + channelType + "." + channelName + ".connector";
+            String connectorKey = getChannelPropertyKey(channelName, "connector", incoming);
             String connector = getConfig()
                     .getOptionalValue(connectorKey, String.class)
                     .orElse("ignored");
@@ -153,24 +156,24 @@ class DefaultSerdeDiscoveryState {
         return hasApicurio1;
     }
 
-    boolean hasApicurio2() {
-        if (hasApicurio2 == null) {
+    boolean hasApicurio2Avro() {
+        if (hasApicurio2Avro == null) {
             try {
                 Class.forName("io.apicurio.registry.serde.avro.AvroKafkaDeserializer", false,
                         Thread.currentThread().getContextClassLoader());
-                hasApicurio2 = true;
+                hasApicurio2Avro = true;
             } catch (ClassNotFoundException e) {
-                hasApicurio2 = false;
+                hasApicurio2Avro = false;
             }
         }
 
-        return hasApicurio2;
+        return hasApicurio2Avro;
     }
 
     boolean hasJsonb() {
         if (hasJsonb == null) {
             try {
-                Class.forName("javax.json.bind.Jsonb", false,
+                Class.forName("jakarta.json.bind.Jsonb", false,
                         Thread.currentThread().getContextClassLoader());
                 hasJsonb = true;
             } catch (ClassNotFoundException e) {
@@ -182,29 +185,32 @@ class DefaultSerdeDiscoveryState {
     }
 
     ClassInfo getSubclassOfWithTypeArgument(DotName superclass, DotName expectedTypeArgument) {
-        return index.getKnownDirectSubclasses(superclass)
+        return index.getAllKnownSubclasses(superclass)
                 .stream()
-                .filter(it -> it.superClassType().kind() == Type.Kind.PARAMETERIZED_TYPE
-                        && it.superClassType().asParameterizedType().arguments().size() == 1
-                        && it.superClassType().asParameterizedType().arguments().get(0).name().equals(expectedTypeArgument))
-                .findAny()
+                .filter(ci -> !ci.isAbstract() && JandexUtil.resolveTypeParameters(ci.name(), superclass, index)
+                        .stream().anyMatch(t -> t.name().equals(expectedTypeArgument)))
+                .min(Comparator.comparing(ClassInfo::name))
                 .orElse(null);
     }
 
     ClassInfo getImplementorOfWithTypeArgument(DotName implementedInterface, DotName expectedTypeArgument) {
-        return index.getKnownDirectImplementors(implementedInterface)
+        return index.getAllKnownImplementors(implementedInterface)
                 .stream()
-                .filter(ci -> ci.interfaceTypes().stream()
-                        .anyMatch(it -> it.name().equals(implementedInterface)
-                                && it.kind() == Type.Kind.PARAMETERIZED_TYPE
-                                && it.asParameterizedType().arguments().size() == 1
-                                && it.asParameterizedType().arguments().get(0).name().equals(expectedTypeArgument)))
-                .findAny()
+                .filter(ci -> !ci.isAbstract() && JandexUtil.resolveTypeParameters(ci.name(), implementedInterface, index)
+                        .stream().anyMatch(t -> t.name().equals(expectedTypeArgument)))
+                .min(Comparator.comparing(ClassInfo::name))
                 .orElse(null);
     }
 
     List<AnnotationInstance> findAnnotationsOnMethods(DotName annotation) {
         return index.getAnnotations(annotation)
+                .stream()
+                .filter(it -> it.target().kind() == AnnotationTarget.Kind.METHOD)
+                .collect(Collectors.toList());
+    }
+
+    List<AnnotationInstance> findRepeatableAnnotationsOnMethods(DotName annotation) {
+        return index.getAnnotationsWithRepeatable(annotation, index)
                 .stream()
                 .filter(it -> it.target().kind() == AnnotationTarget.Kind.METHOD)
                 .collect(Collectors.toList());

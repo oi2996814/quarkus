@@ -4,11 +4,11 @@ import java.time.Duration;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.annotation.Priority;
-import javax.inject.Inject;
-import javax.interceptor.AroundInvoke;
-import javax.interceptor.Interceptor;
-import javax.interceptor.InvocationContext;
+import jakarta.annotation.Priority;
+import jakarta.inject.Inject;
+import jakarta.interceptor.AroundInvoke;
+import jakarta.interceptor.Interceptor;
+import jakarta.interceptor.InvocationContext;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.commons.CacheException;
@@ -50,7 +50,8 @@ public class CacheResultInterceptor extends CacheInterceptor {
         }
 
         CacheResult binding = interceptionContext.getInterceptorBindings().get(0);
-        RemoteCache remoteCache = cacheManager.getCache(binding.cacheName());
+        RemoteCache remoteCache = getRemoteCacheManager()
+                .getCache(binding.cacheName());
         Object key = getCacheKey(invocationContext.getParameters());
         InfinispanGetWrapper cache = new InfinispanGetWrapper(remoteCache, syncronousInfinispanGet.get(remoteCache.getName()));
         LOGGER.debugf("Loading entry with key [%s] from cache [%s]", key, binding.cacheName());

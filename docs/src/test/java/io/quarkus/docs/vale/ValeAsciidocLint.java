@@ -21,6 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.OutputFrame.OutputType;
 import org.testcontainers.containers.startupcheck.IndefiniteWaitOneShotStartupCheckStrategy;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -37,6 +38,8 @@ import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator;
 
+import io.quarkus.docs.generation.YamlMetadataGenerator.FileMessages;
+
 public class ValeAsciidocLint {
     public static TypeReference<Map<String, List<Check>>> typeRef = new TypeReference<Map<String, List<Check>>>() {
     };
@@ -47,6 +50,7 @@ public class ValeAsciidocLint {
     Path valeDir;
     Path srcDir;
     Path targetDir;
+    Path valeConfigFile;
 
     public static void main(String[] args) throws Exception {
         if (args == null) {
@@ -64,7 +68,10 @@ public class ValeAsciidocLint {
                         : docsDir().resolve("src/main/asciidoc"))
                 .setTargetDir(args.length >= 3
                         ? Path.of(args[2])
-                        : docsDir().resolve("target"));
+                        : docsDir().resolve("target"))
+                .setValeConfig(args.length >= 4
+                        ? Path.of(args[0])
+                        : docsDir().resolve(".vale.ini"));
 
         Map<String, ChecksBySeverity> results = linter.lintFiles();
         linter.resultsToYaml(results, null);
@@ -82,6 +89,11 @@ public class ValeAsciidocLint {
 
     public ValeAsciidocLint setValeDir(Path valeDir) {
         this.valeDir = valeDir;
+        return this;
+    }
+
+    public ValeAsciidocLint setValeConfig(Path valeConfig) {
+        this.valeConfigFile = valeConfig;
         return this;
     }
 
@@ -115,7 +127,7 @@ public class ValeAsciidocLint {
         return this;
     }
 
-    public void resultsToYaml(Map<String, ChecksBySeverity> lintChecks, Map<String, Collection<String>> metadataErrors)
+    public void resultsToYaml(Map<String, ChecksBySeverity> lintChecks, Map<String, FileMessages> metadataErrors)
             throws StreamWriteException, DatabindException, IOException {
         ObjectMapper yaml = new ObjectMapper(new YAMLFactory().enable(YAMLGenerator.Feature.MINIMIZE_QUOTES));
         Map<String, Map<String, Object>> results = lintChecks.entrySet().stream()
@@ -123,9 +135,9 @@ public class ValeAsciidocLint {
                     Map<String, Object> value = new TreeMap<>(); // sort by key for consistency
                     value.putAll(e.getValue().checksBySeverity);
                     if (metadataErrors != null) {
-                        Collection<String> me = metadataErrors.get(e.getKey());
-                        if (me != null) {
-                            value.put("metadata", me);
+                        FileMessages fm = metadataErrors.get(e.getKey());
+                        if (fm != null) {
+                            value.put("metadata", fm);
                         }
                     }
                     return value;
@@ -151,10 +163,14 @@ public class ValeAsciidocLint {
             throw new IllegalStateException(
                     String.format("Target directory (%s) does not exist. Exiting.%n", targetDir.toAbsolutePath()));
         }
+        if (!Files.exists(valeConfigFile) || !Files.isRegularFile(valeConfigFile)) {
+            throw new IllegalStateException(
+                    String.format("Vale config file (%s) does not exist. Exiting.%n", valeConfigFile.toAbsolutePath()));
+        }
 
         DockerImageName valeImage = DockerImageName.parse(imageName);
 
-        List<String> command = new ArrayList<>(List.of("--config=/vale/vale.ini",
+        List<String> command = new ArrayList<>(List.of("--config=/.vale.ini",
                 "--minAlertLevel=" + minAlertLevel.name(),
                 "--output=JSON",
                 "--no-exit"));
@@ -174,8 +190,9 @@ public class ValeAsciidocLint {
         }
 
         try (GenericContainer<?> container = new GenericContainer<>(valeImage)
-                .withFileSystemBind(valeDir.toString(), "/vale", BindMode.READ_ONLY)
+                .withFileSystemBind(valeDir.toString(), "/.vale", BindMode.READ_ONLY)
                 .withFileSystemBind(srcDir.toString(), "/asciidoc", BindMode.READ_ONLY)
+                .withCopyFileToContainer(MountableFile.forHostPath(valeConfigFile), "/.vale.ini")
                 .withStartupCheckStrategy(new IndefiniteWaitOneShotStartupCheckStrategy())
                 .withCommand(command.toArray(new String[0]))) {
 

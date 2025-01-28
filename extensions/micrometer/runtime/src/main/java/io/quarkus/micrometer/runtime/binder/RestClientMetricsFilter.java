@@ -1,12 +1,13 @@
 package io.quarkus.micrometer.runtime.binder;
 
-import javax.inject.Inject;
-import javax.ws.rs.client.ClientRequestContext;
-import javax.ws.rs.client.ClientRequestFilter;
-import javax.ws.rs.client.ClientResponseContext;
-import javax.ws.rs.client.ClientResponseFilter;
-import javax.ws.rs.ext.Provider;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.client.ClientRequestContext;
+import jakarta.ws.rs.client.ClientRequestFilter;
+import jakarta.ws.rs.client.ClientResponseContext;
+import jakarta.ws.rs.client.ClientResponseFilter;
+import jakarta.ws.rs.ext.Provider;
 
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tag;
@@ -20,12 +21,15 @@ import io.quarkus.arc.Unremovable;
  */
 @Unremovable
 @Provider
+@SuppressWarnings("unused") // this is used by io.quarkus.micrometer.deployment.binder.HttpBinderProcessor
 public class RestClientMetricsFilter implements ClientRequestFilter, ClientResponseFilter {
 
     private final static String REQUEST_METRIC_PROPERTY = "restClientMetrics";
     private final MeterRegistry registry = Metrics.globalRegistry;
 
     private final HttpBinderConfiguration httpMetricsConfig;
+
+    private final Meter.MeterProvider<Timer> timer;
 
     // RESTEasy requires no-arg constructor for CDI injection: https://issues.redhat.com/browse/RESTEASY-1538
     // In the classic Rest Client this is the constructor called whereas in the Reactive one,
@@ -37,6 +41,10 @@ public class RestClientMetricsFilter implements ClientRequestFilter, ClientRespo
     @Inject
     public RestClientMetricsFilter(final HttpBinderConfiguration httpMetricsConfig) {
         this.httpMetricsConfig = httpMetricsConfig;
+
+        timer = Timer.builder(httpMetricsConfig.getHttpClientRequestsName())
+                .withRegistry(registry);
+
     }
 
     @Override
@@ -69,15 +77,14 @@ public class RestClientMetricsFilter implements ClientRequestFilter, ClientRespo
                 Timer.Sample sample = requestMetric.getSample();
                 int statusCode = responseContext.getStatus();
 
-                Timer.Builder builder = Timer.builder(httpMetricsConfig.getHttpClientRequestsName())
-                        .tags(Tags.of(
+                sample.stop(timer
+                        .withTags(Tags.of(
                                 HttpCommonTags.method(requestContext.getMethod()),
-                                HttpCommonTags.uri(requestPath, statusCode),
+                                HttpCommonTags.uri(requestPath, requestContext.getUri().getPath(), statusCode,
+                                        httpMetricsConfig.isClientSuppress4xxErrors()),
                                 HttpCommonTags.outcome(statusCode),
                                 HttpCommonTags.status(statusCode),
-                                clientName(requestContext)));
-
-                sample.stop(builder.register(registry));
+                                clientName(requestContext))));
             }
         }
     }

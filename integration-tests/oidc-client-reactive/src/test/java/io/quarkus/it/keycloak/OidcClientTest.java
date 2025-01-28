@@ -2,6 +2,7 @@ package io.quarkus.it.keycloak;
 
 import static org.awaitility.Awaitility.await;
 import static org.awaitility.Awaitility.given;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -27,12 +28,21 @@ import io.restassured.RestAssured;
 public class OidcClientTest {
 
     @Test
+    public void testGetUserNameReactive() {
+        RestAssured.given().header("Accept", "text/plain")
+                .when().get("/frontend/userNameReactive")
+                .then()
+                .statusCode(200)
+                .body(equalTo("alice"));
+    }
+
+    @Test
     public void testGetUserNameCustomFilter() {
         RestAssured.given().header("Accept", "text/plain")
                 .when().get("/frontend/userNameCustomFilter")
                 .then()
                 .statusCode(200)
-                .body(equalTo("alice"));
+                .body(equalTo("jdoe"));
     }
 
     @Test
@@ -45,12 +55,21 @@ public class OidcClientTest {
     }
 
     @Test
-    public void testGetUserNameReactive() {
+    public void testGetUserNameDisabledClient() {
         RestAssured.given().header("Accept", "text/plain")
-                .when().get("/frontend/userNameReactive")
+                .when().get("/frontend/userNameDisabledClient")
                 .then()
                 .statusCode(200)
-                .body(equalTo("alice"));
+                .body(containsString("Unauthorized, status code 401"));
+    }
+
+    @Test
+    public void testGetUserNameMisconfiguredClientFilter() {
+        RestAssured.given().header("Accept", "text/plain")
+                .when().get("/frontend/userNameMisconfiguredClientFilter")
+                .then()
+                .statusCode(200)
+                .body(containsString("invalid_grant"));
     }
 
     @Test
@@ -97,7 +116,8 @@ public class OidcClientTest {
                                 "quarkus log file " + accessLogFilePath + " is missing");
 
                         int tokenAcquisitionCount = 0;
-                        int tokenRefreshedCount = 0;
+                        int tokenRefreshedOidcClientLogCount = 0;
+                        int tokenRefreshResponseFilterLogCount = 0;
 
                         try (BufferedReader reader = new BufferedReader(
                                 new InputStreamReader(new ByteArrayInputStream(Files.readAllBytes(accessLogFilePath)),
@@ -105,9 +125,12 @@ public class OidcClientTest {
                             String line = null;
                             while ((line = reader.readLine()) != null) {
                                 if (line.contains("Default OidcClient has refreshed the tokens")) {
-                                    tokenRefreshedCount++;
+                                    tokenRefreshedOidcClientLogCount++;
                                 } else if (line.contains("Default OidcClient has acquired the tokens")) {
                                     tokenAcquisitionCount++;
+                                }
+                                if (line.contains("Tokens have been refreshed")) {
+                                    tokenRefreshResponseFilterLogCount++;
                                 }
 
                             }
@@ -116,8 +139,11 @@ public class OidcClientTest {
                         assertEquals(1, tokenAcquisitionCount,
                                 "Log file must contain a single OidcClientImpl token acquisition confirmation");
                         // only the reactive filter is refreshing the token
-                        assertEquals(1, tokenRefreshedCount,
+                        assertEquals(1, tokenRefreshedOidcClientLogCount,
                                 "Log file must contain a single OidcClientImpl token refresh confirmation");
+
+                        assertEquals(1, tokenRefreshResponseFilterLogCount,
+                                "Log file must contain a single OidcResponseFilter token refresh confirmation");
                     }
                 });
     }

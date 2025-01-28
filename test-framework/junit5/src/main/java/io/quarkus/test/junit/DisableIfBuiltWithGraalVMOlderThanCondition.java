@@ -13,12 +13,12 @@ import org.junit.jupiter.api.extension.ConditionEvaluationResult;
 import org.junit.jupiter.api.extension.ExecutionCondition;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
+import io.quarkus.deployment.pkg.steps.GraalVM;
+
 public class DisableIfBuiltWithGraalVMOlderThanCondition implements ExecutionCondition {
 
     private static final String QUARKUS_INTEGRATION_TEST_NAME = QuarkusIntegrationTest.class.getName();
-    private static final String NATIVE_IMAGE_TEST_NAME = NativeImageTest.class.getName();
-    private static final Set<String> SUPPORTED_INTEGRATION_TESTS = Set.of(QUARKUS_INTEGRATION_TEST_NAME,
-            NATIVE_IMAGE_TEST_NAME);
+    private static final Set<String> SUPPORTED_INTEGRATION_TESTS = Set.of(QUARKUS_INTEGRATION_TEST_NAME);
 
     @Override
     public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext context) {
@@ -35,9 +35,9 @@ public class DisableIfBuiltWithGraalVMOlderThanCondition implements ExecutionCon
         GraalVMVersion annotationValue = optional.get().value();
         Properties quarkusArtifactProperties = readQuarkusArtifactProperties(context);
         try {
-            org.graalvm.home.Version version = org.graalvm.home.Version
-                    .parse(quarkusArtifactProperties.getProperty("metadata.graalvm.version.version"));
-            int comparison = annotationValue.compareTo(version);
+            GraalVM.Version version = GraalVM.Version
+                    .of(quarkusArtifactProperties.getProperty("metadata.graalvm.version.full").lines());
+            int comparison = annotationValue.getVersion().compareTo(version);
             if (comparison > 0) {
                 return ConditionEvaluationResult.disabled("Native binary was built with GraalVM{version=" + version.toString()
                         + "} but the test is disabled for GraalVM versions older than " + annotationValue);

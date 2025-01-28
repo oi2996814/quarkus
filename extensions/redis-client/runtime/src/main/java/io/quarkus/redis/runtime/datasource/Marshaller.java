@@ -3,17 +3,20 @@ package io.quarkus.redis.runtime.datasource;
 import static io.smallrye.mutiny.helpers.ParameterValidation.doesNotContainNull;
 import static io.smallrye.mutiny.helpers.ParameterValidation.nonNull;
 
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import io.quarkus.redis.datasource.codecs.Codec;
 import io.quarkus.redis.datasource.codecs.Codecs;
@@ -22,26 +25,27 @@ import io.vertx.redis.client.ResponseType;
 
 public class Marshaller {
 
-    private static final Map<Class<?>, Codec<?>> DEFAULT_CODECS;
+    public static final TypeReference<String> STRING_TYPE_REFERENCE = new TypeReference<String>() {
+        // Empty on purpose
+    };
 
-    static {
-        DEFAULT_CODECS = new HashMap<>();
-        DEFAULT_CODECS.put(String.class, Codecs.StringCodec.INSTANCE);
-        DEFAULT_CODECS.put(Integer.class, Codecs.IntegerCodec.INSTANCE);
-        DEFAULT_CODECS.put(Double.class, Codecs.DoubleCodec.INSTANCE);
+    Map<Type, Codec> codecs = new ConcurrentHashMap<>();
+
+    public Marshaller(Type... hints) {
+        addAll(hints);
     }
 
-    Map<Class<?>, Codec<?>> codecs = new HashMap<>();
-
-    public Marshaller(Class<?>... hints) {
+    public void addAll(Type... hints) {
         doesNotContainNull(hints, "hints");
-
-        for (Class<?> hint : hints) {
-            codecs.put(hint, Codecs.getDefaultCodecFor(hint));
+        for (Type hint : hints) {
+            codecs.computeIfAbsent(hint, h -> Codecs.getDefaultCodecFor(hint));
         }
     }
 
-    @SuppressWarnings({ "rawtypes", "unchecked" })
+    public void add(Class<?> hint) {
+        codecs.computeIfAbsent(hint, h -> Codecs.getDefaultCodecFor(hint));
+    }
+
     public byte[] encode(Object o) {
         if (o instanceof String) {
             return ((String) o).getBytes(StandardCharsets.UTF_8);
@@ -51,11 +55,7 @@ public class Marshaller {
         }
         Class<?> clazz = o.getClass();
         Codec codec = codec(clazz);
-        if (codec != null) {
-            return codec.encode(o);
-        } else {
-            throw new IllegalArgumentException("Unable to encode object of type " + clazz);
-        }
+        return codec.encode(o);
     }
 
     @SafeVarargs
@@ -69,15 +69,16 @@ public class Marshaller {
         return result;
     }
 
-    Codec<?> codec(Class<?> clazz) {
-        Codec<?> codec = codecs.get(clazz);
+    Codec codec(Type clazz) {
+        Codec codec = codecs.get(clazz);
         if (codec == null) {
-            codec = DEFAULT_CODECS.get(clazz);
+            codec = Codecs.getDefaultCodecFor(clazz);
+            codecs.put(clazz, codec);
         }
         return codec;
     }
 
-    final <T> T decode(Class<T> clazz, Response r) {
+    public final <T> T decode(Type clazz, Response r) {
         if (r == null) {
             return null;
         }
@@ -88,15 +89,15 @@ public class Marshaller {
     }
 
     @SuppressWarnings("unchecked")
-    public final <T> T decode(Class<T> clazz, byte[] r) {
+    public final <T> T decode(Type clazz, byte[] r) {
         if (r == null) {
             return null;
         }
-        Codec<?> codec = codec(clazz);
+        Codec codec = codec(clazz);
         return (T) codec.decode(r);
     }
 
-    public <F, V> Map<F, V> decodeAsMap(Response response, Class<F> typeOfField, Class<V> typeOfValue) {
+    public <F, V> Map<F, V> decodeAsMap(Response response, Type typeOfField, Type typeOfValue) {
         if (response == null || response.size() == 0) {
             return Collections.emptyMap();
         }
@@ -126,7 +127,7 @@ public class Marshaller {
         return map;
     }
 
-    public <F> List<F> decodeAsList(Response response, Class<F> typeOfItem) {
+    public <F> List<F> decodeAsList(Response response, Type typeOfItem) {
         if (response == null) {
             return Collections.emptyList();
         }
@@ -152,7 +153,7 @@ public class Marshaller {
         return list;
     }
 
-    public <F> Set<F> decodeAsSet(Response response, Class<F> typeOfItem) {
+    public <F> Set<F> decodeAsSet(Response response, Type typeOfItem) {
         if (response == null) {
             return Collections.emptySet();
         }
@@ -163,7 +164,7 @@ public class Marshaller {
         return set;
     }
 
-    final <F, V> Map<F, V> decodeAsOrderedMap(Response response, Class<V> typeOfValue, F[] fields) {
+    final <F, V> Map<F, V> decodeAsOrderedMap(Response response, Type typeOfValue, F[] fields) {
         Iterator<Response> iterator = response.iterator();
         Map<F, V> map = new LinkedHashMap<>();
         for (F field : fields) {

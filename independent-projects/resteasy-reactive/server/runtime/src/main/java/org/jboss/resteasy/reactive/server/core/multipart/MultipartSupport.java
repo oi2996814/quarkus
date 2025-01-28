@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.nio.charset.Charset;
@@ -16,20 +17,22 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.function.Supplier;
 
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.NotSupportedException;
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.NotSupportedException;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.ext.MessageBodyReader;
 
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.common.util.Encode;
-import org.jboss.resteasy.reactive.multipart.FileUpload;
 import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
 import org.jboss.resteasy.reactive.server.core.ServerSerialisers;
-import org.jboss.resteasy.reactive.server.core.multipart.FormData.FormValue;
 import org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler;
+import org.jboss.resteasy.reactive.server.multipart.FileItem;
+import org.jboss.resteasy.reactive.server.multipart.FormValue;
+import org.jboss.resteasy.reactive.server.multipart.MultipartFormDataInput;
 import org.jboss.resteasy.reactive.server.multipart.MultipartPartReadingException;
 import org.jboss.resteasy.reactive.server.spi.ServerMessageBodyReader;
 
@@ -39,6 +42,21 @@ import org.jboss.resteasy.reactive.server.spi.ServerMessageBodyReader;
 @SuppressWarnings("unused")
 public final class MultipartSupport {
 
+    public static class ConstantSupplier<T> implements Supplier<T> {
+
+        private final T val;
+
+        public ConstantSupplier(T val) {
+            this.val = val;
+        }
+
+        @Override
+        public T get() {
+            return val;
+        }
+
+    }
+
     private static final Logger log = Logger.getLogger(RequestDeserializeHandler.class);
 
     private static final Annotation[] EMPTY_ANNOTATIONS = new Annotation[0];
@@ -46,27 +64,64 @@ public final class MultipartSupport {
     private MultipartSupport() {
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    public static Object convertFormAttribute(String value, Class type, Type genericType, MediaType mediaType,
-            ResteasyReactiveRequestContext context, String attributeName) {
+    public static MultipartFormDataInput toMultipartFormDataInput(ResteasyReactiveRequestContext context) {
+        FormData formData = context.getFormData();
+        if (formData == null) {
+            return MultipartFormDataInput.Empty.INSTANCE;
+        }
+        return formData.toMultipartFormDataInput();
+    }
+
+    public static Object getConvertedFormAttribute(String attributeName, Class type, Type genericType, MediaType mediaType,
+            ResteasyReactiveRequestContext context) {
+        FormValue value = getFirstValue(attributeName, context);
         if (value == null) {
-            FormData formData = context.getFormData();
-            if (formData != null) {
-                Collection<FormValue> fileUploadsForName = formData.get(attributeName);
-                if (fileUploadsForName != null) {
-                    for (FormData.FormValue fileUpload : fileUploadsForName) {
-                        if (fileUpload.isFileItem()) {
-                            log.warn("Attribute '" + attributeName
-                                    + "' of the multipart request is a file and therefore its value is not set. To obtain the contents of the file, use type '"
-                                    + FileUpload.class + "' as the field type.");
-                            break;
-                        }
-                    }
-                }
-            }
             return null;
         }
+        MessageBodyReader<?> reader = findReader(attributeName, type, genericType, mediaType, context);
+        return read(reader, attributeName, value, type, genericType, mediaType, context);
+    }
 
+    private static Object read(MessageBodyReader<?> reader, String attributeName, FormValue value, Class type, Type genericType,
+            MediaType mediaType,
+            ResteasyReactiveRequestContext context) {
+        Supplier<InputStream> is;
+        if (value.isFileItem()) {
+            is = new Supplier<InputStream>() {
+                @Override
+                public InputStream get() {
+                    try {
+                        return value.getFileItem().getInputStream();
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                }
+            };
+        } else {
+            is = new ConstantSupplier<>(formAttributeValueToInputStream(value.getValue()));
+        }
+        // reader cannot be null
+        return read(reader, attributeName, is, type, genericType, mediaType, context);
+    }
+
+    public static List<Object> getConvertedFormAttributes(String attributeName, Class type, Type genericType,
+            MediaType mediaType,
+            ResteasyReactiveRequestContext context) {
+        Deque<FormValue> values = getValues(attributeName, context);
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Object> ret = new ArrayList<>();
+        // reader cannot be null
+        MessageBodyReader<?> reader = findReader(attributeName, type, genericType, mediaType, context);
+        for (FormValue value : values) {
+            ret.add(read(reader, attributeName, value, type, genericType, mediaType, context));
+        }
+        return ret;
+    }
+
+    private static MessageBodyReader<?> findReader(String attributeName, Class type, Type genericType, MediaType mediaType,
+            ResteasyReactiveRequestContext context) {
         ServerSerialisers serialisers = context.getDeployment().getSerialisers();
         List<MessageBodyReader<?>> readers = serialisers.findReaders(null, type, mediaType, RuntimeType.SERVER);
         if (readers.isEmpty()) {
@@ -77,40 +132,47 @@ public final class MultipartSupport {
             if (reader instanceof ServerMessageBodyReader) {
                 ServerMessageBodyReader<?> serverMessageBodyReader = (ServerMessageBodyReader<?>) reader;
                 if (serverMessageBodyReader.isReadable(type, genericType, context.getTarget().getLazyMethod(), mediaType)) {
-                    // this should always be an empty stream as multipart doesn't set the request body
-                    InputStream originalInputStream = context.getInputStream();
-                    try {
-                        // we need to set a fake input stream in order to trick the readers into thinking they are reading from the body
-                        context.setInputStream(formAttributeValueToInputStream(value));
-                        return serverMessageBodyReader.readFrom(type, genericType, mediaType, context);
-                    } catch (IOException e) {
-                        log.error("Unable to convert value provided for attribute '" + attributeName
-                                + "' of the multipart request into type '" + type.getName() + "'", e);
-                        throw new MultipartPartReadingException(e);
-                    } finally {
-                        context.setInputStream(originalInputStream);
-                    }
-
+                    return serverMessageBodyReader;
                 }
             } else {
                 // TODO: should we be passing in the annotations?
                 if (reader.isReadable(type, genericType, EMPTY_ANNOTATIONS, mediaType)) {
-                    try {
-                        return reader.readFrom((Class) type, genericType, EMPTY_ANNOTATIONS, mediaType,
-                                context.getHttpHeaders().getRequestHeaders(),
-                                formAttributeValueToInputStream(value));
-                    } catch (IOException e) {
-                        log.error("Unable to convert value provided for attribute '" + attributeName
-                                + "' of the multipart request into type '" + type.getName() + "'", e);
-                        throw new MultipartPartReadingException(e);
-                    }
+                    return reader;
                 }
             }
         }
         throw new NotSupportedException("Media type '" + mediaType + "' in multipart request is not supported");
     }
 
-    private static FormData.FormValue getFirstValue(String formName, ResteasyReactiveRequestContext context) {
+    private static Object read(MessageBodyReader<?> reader, String attributeName, Supplier<InputStream> inputStreamSupplier,
+            Class type, Type genericType, MediaType mediaType,
+            ResteasyReactiveRequestContext context) {
+        try {
+            if (reader instanceof ServerMessageBodyReader) {
+                ServerMessageBodyReader<?> serverMessageBodyReader = (ServerMessageBodyReader<?>) reader;
+                // this should always be an empty stream as multipart doesn't set the request body
+                InputStream originalInputStream = context.getInputStream();
+                try {
+                    // we need to set a fake input stream in order to trick the readers into thinking they are reading from the body
+                    context.setInputStream(inputStreamSupplier.get());
+                    return serverMessageBodyReader.readFrom(type, genericType, mediaType, context);
+                } finally {
+                    context.setInputStream(originalInputStream);
+                }
+            } else {
+                // TODO: should we be passing in the annotations?
+                return reader.readFrom((Class) type, genericType, EMPTY_ANNOTATIONS, mediaType,
+                        context.getHttpHeaders().getRequestHeaders(),
+                        inputStreamSupplier.get());
+            }
+        } catch (IOException | UncheckedIOException e) {
+            log.error("Unable to convert value provided for attribute '" + attributeName
+                    + "' of the multipart request into type '" + type.getName() + "'", e);
+            throw new MultipartPartReadingException(e);
+        }
+    }
+
+    private static FormValue getFirstValue(String formName, ResteasyReactiveRequestContext context) {
         Deque<FormValue> values = getValues(formName, context);
         if (values != null && !values.isEmpty()) {
             return values.getFirst();
@@ -118,7 +180,7 @@ public final class MultipartSupport {
         return null;
     }
 
-    private static Deque<FormData.FormValue> getValues(String formName, ResteasyReactiveRequestContext context) {
+    private static Deque<FormValue> getValues(String formName, ResteasyReactiveRequestContext context) {
         FormData form = context.getFormData();
         if (form != null) {
             return form.get(formName);
@@ -131,7 +193,7 @@ public final class MultipartSupport {
     }
 
     public static String getString(String formName, ResteasyReactiveRequestContext context, boolean encoded) {
-        FormData.FormValue value = getFirstValue(formName, context);
+        FormValue value = getFirstValue(formName, context);
         if (value == null) {
             return null;
         }
@@ -155,7 +217,7 @@ public final class MultipartSupport {
     }
 
     public static List<String> getStrings(String formName, ResteasyReactiveRequestContext context, boolean encoded) {
-        Deque<FormData.FormValue> values = getValues(formName, context);
+        Deque<FormValue> values = getValues(formName, context);
         if (values == null) {
             return Collections.emptyList();
         }
@@ -181,13 +243,17 @@ public final class MultipartSupport {
     }
 
     public static byte[] getByteArray(String formName, ResteasyReactiveRequestContext context) {
-        FormData.FormValue value = getFirstValue(formName, context);
+        FormValue value = getFirstValue(formName, context);
         if (value == null) {
             return null;
         }
         if (value.isFileItem()) {
             try {
-                return Files.readAllBytes(value.getFileItem().getFile());
+                FileItem fileItem = value.getFileItem();
+                if (fileItem.isInMemory()) {
+                    return fileItem.getInputStream().readAllBytes();
+                }
+                return Files.readAllBytes(fileItem.getFile());
             } catch (IOException e) {
                 throw new MultipartPartReadingException(e);
             }
@@ -197,7 +263,7 @@ public final class MultipartSupport {
     }
 
     public static List<byte[]> getByteArrays(String formName, ResteasyReactiveRequestContext context) {
-        Deque<FormData.FormValue> values = getValues(formName, context);
+        Deque<FormValue> values = getValues(formName, context);
         if (values == null) {
             return Collections.emptyList();
         }
@@ -217,7 +283,7 @@ public final class MultipartSupport {
     }
 
     public static InputStream getInputStream(String formName, ResteasyReactiveRequestContext context) {
-        FormData.FormValue value = getFirstValue(formName, context);
+        FormValue value = getFirstValue(formName, context);
         if (value == null) {
             return null;
         }
@@ -233,7 +299,7 @@ public final class MultipartSupport {
     }
 
     public static List<InputStream> getInputStreams(String formName, ResteasyReactiveRequestContext context) {
-        Deque<FormData.FormValue> values = getValues(formName, context);
+        Deque<FormValue> values = getValues(formName, context);
         if (values == null) {
             return Collections.emptyList();
         }
@@ -262,17 +328,6 @@ public final class MultipartSupport {
         return null;
     }
 
-    public static List<Object> convertFormAttributes(List<String> params, Class<Object> typeClass, Type genericType,
-            MediaType mimeType, ResteasyReactiveRequestContext context, String name) {
-        List<Object> ret = new ArrayList<>(params.size());
-        for (String param : params) {
-            ret.add(MultipartSupport.convertFormAttribute(param, typeClass, genericType,
-                    mimeType, context,
-                    name));
-        }
-        return ret;
-    }
-
     public static DefaultFileUpload getFileUpload(String formName, ResteasyReactiveRequestContext context) {
         List<DefaultFileUpload> uploads = getFileUploads(formName, context);
         if (!uploads.isEmpty()) {
@@ -287,7 +342,7 @@ public final class MultipartSupport {
         if (formData != null) {
             Collection<FormValue> fileUploadsForName = formData.get(formName);
             if (fileUploadsForName != null) {
-                for (FormData.FormValue fileUpload : fileUploadsForName) {
+                for (FormValue fileUpload : fileUploadsForName) {
                     if (fileUpload.isFileItem()) {
                         result.add(new DefaultFileUpload(formName, fileUpload));
                     }
@@ -322,7 +377,7 @@ public final class MultipartSupport {
         }
         List<DefaultFileUpload> result = new ArrayList<>();
         for (String name : formData) {
-            for (FormData.FormValue fileUpload : formData.get(name)) {
+            for (FormValue fileUpload : formData.get(name)) {
                 if (fileUpload.isFileItem()) {
                     result.add(new DefaultFileUpload(name, fileUpload));
                 }

@@ -1,5 +1,6 @@
 package io.quarkus.hibernate.envers.deployment;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -8,13 +9,16 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.BuildSteps;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
+import io.quarkus.deployment.builditem.NativeImageFeatureBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.pkg.steps.NativeOrNativeSourcesBuild;
 import io.quarkus.hibernate.envers.HibernateEnversBuildTimeConfig;
 import io.quarkus.hibernate.envers.HibernateEnversBuildTimeConfigPersistenceUnit;
 import io.quarkus.hibernate.envers.HibernateEnversRecorder;
-import io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem;
+import io.quarkus.hibernate.envers.runtime.graal.DisableLoggingFeature;
 import io.quarkus.hibernate.orm.deployment.PersistenceUnitDescriptorBuildItem;
 import io.quarkus.hibernate.orm.deployment.integration.HibernateOrmIntegrationStaticConfiguredBuildItem;
+import io.quarkus.hibernate.orm.deployment.spi.AdditionalJpaModelBuildItem;
 
 @BuildSteps(onlyIf = HibernateEnversEnabled.class)
 public final class HibernateEnversProcessor {
@@ -31,18 +35,25 @@ public final class HibernateEnversProcessor {
     @BuildStep
     public void registerEnversReflections(BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
             HibernateEnversBuildTimeConfig buildTimeConfig) {
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, "org.hibernate.envers.DefaultRevisionEntity"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false,
-                "org.hibernate.envers.DefaultTrackingModifiedEntitiesRevisionEntity"));
-        reflectiveClass
-                .produce(new ReflectiveClassBuildItem(false, false, "org.hibernate.tuple.entity.DynamicMapEntityTuplizer"));
-        reflectiveClass.produce(
-                new ReflectiveClassBuildItem(false, false, "org.hibernate.tuple.component.DynamicMapComponentTuplizer"));
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder(
+                "org.hibernate.envers.DefaultRevisionEntity",
+                "org.hibernate.envers.DefaultTrackingModifiedEntitiesRevisionEntity")
+                .reason(getClass().getName())
+                .methods().build());
 
-        for (HibernateEnversBuildTimeConfigPersistenceUnit pu : buildTimeConfig.getAllPersistenceUnitConfigsAsMap().values()) {
-            pu.revisionListener.ifPresent(s -> reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, s)));
-            pu.auditStrategy.ifPresent(s -> reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, s)));
+        List<String> classes = new ArrayList<>(buildTimeConfig.persistenceUnits().size() * 2);
+        for (HibernateEnversBuildTimeConfigPersistenceUnit pu : buildTimeConfig.persistenceUnits().values()) {
+            pu.revisionListener().ifPresent(classes::add);
+            pu.auditStrategy().ifPresent(classes::add);
         }
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder(classes.toArray(new String[0]))
+                .reason("Configured Envers listeners and audit strategies")
+                .methods().fields().build());
+    }
+
+    @BuildStep(onlyIf = NativeOrNativeSourcesBuild.class)
+    NativeImageFeatureBuildItem nativeImageFeature() {
+        return new NativeImageFeatureBuildItem(DisableLoggingFeature.class);
     }
 
     @BuildStep

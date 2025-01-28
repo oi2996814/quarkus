@@ -3,18 +3,19 @@ package io.quarkus.it.keycloak;
 import java.security.PublicKey;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Set;
 
-import javax.annotation.PostConstruct;
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.FormParam;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.UriInfo;
+import jakarta.annotation.PostConstruct;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.FormParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.UriInfo;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.jose4j.jwk.JsonWebKeySet;
@@ -26,6 +27,7 @@ import io.smallrye.jwt.auth.principal.DefaultJWTParser;
 import io.smallrye.jwt.auth.principal.JWTAuthContextInfo;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.build.Jwt;
+import io.smallrye.jwt.build.JwtClaimsBuilder;
 import io.smallrye.jwt.util.KeyUtils;
 
 @Path("oidc")
@@ -38,6 +40,7 @@ public class OidcResource {
     private volatile boolean rotate;
     private volatile int jwkEndpointCallCount;
     private volatile int introspectionEndpointCallCount;
+    private volatile int opaqueToken2UsageCount;
     private volatile int revokeEndpointCallCount;
     private volatile int userInfoEndpointCallCount;
     private volatile boolean enableDiscovery = true;
@@ -111,12 +114,26 @@ public class OidcResource {
     }
 
     @POST
+    @Path("opaque-token-call-count")
+    public int resetOpaqueTokenCallCount() {
+        opaqueToken2UsageCount = 0;
+        return opaqueToken2UsageCount;
+    }
+
+    @POST
     @Produces("application/json")
     @Path("introspect")
     public String introspect(@FormParam("client_id") String clientId, @FormParam("client_secret") String clientSecret,
-            @HeaderParam("Authorization") String authorization) throws Exception {
+            @HeaderParam("Authorization") String authorization, @FormParam("token") String token) throws Exception {
         introspectionEndpointCallCount++;
 
+        boolean activeStatus = introspection && !token.endsWith("-invalid");
+        boolean requiredClaim = true;
+        if (token.endsWith("_2") && ++opaqueToken2UsageCount == 2) {
+            // This is to confirm that the same opaque token_2 works well when its introspection response
+            // includes `required_claim` with value "1" but fails when the required claim is not included
+            requiredClaim = false;
+        }
         String introspectionClientId = "none";
         String introspectionClientSecret = "none";
         if (clientSecret != null) {
@@ -125,7 +142,7 @@ public class OidcResource {
             JWTParser parser = new DefaultJWTParser();
             // "client-introspection-only" is a client id, set as an issuer by default
             JWTAuthContextInfo contextInfo = new JWTAuthContextInfo(verificationKey, "client-introspection-only");
-            contextInfo.setSignatureAlgorithm(SignatureAlgorithm.ES256);
+            contextInfo.setSignatureAlgorithm(Set.of(SignatureAlgorithm.ES256));
             JsonWebToken jwt = parser.parse(clientSecret, contextInfo);
             clientId = jwt.getIssuer();
         } else if (authorization != null) {
@@ -138,10 +155,11 @@ public class OidcResource {
         }
 
         return "{" +
-                "   \"active\": " + introspection + "," +
+                "   \"active\": " + activeStatus + "," +
                 "   \"scope\": \"user\"," +
                 "   \"email\": \"user@gmail.com\"," +
                 "   \"username\": \"alice\"," +
+                (requiredClaim ? "\"required_claim\": \"1\"," : "") +
                 "   \"introspection_client_id\": \"" + introspectionClientId + "\"," +
                 "   \"introspection_client_secret\": \"" + introspectionClientSecret + "\"," +
                 "   \"client_id\": \"" + clientId + "\"" +
@@ -189,6 +207,7 @@ public class OidcResource {
         userInfoEndpointCallCount++;
 
         return "{" +
+                "   \"sub\": \"123456789\"," +
                 "   \"preferred_username\": \"alice\"" +
                 "  }";
     }
@@ -196,10 +215,10 @@ public class OidcResource {
     @POST
     @Path("token")
     @Produces("application/json")
-    public String token(@FormParam("grant_type") String grantType) {
+    public String token(@FormParam("grant_type") String grantType, @FormParam("client_id") String clientId) {
         if ("authorization_code".equals(grantType)) {
-            return "{\"id_token\": \"" + jwt("1") + "\"," +
-                    "\"access_token\": \"" + jwt("1") + "\"," +
+            return "{\"id_token\": \"" + jwt(clientId, null, "1") + "\"," +
+                    "\"access_token\": \"" + jwt(clientId, null, "1") + "\"," +
                     "   \"token_type\": \"Bearer\"," +
                     "   \"refresh_token\": \"123456789\"," +
                     "   \"expires_in\": 300 }";
@@ -209,7 +228,7 @@ public class OidcResource {
 
             if (refreshEndpointCallCount++ == 0) {
                 // first refresh token request, check the original ID token is used
-                return "{\"access_token\": \"" + jwt("1") + "\"," +
+                return "{\"access_token\": \"" + jwt(clientId, null, "1") + "\"," +
                         "   \"token_type\": \"Bearer\"," +
                         "   \"expires_in\": 300 }";
             } else {
@@ -226,8 +245,18 @@ public class OidcResource {
     @POST
     @Path("accesstoken")
     @Produces("application/json")
-    public String testAccessToken(@QueryParam("kid") String kid) {
-        return "{\"access_token\": \"" + jwt(kid) + "\"," +
+    public String testAccessToken(@QueryParam("kid") String kid, @QueryParam("sub") String subject) {
+        return "{\"access_token\": \"" + jwt(null, subject, kid) + "\"," +
+                "   \"token_type\": \"Bearer\"," +
+                "   \"refresh_token\": \"123456789\"," +
+                "   \"expires_in\": 300 }";
+    }
+
+    @POST
+    @Path("accesstoken-empty-scope")
+    @Produces("application/json")
+    public String testAccessTokenWithEmptyScope(@QueryParam("kid") String kid, @QueryParam("sub") String subject) {
+        return "{\"access_token\": \"" + jwt(null, subject, kid, true) + "\"," +
                 "   \"token_type\": \"Bearer\"," +
                 "   \"refresh_token\": \"123456789\"," +
                 "   \"expires_in\": 300 }";
@@ -236,8 +265,18 @@ public class OidcResource {
     @POST
     @Path("opaque-token")
     @Produces("application/json")
-    public String testOpaqueToken(@QueryParam("kid") String kid) {
+    public String testOpaqueToken() {
         return "{\"access_token\": \"987654321\"," +
+                "   \"token_type\": \"Bearer\"," +
+                "   \"refresh_token\": \"123456789\"," +
+                "   \"expires_in\": 300 }";
+    }
+
+    @POST
+    @Path("opaque-token2")
+    @Produces("application/json")
+    public String testOpaqueToken2() {
+        return "{\"access_token\": \"987654321_2\"," +
                 "   \"token_type\": \"Bearer\"," +
                 "   \"refresh_token\": \"123456789\"," +
                 "   \"expires_in\": 300 }";
@@ -285,14 +324,28 @@ public class OidcResource {
         return rotate;
     }
 
-    private String jwt(String kid) {
-        return Jwt.claims()
-                .claim("typ", "Bearer")
+    private String jwt(String audience, String subject, String kid) {
+        return jwt(audience, subject, kid, false);
+    }
+
+    private String jwt(String audience, String subject, String kid, boolean withEmptyScope) {
+        JwtClaimsBuilder builder = Jwt.claim("typ", "Bearer")
                 .upn("alice")
                 .preferredUserName("alice")
                 .groups("user")
-                .expiresIn(Duration.ofSeconds(4))
-                .jws().keyId(kid)
+                .expiresIn(Duration.ofSeconds(4));
+        if (audience != null) {
+            builder.audience(audience);
+        }
+        if (subject != null) {
+            builder.subject(subject);
+        }
+
+        if (withEmptyScope) {
+            builder.claim("scope", "");
+        }
+
+        return builder.jws().keyId(kid)
                 .sign(key.getPrivateKey());
     }
 }

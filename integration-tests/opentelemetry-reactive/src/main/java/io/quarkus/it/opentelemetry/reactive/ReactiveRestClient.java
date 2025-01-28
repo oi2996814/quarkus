@@ -1,9 +1,9 @@
 package io.quarkus.it.opentelemetry.reactive;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.QueryParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
@@ -17,4 +17,12 @@ interface ReactiveRestClient {
 
     @POST
     Uni<String> helloPost(String body);
+
+    @GET
+    @Path("/hello-get-uni-executor")
+    Uni<String> helloGetUniExecutor();
+
+    @GET
+    @Path("/hello-get-uni-delay")
+    Uni<String> helloGetUniDelay();
 }

@@ -2,10 +2,9 @@ package io.quarkus.arc.test.unused;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.event.Observes;
-import javax.enterprise.inject.spi.InterceptionType;
-import javax.enterprise.util.AnnotationLiteral;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.spi.InterceptionType;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -30,10 +29,8 @@ public class RemoveUnusedInterceptorTest extends RemoveUnusedComponentsTest {
         assertPresent(HasObserver.class);
         assertNotPresent(Counter.class);
         // Both AlphaInterceptor and BravoInterceptor were removed
-        assertTrue(container.beanManager().resolveInterceptors(InterceptionType.AROUND_INVOKE, new AnnotationLiteral<Alpha>() {
-        }).isEmpty());
-        assertTrue(container.beanManager().resolveInterceptors(InterceptionType.AROUND_INVOKE, new AnnotationLiteral<Bravo>() {
-        }).isEmpty());
+        assertTrue(container.beanManager().resolveInterceptors(InterceptionType.AROUND_INVOKE, new Alpha.Literal()).isEmpty());
+        assertTrue(container.beanManager().resolveInterceptors(InterceptionType.AROUND_INVOKE, new Bravo.Literal()).isEmpty());
 
     }
 

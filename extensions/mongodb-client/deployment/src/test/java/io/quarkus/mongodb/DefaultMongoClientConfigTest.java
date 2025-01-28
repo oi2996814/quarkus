@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.entry;
 
 import java.util.function.BiConsumer;
 
-import javax.enterprise.inject.Any;
-import javax.inject.Inject;
+import jakarta.enterprise.inject.Any;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import com.mongodb.client.MongoClient;
@@ -19,6 +21,7 @@ import io.quarkus.mongodb.health.MongoHealthCheck;
 import io.quarkus.mongodb.reactive.ReactiveMongoClient;
 import io.quarkus.test.QuarkusUnitTest;
 
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "Flapdoodle doesn't work very well on Windows with replicas")
 public class DefaultMongoClientConfigTest extends MongoWithReplicasTestBase {
 
     @RegisterExtension

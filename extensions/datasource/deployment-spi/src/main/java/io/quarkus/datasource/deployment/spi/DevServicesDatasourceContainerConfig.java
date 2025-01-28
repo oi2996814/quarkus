@@ -1,5 +1,6 @@
 package io.quarkus.datasource.deployment.spi;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -7,6 +8,7 @@ import java.util.OptionalInt;
 public class DevServicesDatasourceContainerConfig {
 
     private final Optional<String> imageName;
+    private final Map<String, String> containerEnv;
     private final Map<String, String> containerProperties;
     private final Map<String, String> additionalJdbcUrlProperties;
     private final OptionalInt fixedExposedPort;
@@ -14,16 +16,26 @@ public class DevServicesDatasourceContainerConfig {
     private final Optional<String> dbName;
     private final Optional<String> username;
     private final Optional<String> password;
+    private final Optional<List<String>> initScriptPath;
+    private final Map<String, String> volumes;
+    private final boolean reuse;
+    private final boolean showLogs;
 
     public DevServicesDatasourceContainerConfig(Optional<String> imageName,
+            Map<String, String> containerEnv,
             Map<String, String> containerProperties,
             Map<String, String> additionalJdbcUrlProperties,
             OptionalInt port,
             Optional<String> command,
             Optional<String> dbName,
             Optional<String> username,
-            Optional<String> password) {
+            Optional<String> password,
+            Optional<List<String>> initScriptPath,
+            Map<String, String> volumes,
+            boolean reuse,
+            boolean showLogs) {
         this.imageName = imageName;
+        this.containerEnv = containerEnv;
         this.containerProperties = containerProperties;
         this.additionalJdbcUrlProperties = additionalJdbcUrlProperties;
         this.fixedExposedPort = port;
@@ -31,10 +43,18 @@ public class DevServicesDatasourceContainerConfig {
         this.dbName = dbName;
         this.username = username;
         this.password = password;
+        this.initScriptPath = initScriptPath;
+        this.volumes = volumes;
+        this.reuse = reuse;
+        this.showLogs = showLogs;
     }
 
     public Optional<String> getImageName() {
         return imageName;
+    }
+
+    public Map<String, String> getContainerEnv() {
+        return containerEnv;
     }
 
     public Map<String, String> getContainerProperties() {
@@ -63,5 +83,21 @@ public class DevServicesDatasourceContainerConfig {
 
     public Optional<String> getPassword() {
         return password;
+    }
+
+    public Optional<List<String>> getInitScriptPath() {
+        return initScriptPath;
+    }
+
+    public boolean isShowLogs() {
+        return showLogs;
+    }
+
+    public Map<String, String> getVolumes() {
+        return volumes;
+    }
+
+    public boolean isReuse() {
+        return reuse;
     }
 }

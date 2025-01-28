@@ -32,7 +32,7 @@
     <name>Quarkus - Reactive MySQL Client - Deployment</name>
 
     <properties>
-        <reactive-mysql.url>vertx-reactive:mysql://localhost:3306/hibernate_orm_test</reactive-mysql.url>
+        <reactive-mysql.url>vertx-reactive:mysql://localhost:3308/hibernate_orm_test</reactive-mysql.url>
     </properties>
 
     <dependencies>
@@ -67,7 +67,7 @@
 
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-resteasy-reactive-deployment</artifactId>
+            <artifactId>quarkus-rest-deployment</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -90,6 +90,12 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-reactive-datasource-deployment</artifactId>
+            <scope>test</scope>
+            <type>test-jar</type>
+        </dependency>
     </dependencies>
 
     <build>
@@ -102,15 +108,20 @@
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>io.quarkus</groupId>
-                            <artifactId>quarkus-extension-processor</artifactId>
-                            <version>${project.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -147,9 +158,6 @@
                     <name>start-containers</name>
                 </property>
             </activation>
-            <properties>
-                <reactive-mysql.url>vertx-reactive:mysql://localhost:3308/hibernate_orm_test</reactive-mysql.url>
-            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -170,9 +178,10 @@
                                             <timeout>3s</timeout>
                                             <startPeriod>5s</startPeriod>
                                             <retries>5</retries>
-                                            <!--     Note that mysqladmin ping returns 0 even if the password is wrong-->
+                                            <!--  We could also use /usr/local/bin/healthcheck.sh but it seemed complicated to get the right level.
+                                            Note that mysqladmin ping returns 0 even if the password is wrong so we don't need to pass in a password, but it makes the logs cleaner-->
                                             <cmd>
-                                                <shell>mysqladmin ping -h localhost || exit 1</shell>
+                                                <shell>mysqladmin ping -h localhost -u root -psecret|| exit 1</shell>
                                             </cmd>
                                         </healthCheck>
                                     </build>
@@ -208,6 +217,9 @@
                                             <bind>
                                                 <volume>
                                                     ${project.basedir}/custom-mariadbconfig:/etc/mysql/conf.d${volume.access.modifier}
+                                                </volume>
+                                                <volume>
+                                                    ${project.basedir}/src/test/resources/setup.sql:/docker-entrypoint-initdb.d/setup.sql${volume.access.modifier}
                                                 </volume>
                                             </bind>
                                         </volumes>

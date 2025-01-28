@@ -10,14 +10,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import javax.ws.rs.ServiceUnavailableException;
-import javax.ws.rs.container.AsyncResponse;
-import javax.ws.rs.container.CompletionCallback;
-import javax.ws.rs.container.ConnectionCallback;
-import javax.ws.rs.container.TimeoutHandler;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.ResponseBuilder;
+import jakarta.ws.rs.ServiceUnavailableException;
+import jakarta.ws.rs.container.AsyncResponse;
+import jakarta.ws.rs.container.CompletionCallback;
+import jakarta.ws.rs.container.ConnectionCallback;
+import jakarta.ws.rs.container.TimeoutHandler;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.ResponseBuilder;
 
 import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
 
@@ -153,7 +153,7 @@ public class AsyncResponseImpl implements AsyncResponse, Runnable {
         Objects.requireNonNull(callback);
         Objects.requireNonNull(callbacks);
         Map<Class<?>, Collection<Class<?>>> ret = new HashMap<>();
-        ret.put(callback.getClass(), register(callback));
+        ret.put(callback, register(callback));
         for (Class<?> cb : callbacks) {
             ret.put(cb, register(cb));
         }

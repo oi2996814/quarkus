@@ -12,10 +12,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import javax.enterprise.event.Reception;
-import javax.enterprise.event.TransactionPhase;
-import javax.enterprise.inject.spi.DefinitionException;
-import javax.enterprise.inject.spi.ObserverMethod;
+import jakarta.enterprise.event.Reception;
+import jakarta.enterprise.event.TransactionPhase;
+import jakarta.enterprise.inject.spi.DefinitionException;
+import jakarta.enterprise.inject.spi.ObserverMethod;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
@@ -43,9 +43,10 @@ public class ObserverInfo implements InjectionTargetInfo {
 
     static ObserverInfo create(BeanInfo declaringBean, MethodInfo observerMethod, Injection injection, boolean isAsync,
             List<ObserverTransformer> transformers, BuildContext buildContext, boolean jtaCapabilities) {
-        MethodParameterInfo eventParameter = initEventParam(observerMethod, declaringBean.getDeployment());
+        BeanDeployment beanDeployment = declaringBean.getDeployment();
+        MethodParameterInfo eventParameter = initEventParam(observerMethod, beanDeployment);
         AnnotationInstance priorityAnnotation = find(
-                getParameterAnnotations(declaringBean.getDeployment(), observerMethod, eventParameter.position()),
+                getParameterAnnotations(beanDeployment, observerMethod, eventParameter.position()),
                 DotNames.PRIORITY);
         Integer priority;
         if (priorityAnnotation != null) {
@@ -57,20 +58,36 @@ public class ObserverInfo implements InjectionTargetInfo {
         Type observedType = observerMethod.parameterType(eventParameter.position());
         if (Types.containsTypeVariable(observedType)) {
             Map<String, Type> resolvedTypeVariables = Types
-                    .resolvedTypeVariables(declaringBean.getImplClazz(), declaringBean.getDeployment())
+                    .resolvedTypeVariables(declaringBean.getImplClazz(), beanDeployment)
                     .getOrDefault(observerMethod.declaringClass(), Collections.emptyMap());
             observedType = Types.resolveTypeParam(observedType, resolvedTypeVariables,
-                    declaringBean.getDeployment().getBeanArchiveIndex());
+                    beanDeployment.getBeanArchiveIndex());
         }
 
-        return create(null, declaringBean.getDeployment(), declaringBean.getTarget().get().asClass().name(), declaringBean,
+        Reception reception = initReception(isAsync, beanDeployment, observerMethod);
+        if (reception == Reception.IF_EXISTS && BuiltinScope.DEPENDENT.is(declaringBean.getScope())) {
+            throw new DefinitionException("@Dependent bean must not have a conditional observer method: "
+                    + observerMethod);
+        }
+
+        if (beanDeployment.hasAnnotation(observerMethod, DotNames.INJECT)) {
+            throw new DefinitionException("Observer method must not be annotated @Inject: " + observerMethod);
+        }
+        if (beanDeployment.hasAnnotation(observerMethod, DotNames.PRODUCES)) {
+            throw new DefinitionException("Observer method must not be annotated @Produces: " + observerMethod);
+        }
+        if (Annotations.hasParameterAnnotation(beanDeployment, observerMethod, DotNames.DISPOSES)) {
+            throw new DefinitionException("Observer method must not have a @Disposes parameter: " + observerMethod);
+        }
+
+        return create(null, beanDeployment, declaringBean.getTarget().get().asClass().name(), declaringBean,
                 observerMethod, injection,
                 eventParameter,
                 observedType,
-                initQualifiers(declaringBean.getDeployment(), observerMethod, eventParameter),
-                initReception(isAsync, declaringBean.getDeployment(), observerMethod),
-                initTransactionPhase(isAsync, declaringBean.getDeployment(), observerMethod), isAsync, priority, transformers,
-                buildContext, jtaCapabilities, null, Collections.emptyMap());
+                initQualifiers(beanDeployment, observerMethod, eventParameter),
+                reception,
+                initTransactionPhase(isAsync, beanDeployment, observerMethod), isAsync, priority, transformers,
+                buildContext, jtaCapabilities, null, Collections.emptyMap(), false);
     }
 
     static ObserverInfo create(String id, BeanDeployment beanDeployment, DotName beanClass, BeanInfo declaringBean,
@@ -78,7 +95,7 @@ public class ObserverInfo implements InjectionTargetInfo {
             MethodParameterInfo eventParameter, Type observedType, Set<AnnotationInstance> qualifiers, Reception reception,
             TransactionPhase transactionPhase, boolean isAsync, int priority,
             List<ObserverTransformer> transformers, BuildContext buildContext, boolean jtaCapabilities,
-            Consumer<MethodCreator> notify, Map<String, Object> params) {
+            Consumer<MethodCreator> notify, Map<String, Object> params, boolean forceApplicationClass) {
 
         if (!transformers.isEmpty()) {
             // Transform attributes if needed
@@ -124,7 +141,8 @@ public class ObserverInfo implements InjectionTargetInfo {
                     info, transactionPhase);
         }
         return new ObserverInfo(id, beanDeployment, beanClass, declaringBean, observerMethod, injection, eventParameter,
-                isAsync, priority, reception, transactionPhase, observedType, qualifiers, notify, params);
+                isAsync, priority, reception, transactionPhase, observedType, qualifiers, notify, params,
+                forceApplicationClass);
     }
 
     private final String id;
@@ -161,11 +179,15 @@ public class ObserverInfo implements InjectionTargetInfo {
 
     private final Map<String, Object> params;
 
-    ObserverInfo(String id, BeanDeployment beanDeployment, DotName beanClass, BeanInfo declaringBean, MethodInfo observerMethod,
+    private final boolean forceApplicationClass;
+
+    private ObserverInfo(String id, BeanDeployment beanDeployment, DotName beanClass, BeanInfo declaringBean,
+            MethodInfo observerMethod,
             Injection injection,
             MethodParameterInfo eventParameter,
             boolean isAsync, int priority, Reception reception, TransactionPhase transactionPhase,
-            Type observedType, Set<AnnotationInstance> qualifiers, Consumer<MethodCreator> notify, Map<String, Object> params) {
+            Type observedType, Set<AnnotationInstance> qualifiers, Consumer<MethodCreator> notify,
+            Map<String, Object> params, boolean forceApplicationClass) {
         this.id = id;
         this.beanDeployment = beanDeployment;
         this.beanClass = beanClass;
@@ -182,6 +204,7 @@ public class ObserverInfo implements InjectionTargetInfo {
         this.qualifiers = qualifiers;
         this.notify = notify;
         this.params = params;
+        this.forceApplicationClass = forceApplicationClass;
     }
 
     @Override
@@ -280,6 +303,10 @@ public class ObserverInfo implements InjectionTargetInfo {
         return params;
     }
 
+    boolean isForceApplicationClass() {
+        return forceApplicationClass;
+    }
+
     void init(List<Throwable> errors) {
         if (injection != null) {
             for (InjectionPointInfo injectionPoint : injection.injectionPoints) {
@@ -373,7 +400,7 @@ public class ObserverInfo implements InjectionTargetInfo {
         public ObserverTransformationContext(BuildContext buildContext, AnnotationTarget target,
                 Type observedType, Set<AnnotationInstance> qualifiers, Reception reception, TransactionPhase transactionPhase,
                 Integer priority, boolean async) {
-            super(buildContext, target, qualifiers);
+            super(buildContext, target, null, qualifiers);
             this.observedType = observedType;
             this.reception = reception;
             this.transactionPhase = transactionPhase;

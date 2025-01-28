@@ -4,11 +4,12 @@ import static io.quarkus.runtime.configuration.ConverterSupport.DEFAULT_QUARKUS_
 
 import java.io.Serializable;
 
-import javax.annotation.Priority;
+import jakarta.annotation.Priority;
 
 import org.eclipse.microprofile.config.spi.Converter;
-import org.wildfly.common.net.CidrAddress;
-import org.wildfly.common.net.Inet;
+
+import io.smallrye.common.net.CidrAddress;
+import io.smallrye.common.net.Inet;
 
 /**
  * A converter which converts a CIDR address into an instance of {@link CidrAddress}.

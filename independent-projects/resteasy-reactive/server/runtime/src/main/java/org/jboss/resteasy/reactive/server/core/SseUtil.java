@@ -9,19 +9,20 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.ext.MessageBodyWriter;
-import javax.ws.rs.sse.OutboundSseEvent;
-import javax.ws.rs.sse.SseEvent;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.sse.OutboundSseEvent;
+import jakarta.ws.rs.sse.SseEvent;
 
-import org.jboss.resteasy.reactive.common.core.Serialisers;
 import org.jboss.resteasy.reactive.common.util.CommonSseUtil;
+import org.jboss.resteasy.reactive.common.util.QuarkusMultivaluedHashMap;
 import org.jboss.resteasy.reactive.server.handlers.PublisherResponseHandler;
 import org.jboss.resteasy.reactive.server.jaxrs.OutboundSseEventImpl;
 import org.jboss.resteasy.reactive.server.spi.ServerHttpResponse;
 
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class SseUtil extends CommonSseUtil {
 
     private static final String NL = "\n";
@@ -69,8 +70,10 @@ public class SseUtil extends CommonSseUtil {
             if (event.getReconnectDelay() >= 0)
                 serialiseField(context, sb, "retry", Long.toString(event.getReconnectDelay()), false);
         }
-        String data = serialiseDataToString(context, event, eventMediaType);
-        serialiseField(context, sb, "data", data, true);
+        if (event.getData() != null) {
+            String data = serialiseDataToString(context, event, eventMediaType);
+            serialiseField(context, sb, "data", data, true);
+        }
         sb.append(NL);
         // return a UTF8 buffer
         return sb.toString();
@@ -131,11 +134,10 @@ public class SseUtil extends CommonSseUtil {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         boolean wrote = false;
         for (MessageBodyWriter<Object> writer : writers) {
-            // Spec(API) says we should use class/type/mediaType but doesn't talk about annotations
-            if (writer.isWriteable(entityClass, entityType, Serialisers.NO_ANNOTATION, mediaType)) {
+            if (writer.isWriteable(entityClass, entityType, context.getAllAnnotations(), mediaType)) {
                 // FIXME: spec doesn't really say what headers we should use here
-                writer.writeTo(entity, entityClass, entityType, Serialisers.NO_ANNOTATION, mediaType,
-                        Serialisers.EMPTY_MULTI_MAP, baos);
+                writer.writeTo(entity, entityClass, entityType, context.getAllAnnotations(), mediaType,
+                        new QuarkusMultivaluedHashMap<>(), baos);
                 wrote = true;
                 break;
             }
@@ -163,8 +165,6 @@ public class SseUtil extends CommonSseUtil {
             for (int i = 0; i < customizers.size(); i++) {
                 customizers.get(i).customize(response);
             }
-            // FIXME: other headers?
-
         }
     }
 }

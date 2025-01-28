@@ -7,9 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.annotation.Inherited;
 import java.lang.annotation.Retention;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.util.AnnotationLiteral;
-import javax.inject.Qualifier;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.util.AnnotationLiteral;
+import jakarta.inject.Qualifier;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -32,8 +32,7 @@ public class QualifiersInheritanceTest {
         // Bravo is not eligible because it has @InheritedQualifier("bravo")
         assertTrue(container.select(SuperBean.class, new InheritedQualifier.Literal("super")).isResolvable());
         // @NonInheritedQualifier is not inherited
-        assertFalse(container.select(SuperBean.class, new AnnotationLiteral<NonInheritedQualifier>() {
-        }).isResolvable());
+        assertFalse(container.select(SuperBean.class, new NonInheritedQualifier.Literal()).isResolvable());
     }
 
     @InheritedQualifier("super")
@@ -84,6 +83,7 @@ public class QualifiersInheritanceTest {
     @Qualifier
     @Retention(RUNTIME)
     @interface NonInheritedQualifier {
-
+        class Literal extends AnnotationLiteral<NonInheritedQualifier> implements NonInheritedQualifier {
+        }
     }
 }

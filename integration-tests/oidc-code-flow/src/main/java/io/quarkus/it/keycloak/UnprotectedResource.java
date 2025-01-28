@@ -5,14 +5,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.NewCookie;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.NewCookie;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
@@ -21,7 +21,6 @@ import io.quarkus.oidc.OidcConfigurationMetadata;
 import io.quarkus.oidc.client.OidcClient;
 import io.quarkus.oidc.common.runtime.OidcCommonUtils;
 import io.quarkus.oidc.common.runtime.OidcConstants;
-import io.quarkus.oidc.runtime.OidcUtils;
 
 @Path("/public-web-app")
 public class UnprotectedResource {
@@ -54,7 +53,7 @@ public class UnprotectedResource {
         grantParams.put(OidcConstants.CODE_FLOW_CODE, code);
         grantParams.put(OidcConstants.CODE_FLOW_REDIRECT_URI, redirectUriParam);
         String encodedIdToken = oidcClient.getTokens(grantParams).await().indefinitely().get(OidcConstants.ID_TOKEN_VALUE);
-        return OidcUtils.decodeJwtContent(encodedIdToken).getString("preferred_username");
+        return OidcCommonUtils.decodeJwtContent(encodedIdToken).getString("preferred_username");
     }
 
     @GET

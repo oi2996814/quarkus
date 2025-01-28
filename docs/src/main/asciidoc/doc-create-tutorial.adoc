@@ -6,7 +6,9 @@ https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 [id="doc-create-tutorial"]
 = Creating a tutorial
 include::_attributes.adoc[]
+:diataxis-type: tutorial
 :categories: contributing
+:topics: internals,documentation
 
 Create a new tutorial that guides users through creating, running, and testing a Quarkus application that uses annotations from an imaginary extension.
 
@@ -15,7 +17,7 @@ Create a new tutorial that guides users through creating, running, and testing a
 - Roughly 15 minutes
 - An editor or IDE that provides syntax highlighting and previews for AsciiDoc, either natively or using a plugin.
 - You should be familiar with the overview of what a xref:doc-concept.adoc#tutorial[Tutorial] is.
-- Have the xref:doc-reference.adoc[Quarkus documentation reference] handy as a reference for required syntax and other conventions.
+- Have the xref:doc-reference.adoc[Quarkus style and content guidelines] handy as a reference for required syntax and other conventions.
 
 :sectnums:
 :sectnumlevels: 3
@@ -29,7 +31,8 @@ For this example, we will use `acme-serve-http-requests-tutorial.adoc`:
 
 - `acme-` will group this guide with other resources related to the acme extension
 - `serve-http-requests` is a derivative of the document title
-- `-tutorial.adoc` will indicate that this document is a tutorial
+- `-tutorial` will indicate that this document is a tutorial (optional)
+- `.adoc` to indicate this is an asciidoc file
 
 == Copy the tutorial template
 
@@ -46,7 +49,7 @@ include::_attributes.adoc[] // <3>
 :extension-status: experimental // <5>
 ----
 
-<1> Specify a unique id for the section in lower-kebab-case.
+<1> Use the file name as a unique id for the section.
 <2> Add the title as a top-level heading.
 <3> Include additional attributes that help define consistent formatting and provide source portability.
 <4> Specify the `web` category, as our imaginary extension works with Http requests.
@@ -180,7 +183,7 @@ Let's add the following code to that file:
 // tag::application[]
 package org.acme;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import org.acme.corp.Anvil;
 import org.acme.corp.Toaster;

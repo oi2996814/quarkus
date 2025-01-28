@@ -15,8 +15,8 @@ import io.quarkus.deployment.builditem.BytecodeTransformerBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
-import io.quarkus.mongodb.panache.deployment.BasePanacheMongoResourceProcessor;
-import io.quarkus.mongodb.panache.deployment.PropertyMappingClassBuildStep;
+import io.quarkus.mongodb.panache.common.deployment.BasePanacheMongoResourceProcessor;
+import io.quarkus.mongodb.panache.common.deployment.PropertyMappingClassBuildStep;
 import io.quarkus.panache.common.deployment.MetamodelInfo;
 import io.quarkus.panache.common.deployment.PanacheCompanionEnhancer;
 import io.quarkus.panache.common.deployment.PanacheEntityEnhancer;
@@ -130,7 +130,7 @@ public class KotlinPanacheMongoResourceProcessor extends BasePanacheMongoResourc
             transformers.produce(new BytecodeTransformerBuildItem(modelClass, companionEnhancer));
 
             //register for reflection entity classes
-            reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, modelClass));
+            reflectiveClass.produce(ReflectiveClassBuildItem.builder(modelClass).methods().fields().build());
 
             // Register for building the property mapping cache
             propertyMappingClass.produce(new PropertyMappingClassBuildStep(modelClass));

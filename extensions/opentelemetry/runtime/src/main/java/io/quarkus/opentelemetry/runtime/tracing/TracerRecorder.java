@@ -1,135 +1,53 @@
 package io.quarkus.opentelemetry.runtime.tracing;
 
-import java.util.ArrayList;
-import java.util.List;
+import static io.opentelemetry.semconv.ServiceAttributes.SERVICE_NAME;
+import static io.opentelemetry.semconv.ServiceAttributes.SERVICE_VERSION;
+import static io.opentelemetry.semconv.incubating.WebengineIncubatingAttributes.WEBENGINE_NAME;
+import static io.opentelemetry.semconv.incubating.WebengineIncubatingAttributes.WEBENGINE_VERSION;
 
-import javax.enterprise.inject.Any;
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.spi.BeanManager;
-import javax.enterprise.inject.spi.CDI;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Supplier;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.sdk.resources.Resource;
-import io.opentelemetry.sdk.trace.IdGenerator;
-import io.opentelemetry.sdk.trace.SdkTracerProvider;
-import io.opentelemetry.sdk.trace.SdkTracerProviderBuilder;
-import io.opentelemetry.sdk.trace.SpanProcessor;
-import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import io.opentelemetry.sdk.trace.export.SpanExporter;
-import io.opentelemetry.sdk.trace.samplers.Sampler;
-import io.opentelemetry.semconv.resource.attributes.ResourceAttributes;
-import io.quarkus.arc.Arc;
-import io.quarkus.opentelemetry.runtime.config.TracerRuntimeConfig;
-import io.quarkus.runtime.RuntimeValue;
-import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
+import io.quarkus.runtime.annotations.StaticInit;
 
 @Recorder
 public class TracerRecorder {
-    /* STATIC INIT */
-    public RuntimeValue<SdkTracerProvider> createTracerProvider(
-            String quarkusVersion,
+
+    public static final Set<String> dropNonApplicationUriTargets = new HashSet<>();
+    public static final Set<String> dropStaticResourceTargets = new HashSet<>();
+
+    @StaticInit
+    public Supplier<DelayedAttributes> delayedAttributes(String quarkusVersion,
             String serviceName,
-            String serviceVersion,
-            ShutdownContext shutdownContext) {
-        BeanManager beanManager = Arc.container().beanManager();
-
-        Instance<IdGenerator> idGenerator = beanManager.createInstance()
-                .select(IdGenerator.class, Any.Literal.INSTANCE);
-
-        SdkTracerProviderBuilder builder = SdkTracerProvider.builder();
-
-        // Define ID Generator if present
-        if (idGenerator.isResolvable()) {
-            builder.setIdGenerator(idGenerator.get());
-        }
-
-        DelayedAttributes delayedAttributes = beanManager.createInstance()
-                .select(DelayedAttributes.class, Any.Literal.INSTANCE).get();
-
-        delayedAttributes.setAttributesDelegate(Resource.getDefault()
-                .merge(Resource.create(
-                        Attributes.of(
-                                ResourceAttributes.SERVICE_NAME, serviceName,
-                                ResourceAttributes.SERVICE_VERSION, serviceVersion,
-                                ResourceAttributes.WEBENGINE_NAME, "Quarkus",
-                                ResourceAttributes.WEBENGINE_VERSION, quarkusVersion)))
-                .getAttributes());
-
-        // Define Service Resource
-        builder.setResource(Resource.create(delayedAttributes));
-
-        LateBoundSampler lateBoundSampler = beanManager.createInstance()
-                .select(LateBoundSampler.class, Any.Literal.INSTANCE).get();
-
-        // Set LateBoundSampler
-        builder.setSampler(lateBoundSampler);
-
-        // Find all SpanExporter instances
-        Instance<SpanExporter> allExporters = beanManager.createInstance()
-                .select(SpanExporter.class, Any.Literal.INSTANCE);
-        allExporters.forEach(spanExporter -> builder.addSpanProcessor(SimpleSpanProcessor.create(spanExporter)));
-
-        // Find all SpanProcessor instances
-        Instance<SpanProcessor> allProcessors = beanManager.createInstance()
-                .select(SpanProcessor.class, Any.Literal.INSTANCE);
-        allProcessors.forEach(builder::addSpanProcessor);
-
-        SdkTracerProvider tracerProvider = builder.build();
-
-        // Register shutdown tasks
-        shutdownContext.addShutdownTask(() -> {
-            tracerProvider.forceFlush();
-            tracerProvider.shutdown();
-        });
-
-        return new RuntimeValue<>(tracerProvider);
+            String serviceVersion) {
+        return new Supplier<>() {
+            @Override
+            public DelayedAttributes get() {
+                var result = new DelayedAttributes();
+                result.setAttributesDelegate(Resource.getDefault()
+                        .merge(Resource.create(
+                                Attributes.of(
+                                        SERVICE_NAME, serviceName,
+                                        SERVICE_VERSION, serviceVersion,
+                                        WEBENGINE_NAME, "Quarkus",
+                                        WEBENGINE_VERSION, quarkusVersion)))
+                        .getAttributes());
+                return result;
+            }
+        };
     }
 
-    /* RUNTIME INIT */
-    public void setupResources(TracerRuntimeConfig config) {
-        // Find all Resource instances
-        Instance<Resource> allResources = CDI.current()
-                .getBeanManager()
-                .createInstance()
-                .select(Resource.class, Any.Literal.INSTANCE);
-
-        // Merge resource instances with env attributes
-        Resource resource = Resource.empty();
-        for (Resource r : allResources) {
-            resource = resource.merge(r);
-        }
-        if (config.resourceAttributes.isPresent()) {
-            resource = resource.merge(TracerUtil.mapResourceAttributes(config.resourceAttributes.get()));
-        }
-
-        // Update Delayed attributes to contain new runtime attributes if necessary
-        if (resource.getAttributes().size() > 0) {
-            DelayedAttributes delayedAttributes = CDI.current()
-                    .select(DelayedAttributes.class).get();
-
-            delayedAttributes.setAttributesDelegate(
-                    delayedAttributes.toBuilder()
-                            .putAll(resource.getAttributes())
-                            .build());
-        }
-    }
-
-    /* RUNTIME INIT */
+    @StaticInit
     public void setupSampler(
-            TracerRuntimeConfig config,
             List<String> dropNonApplicationUris,
             List<String> dropStaticResources) {
-
-        LateBoundSampler lateBoundSampler = CDI.current().select(LateBoundSampler.class, Any.Literal.INSTANCE).get();
-        List<String> dropTargets = new ArrayList<>();
-        if (config.suppressNonApplicationUris) {
-            dropTargets.addAll(dropNonApplicationUris);
-        }
-        if (!config.includeStaticResources) {
-            dropTargets.addAll(dropStaticResources);
-        }
-        Sampler samplerBean = TracerUtil.mapSampler(config.sampler, dropTargets);
-        lateBoundSampler.setSamplerDelegate(samplerBean);
+        dropNonApplicationUriTargets.addAll(dropNonApplicationUris);
+        dropStaticResourceTargets.addAll(dropStaticResources);
     }
+
 }

@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 
@@ -13,6 +14,7 @@ import io.quarkus.runtime.annotations.ConfigItem;
 public class GrpcClientConfiguration {
 
     public static final String DNS = "dns";
+    public static final String XDS = "xds";
 
     /**
      * Use new Vert.x gRPC client support.
@@ -22,21 +24,68 @@ public class GrpcClientConfiguration {
     public boolean useQuarkusGrpcClient;
 
     /**
+     * Configure XDS usage, if enabled.
+     */
+    @ConfigItem
+    @ConfigDocSection(generated = true)
+    public ClientXds xds;
+
+    /**
+     * Configure InProcess usage, if enabled.
+     */
+    @ConfigItem
+    public InProcess inProcess;
+
+    /**
+     * Configure Stork usage with new Vert.x gRPC, if enabled.
+     */
+    @ConfigItem
+    public StorkConfig stork;
+
+    /**
      * The gRPC service port.
      */
     @ConfigItem(defaultValue = "9000")
     public int port;
 
     /**
-     * The host name / IP on which the service is exposed.
+     * The gRPC service test port.
      */
     @ConfigItem
+    public OptionalInt testPort;
+
+    /**
+     * The host name / IP on which the service is exposed.
+     */
+    @ConfigItem(defaultValue = "localhost")
     public String host;
 
     /**
      * The SSL/TLS config.
+     * Only use this if you want to use the old Java gRPC client.
      */
     public SslClientConfig ssl;
+
+    /**
+     * The name of the TLS configuration to use.
+     * <p>
+     * If not set and the default TLS configuration is configured ({@code quarkus.tls.*}) then that will be used.
+     * If a name is configured, it uses the configuration from {@code quarkus.tls.<name>.*}
+     * If a name is configured, but no TLS configuration is found with that name then an error will be thrown.
+     * <p>
+     * If no TLS configuration is set, and {@code quarkus.tls.*} is not configured, then,
+     * `quarkus.grpc.clients.$client-name.tls` will be used.
+     * <p>
+     * Important: This is only supported when using the Quarkus (Vert.x-based) gRPC client.
+     */
+    @ConfigItem
+    public Optional<String> tlsConfigurationName;
+
+    /**
+     * The TLS config.
+     * Only use this if you want to use the Quarkus gRPC client.
+     */
+    public TlsClientConfig tls;
 
     /**
      * Use a name resolver. Defaults to dns.
@@ -155,7 +204,7 @@ public class GrpcClientConfiguration {
 
     /**
      * Use a custom load balancing policy.
-     * Accepted values are: {@code pick_value}, {@code round_robin}, {@code grpclb}.
+     * Accepted values are: {@code pick_first}, {@code round_robin}, {@code grpclb}.
      * This value is ignored if name-resolver is set to 'stork'.
      */
     @ConfigItem(defaultValue = "pick_first")
@@ -169,10 +218,6 @@ public class GrpcClientConfiguration {
 
     /**
      * The deadline used for each call.
-     * <p>
-     * The format uses the standard {@link java.time.Duration} format. You can also provide duration values starting with a
-     * number. In this case, if the value consists only of a number, the converter treats the value as seconds. Otherwise,
-     * {@code PT} is implicitly prepended to the value to obtain a standard {@link java.time.Duration} format.
      */
     @ConfigItem
     public Optional<Duration> deadline;

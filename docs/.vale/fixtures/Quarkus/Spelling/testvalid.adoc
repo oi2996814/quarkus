@@ -70,13 +70,18 @@ CRDs
 CRs
 CSVs
 Ctrl
+customizer
 Cygmon
+datasource
+datasources
 DaemonSet
 Datadog
 declaratively
 decompiler
 deserialization
+deserialized
 Dev
+dev
 devfile
 Devfile
 devfiles
@@ -115,10 +120,14 @@ Failsafe
 Fernflower
 findability
 Findability
+Fluentd
 Fortran
 Funqy
 Gbps
+Graylog
+gRPC
 GCC
+getters
 Git
 GitHub
 GitLab
@@ -150,6 +159,7 @@ Infinispan
 Inode
 Intelephense
 IntelliJ
+Istio
 Itanium
 Item
 Jakarta
@@ -185,6 +195,7 @@ libvirt
 Libvirt
 Licensor
 Liveness
+Logstash
 Lombok
 Loopback
 Makefile
@@ -192,6 +203,7 @@ Matrixes
 Mattermost
 Maven
 Mebibytes
+metamodel
 MicroProfile
 Microsoft
 Middleware
@@ -233,9 +245,9 @@ Onboarding
 OpenID
 OpenJDK
 OpenShift
-OpenTracing
 Operator
 osd
+OTel
 overridable
 PHP
 Podman
@@ -257,7 +269,6 @@ Pytorch
 qeth
 Quarkiverse
 Quarkus
-Quiltflower
 Qute
 Readonly
 Rebalance
@@ -297,6 +308,7 @@ serializable
 Serializer
 Serverless
 servlet
+setters
 Shadowman
 Sharding
 SLA
@@ -324,6 +336,8 @@ Subusers
 Subvolume
 Subvolumes
 Suchow
+Syslog
+syslog
 Symfony
 SVG
 Systemd
@@ -338,6 +352,7 @@ Toolset
 traceback
 Traceback
 Traefik
+trivial
 Truststore
 Uber
 Uncomment
@@ -359,6 +374,7 @@ Valgrind
 validator
 Velero
 Vert.x
+Vineflower
 vsix
 WebAuthn
 WebSocket
@@ -367,6 +383,7 @@ Webviews
 Wildfly
 Woopra
 Wordpress
+YAML
 Yana
 Yeoman
 Zowe

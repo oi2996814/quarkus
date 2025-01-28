@@ -6,11 +6,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.event.Observes;
-import javax.enterprise.inject.Default;
-import javax.enterprise.inject.Instance;
-
-import org.jboss.logging.Logger;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
@@ -28,10 +26,8 @@ import io.quarkus.qute.runtime.MessageBundleRecorder.BundleContext;
 
 public final class MessageBundles {
 
-    public static final String ATTRIBUTE_LOCALE = "locale";
+    public static final String ATTRIBUTE_LOCALE = TemplateInstance.LOCALE;
     public static final String DEFAULT_LOCALE = "<<default>>";
-
-    private static final Logger LOGGER = Logger.getLogger(MessageBundles.class);
 
     private MessageBundles() {
     }
@@ -62,12 +58,15 @@ public final class MessageBundles {
                 .render());
     }
 
-    static void setupNamespaceResolvers(@Observes EngineBuilder builder, BundleContext context) {
+    static void setupNamespaceResolvers(@Observes EngineBuilder builder, Instance<BundleContext> context) {
+        if (!context.isResolvable()) {
+            return;
+        }
         // Avoid injecting "Instance<Object> instance" which prevents unused beans removal
         ArcContainer container = Arc.container();
         // For every bundle register a new resolver
-        for (Entry<String, Map<String, Class<?>>> entry : context.getBundleInterfaces().entrySet()) {
-            final String bundle = entry.getKey();
+        for (Entry<String, Map<String, Class<?>>> entry : context.get().getBundleInterfaces().entrySet()) {
+            final String bundleName = entry.getKey();
             final Map<String, Resolver> interfaces = new HashMap<>();
             Resolver resolver = null;
             for (Entry<String, Class<?>> locEntry : entry.getValue().entrySet()) {
@@ -115,16 +114,21 @@ public final class MessageBundles {
 
                 @Override
                 public String getNamespace() {
-                    return bundle;
+                    return bundleName;
                 }
             });
         }
     }
 
-    static void setupMessageTemplates(@Observes Engine engine, BundleContext context) {
-        for (Entry<String, String> entry : context.getMessageTemplates().entrySet()) {
-            LOGGER.debugf("Register template for message [%s]", entry.getKey());
-            engine.putTemplate(entry.getKey(), engine.parse(entry.getValue()));
+    static void preloadMessageTemplates(@Observes Engine engine, Instance<BundleContext> context) {
+        if (!context.isResolvable()) {
+            return;
+        }
+        for (String key : context.get().getMessageTemplates().keySet()) {
+            Template messageTemplate = engine.getTemplate(key);
+            if (messageTemplate == null) {
+                throw new IllegalStateException("Unable to preload message template: " + key);
+            }
         }
     }
 

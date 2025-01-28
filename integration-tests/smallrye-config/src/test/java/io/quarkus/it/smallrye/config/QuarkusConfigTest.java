@@ -1,7 +1,7 @@
 package io.quarkus.it.smallrye.config;
 
 import static io.restassured.RestAssured.given;
-import static javax.ws.rs.core.Response.Status.OK;
+import static jakarta.ws.rs.core.Response.Status.OK;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
@@ -19,13 +19,13 @@ public class QuarkusConfigTest {
                 .then()
                 .statusCode(OK.getStatusCode())
                 .body("value", is(notNullValue()))
-                .body("configSourceName", equalTo("DefaultValuesConfigSource"));
+                .body("configSourceName", equalTo("QuarkusUUIDConfigSource"));
 
         given()
                 .get("/config/uuid")
                 .then()
                 .statusCode(OK.getStatusCode())
                 .body("value", is(notNullValue()))
-                .body("configSourceName", equalTo("DefaultValuesConfigSource"));
+                .body("configSourceName", equalTo("QuarkusUUIDConfigSource"));
     }
 }

@@ -6,19 +6,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
+import org.hibernate.StatelessSession;
 import org.hibernate.boot.archive.scan.spi.Scanner;
 import org.hibernate.engine.spi.SessionLazyDelegator;
 import org.hibernate.integrator.spi.Integrator;
 import org.jboss.logging.Logger;
 
-import io.quarkus.arc.Arc;
+import io.quarkus.arc.SyntheticCreationalContext;
 import io.quarkus.arc.runtime.BeanContainer;
 import io.quarkus.arc.runtime.BeanContainerListener;
 import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDefinition;
@@ -66,8 +68,8 @@ public class HibernateOrmRecorder {
             Scanner scanner, Collection<Class<? extends Integrator>> additionalIntegrators) {
         SchemaManagementIntegrator.clearDsMap();
         for (QuarkusPersistenceUnitDefinition i : parsedPersistenceXmlDescriptors) {
-            if (i.getDataSource().isPresent()) {
-                SchemaManagementIntegrator.mapDatasource(i.getDataSource().get(), i.getName());
+            if (i.getConfig().getDataSource().isPresent()) {
+                SchemaManagementIntegrator.mapDatasource(i.getConfig().getDataSource().get(), i.getName());
             }
         }
         return new BeanContainerListener() {
@@ -81,25 +83,29 @@ public class HibernateOrmRecorder {
 
     public Supplier<DataSourceTenantConnectionResolver> dataSourceTenantConnectionResolver(String persistenceUnitName,
             Optional<String> dataSourceName,
-            MultiTenancyStrategy multiTenancyStrategy, String multiTenancySchemaDataSourceName) {
+            MultiTenancyStrategy multiTenancyStrategy) {
         return new Supplier<DataSourceTenantConnectionResolver>() {
             @Override
             public DataSourceTenantConnectionResolver get() {
-                return new DataSourceTenantConnectionResolver(persistenceUnitName, dataSourceName, multiTenancyStrategy,
-                        multiTenancySchemaDataSourceName);
+                return new DataSourceTenantConnectionResolver(persistenceUnitName, dataSourceName, multiTenancyStrategy);
             }
         };
+    }
+
+    public Supplier<JPAConfig> jpaConfigSupplier(HibernateOrmRuntimeConfig config) {
+        return () -> new JPAConfig(config);
     }
 
     public void startAllPersistenceUnits(BeanContainer beanContainer) {
         beanContainer.beanInstance(JPAConfig.class).startAll();
     }
 
-    public Supplier<SessionFactory> sessionFactorySupplier(String persistenceUnitName) {
-        return new Supplier<SessionFactory>() {
+    public Function<SyntheticCreationalContext<SessionFactory>, SessionFactory> sessionFactorySupplier(
+            String persistenceUnitName) {
+        return new Function<SyntheticCreationalContext<SessionFactory>, SessionFactory>() {
             @Override
-            public SessionFactory get() {
-                SessionFactory sessionFactory = Arc.container().instance(JPAConfig.class).get()
+            public SessionFactory apply(SyntheticCreationalContext<SessionFactory> context) {
+                SessionFactory sessionFactory = context.getInjectedReference(JPAConfig.class)
                         .getEntityManagerFactory(persistenceUnitName)
                         .unwrap(SessionFactory.class);
 
@@ -108,16 +114,33 @@ public class HibernateOrmRecorder {
         };
     }
 
-    public Supplier<Session> sessionSupplier(String persistenceUnitName) {
-        return new Supplier<Session>() {
+    public Function<SyntheticCreationalContext<Session>, Session> sessionSupplier(String persistenceUnitName) {
+        return new Function<SyntheticCreationalContext<Session>, Session>() {
+
             @Override
-            public Session get() {
-                TransactionSessions transactionSessions = Arc.container()
-                        .instance(TransactionSessions.class).get();
+            public Session apply(SyntheticCreationalContext<Session> context) {
+                TransactionSessions transactionSessions = context.getInjectedReference(TransactionSessions.class);
                 return new SessionLazyDelegator(new Supplier<Session>() {
                     @Override
                     public Session get() {
                         return transactionSessions.getSession(persistenceUnitName);
+                    }
+                });
+            }
+        };
+    }
+
+    public Function<SyntheticCreationalContext<StatelessSession>, StatelessSession> statelessSessionSupplier(
+            String persistenceUnitName) {
+        return new Function<SyntheticCreationalContext<StatelessSession>, StatelessSession>() {
+
+            @Override
+            public StatelessSession apply(SyntheticCreationalContext<StatelessSession> context) {
+                TransactionSessions transactionSessions = context.getInjectedReference(TransactionSessions.class);
+                return new StatelessSessionLazyDelegator(new Supplier<StatelessSession>() {
+                    @Override
+                    public StatelessSession get() {
+                        return transactionSessions.getStatelessSession(persistenceUnitName);
                     }
                 });
             }

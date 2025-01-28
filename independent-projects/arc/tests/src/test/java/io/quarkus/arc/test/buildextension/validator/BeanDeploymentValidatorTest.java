@@ -10,13 +10,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Initialized;
-import javax.enterprise.context.spi.CreationalContext;
-import javax.enterprise.event.Observes;
-import javax.enterprise.inject.Instance;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Initialized;
+import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.ParameterizedType;
@@ -62,8 +62,8 @@ public class BeanDeploymentValidatorTest {
         @Override
         public void validate(ValidationContext context) {
             assertTrue(context.getInjectionPoints().stream().filter(InjectionPointInfo::isProgrammaticLookup)
-                    .filter(ip -> ip.getTarget().kind() == org.jboss.jandex.AnnotationTarget.Kind.FIELD
-                            && ip.getTarget().asField().name().equals("foo"))
+                    .filter(ip -> ip.getAnnotationTarget().kind() == org.jboss.jandex.AnnotationTarget.Kind.FIELD
+                            && ip.getAnnotationTarget().asField().name().equals("foo"))
                     .findFirst().isPresent());
 
             assertFalse(context.removedBeans().withBeanClass(UselessBean.class).isEmpty());

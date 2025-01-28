@@ -2,7 +2,7 @@ package io.quarkus.picocli.deployment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -27,7 +27,7 @@ public class AvailableConfigSourcesTest {
     void sources() {
         ConfigValue value = config.getConfigValue("my.prop");
         assertEquals("1234", value.getValue());
-        assertEquals("RunTime Defaults", value.getConfigSourceName());
+        assertEquals("DefaultValuesConfigSource", value.getConfigSourceName());
 
         for (final ConfigSource configSource : config.getConfigSources()) {
             if (configSource.getName().contains("application.properties")) {

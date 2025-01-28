@@ -1,41 +1,48 @@
 package io.quarkus.infinispan.client.runtime;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import javax.net.ssl.SSLContext;
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
 
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
 
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
-import io.quarkus.runtime.annotations.ConfigPhase;
-import io.quarkus.runtime.annotations.ConfigRoot;
 
 /**
  * @author Katia Aresti
  */
-@ConfigRoot(name = "infinispan-client", phase = ConfigPhase.RUN_TIME)
+@ConfigGroup
 public class InfinispanClientRuntimeConfig {
-
-    /**
-     * Sets the host name/port to connect to. Each one is separated by a semicolon (eg. host1:11222;host2:11222).
-     */
-    @ConfigItem
-    public Optional<String> serverList;
 
     // @formatter:off
     /**
-     * Enables or disables Protobuf generated schemas upload to the server.
-     * Set it to 'false' when you need to handle the lifecycle of the Protobuf Schemas on Server side yourself.
-     * Default is 'true'.
+     * Sets the URI of the running Infinispan server to connect to. hotrod://localhost:11222@admin:password
+     * If provided {@link #hosts}, {@link #username} and {@link #password} will be ignored.
      */
     // @formatter:on
-    @ConfigItem(defaultValue = "true")
-    Optional<Boolean> useSchemaRegistration;
+    @ConfigItem
+    public Optional<String> uri;
+
+    // @formatter:off
+    /**
+     * Sets the host name/port to connect to. Each one is separated by a semicolon (eg. host1:11222;host2:11222).
+     */
+    // @formatter:on
+    @ConfigItem
+    public Optional<String> hosts;
+
+    // @formatter:off
+    /**
+     * Sets the host name/port to connect to. Each one is separated by a semicolon (eg. host1:11222;host2:11222).
+     * @deprecated {@link #hosts} should be used to configure the list or uri for an uri connection string.
+     */
+    // @formatter:on
+    @ConfigItem
+    @Deprecated
+    public Optional<String> serverList;
 
     // @formatter:off
     /**
@@ -66,12 +73,30 @@ public class InfinispanClientRuntimeConfig {
      * Sets username used by authentication.
      */
     @ConfigItem
+    Optional<String> username;
+
+    /**
+     * Sets username used by authentication.
+     *
+     * @deprecated {@link #username} should be used to configure the credentials username.
+     */
+    @ConfigItem
+    @Deprecated
     Optional<String> authUsername;
 
     /**
-     * Sets password used by authentication
+     * Sets password used by authentication.
      */
     @ConfigItem
+    Optional<String> password;
+
+    /**
+     * Sets password used by authentication
+     *
+     * @deprecated {@link #password} should be used to configure the credentials password.
+     */
+    @ConfigItem
+    @Deprecated
     Optional<String> authPassword;
 
     /**
@@ -86,19 +111,6 @@ public class InfinispanClientRuntimeConfig {
     @ConfigItem(defaultValue = "infinispan")
     Optional<String> authServerName;
 
-    /**
-     * Sets client subject, necessary for those SASL mechanisms which require it to access client credentials.
-     */
-    @ConfigItem
-    Optional<String> authClientSubject;
-
-    /**
-     * Specifies a {@link CallbackHandler} to be used during the authentication handshake.
-     * The {@link Callback}s that need to be handled are specific to the chosen SASL mechanism.
-     */
-    @ConfigItem
-    Optional<String> authCallbackHandler;
-
     // @formatter:off
     /**
      * Sets SASL mechanism used by authentication.
@@ -111,6 +123,33 @@ public class InfinispanClientRuntimeConfig {
     // @formatter:on
     @ConfigItem(defaultValue = "DIGEST-MD5")
     Optional<String> saslMechanism;
+
+    /**
+     * Specifies the filename of a keystore to use to create the {@link SSLContext}.
+     * You also need to specify a keyStorePassword.
+     * Setting this property implicitly enables SSL/TLS.
+     */
+    @ConfigItem
+    Optional<String> keyStore;
+
+    /**
+     * Specifies the password needed to open the keystore. You also need to specify a keyStore.
+     * Setting this property implicitly enables SSL/TLS.
+     */
+    @ConfigItem
+    Optional<String> keyStorePassword;
+
+    /**
+     * Specifies the type of the keyStore, such as PKCS12.
+     */
+    @ConfigItem
+    Optional<String> keyStoreType;
+
+    /**
+     * Sets the unique name used to identify a specific key pair in a keystore for secure connections.
+     */
+    @ConfigItem
+    Optional<String> keyAlias;
 
     /**
      * Specifies the filename of a truststore to use to create the {@link SSLContext}.
@@ -134,10 +173,70 @@ public class InfinispanClientRuntimeConfig {
     Optional<String> trustStoreType;
 
     /**
+     * Configures the secure socket protocol.
+     * Setting this property implicitly enables SSL/TLS.
+     */
+    @ConfigItem
+    Optional<String> sslProtocol;
+
+    /**
+     * Sets the ssl provider. For example BCFIPS
+     * Setting this implicitly enables SSL/TLS.
+     */
+    @ConfigItem
+    Optional<String> sslProvider;
+
+    /**
+     * Configures the ciphers.
+     * Setting this property implicitly enables SSL/TLS.
+     */
+    @ConfigItem
+    Optional<List<String>> sslCiphers;
+
+    /**
+     * Do SSL hostname validation.
+     * Defaults to true.
+     */
+    @ConfigItem
+    Optional<Boolean> sslHostNameValidation;
+
+    /**
+     * SNI host name. Mandatory when SSL is enabled and host name validation is true.
+     */
+    @ConfigItem
+    Optional<String> sniHostName;
+
+    /**
+     * Configures the socket timeout.
+     */
+    @ConfigItem
+    Optional<Integer> socketTimeout;
+
+    /**
+     * Whether a tracing propagation is enabled in case the Opentelemetry extension is present.
+     * By default the propagation of the context is propagated from the client to the Infinispan Server.
+     */
+    @ConfigItem(name = "tracing.propagation.enabled")
+    public Optional<Boolean> tracingPropagationEnabled;
+
+    /**
      * Configures caches from the client with the provided configuration.
      */
     @ConfigItem
-    Map<String, RemoteCacheConfig> cache = new HashMap<>();
+    public Map<String, InfinispanClientRuntimeConfig.RemoteCacheConfig> cache;
+
+    /**
+     * // @formatter:off
+     * Configures cross site replication from the client with the provided configuration.
+     * This allows automatic failover when a site is down, as well as switching manual with methods like:
+     * <code>
+     *    cacheManager.switchToDefaultCluster();
+     *    cacheManager.switchToCluster('clusterName')
+     * </code>
+     * // @formatter:on
+     */
+    @ConfigItem
+    public Map<String, InfinispanClientRuntimeConfig.BackupClusterConfig> backupCluster;
 
     @ConfigGroup
     public static class RemoteCacheConfig {
@@ -155,7 +254,7 @@ public class InfinispanClientRuntimeConfig {
 
         // @formatter:off
         /**
-         * Cache configuration file in XML whose path will be converted to URI to create the cache on first access.
+         * Cache configuration file in XML, Json or YAML whose path will be converted to URI to create the cache on first access.
          * An example of the user defined property. cacheConfig.xml file is located in the 'resources' folder:
          * quarkus.infinispan-client.cache.bookscache.configuration-uri=cacheConfig.xml
          */
@@ -192,10 +291,48 @@ public class InfinispanClientRuntimeConfig {
         public Optional<Boolean> nearCacheUseBloomFilter;
     }
 
+    @ConfigGroup
+    public static class BackupClusterConfig {
+        // @formatter:off
+        /**
+         * Sets the host name/port to connect to. Each one is separated by a semicolon (eg. hostA:11222;hostB:11222).
+         */
+        // @formatter:on
+        @ConfigItem
+        public String hosts;
+
+        // @formatter:off
+        /**
+         * Sets client intelligence used by authentication
+         * Available values:
+         * * `BASIC` - Means that the client doesn't handle server topology changes and therefore will only use the list
+         *              of servers supplied at configuration time.
+         * * `TOPOLOGY_AWARE` - Use this provider if you don't want the client to present any certificates to the
+         *              remote TLS host.
+         * * `HASH_DISTRIBUTION_AWARE` - Like `TOPOLOGY_AWARE` but with the additional advantage that each request
+         *              involving keys will be routed to the server who is the primary owner which improves performance
+         *              greatly. This is the default.
+         */
+        // @formatter:on
+        @ConfigItem(defaultValue = "HASH_DISTRIBUTION_AWARE")
+        Optional<String> clientIntelligence;
+
+        // @formatter:off
+        /**
+         * Enables or disables Protobuf generated schemas upload to the backup.
+         * Set it to 'false' when you need to handle the lifecycle of the Protobuf Schemas on Server side yourself.
+         * Default is 'true'.
+         * This setting will be ignored if the Global Setting is set up to false.
+         */
+        // @formatter:on
+        @ConfigItem(defaultValue = "true")
+        Optional<Boolean> useSchemaRegistration;
+    }
+
     @Override
     public String toString() {
         return "InfinispanClientRuntimeConfig{" +
-                "serverList=" + serverList +
+                "hosts=" + hosts +
                 '}';
     }
 }

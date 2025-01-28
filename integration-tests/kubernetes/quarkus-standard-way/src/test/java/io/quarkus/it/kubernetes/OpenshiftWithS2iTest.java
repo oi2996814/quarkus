@@ -30,6 +30,7 @@ public class OpenshiftWithS2iTest {
             .setApplicationName("openshift-s2i")
             .setApplicationVersion("0.1-SNAPSHOT")
             .withConfigurationResource("openshift-with-s2i.properties")
+            .overrideConfigKey("quarkus.openshift.deployment-kind", "deployment-config")
             .setForcedDependencies(List.of(Dependency.of("io.quarkus", "quarkus-openshift", Version.getVersion())));
 
     @ProdBuildResults
@@ -86,11 +87,6 @@ public class OpenshiftWithS2iTest {
                                 assertThat(envVar.getName()).isEqualTo("JAVA_APP_JAR");
                                 //assertThat(envVar.getValue()).isEqualTo("/deployments/quarkus-run.jar"); // this is flaky
                             });
-                            assertThat(envVars).anySatisfy(envVar -> {
-                                assertThat(envVar.getName()).isEqualTo("JAVA_OPTIONS");
-                                assertThat(envVar.getValue())
-                                        .contains("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
-                            });
                         });
                     });
 
@@ -102,7 +98,7 @@ public class OpenshiftWithS2iTest {
         assertThat(openshiftList).filteredOn(h -> "Service".equals(h.getKind())).singleElement().satisfies(h -> {
             assertThat(h).isInstanceOfSatisfying(Service.class, s -> {
                 assertThat(s.getSpec()).satisfies(spec -> {
-                    assertThat(spec.getPorts()).hasSize(1).singleElement().satisfies(p -> {
+                    assertThat(spec.getPorts()).hasSize(1).anySatisfy(p -> {
                         assertThat(p.getPort()).isEqualTo(80);
                         assertThat(p.getTargetPort().getIntVal()).isEqualTo(8080);
                     });

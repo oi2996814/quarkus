@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import io.quarkus.bootstrap.BootstrapAppModelFactory;
 import io.quarkus.bootstrap.BootstrapException;
@@ -39,7 +40,7 @@ public class QuarkusBootstrap implements Serializable {
     private final PathCollection applicationRoot;
 
     /**
-     * The root of the project. This may be different to the application root for tests that
+     * The root of the project. This may be different from the application root for tests that
      * run in a different directory.
      */
     private final Path projectRoot;
@@ -64,6 +65,7 @@ public class QuarkusBootstrap implements Serializable {
     private final List<Path> excludeFromClassPath;
 
     private final Properties buildSystemProperties;
+    private final Properties runtimeProperties;
     private final String baseName;
     private final String originalBaseName;
     private final Path targetDirectory;
@@ -91,6 +93,7 @@ public class QuarkusBootstrap implements Serializable {
     private final boolean assertionsEnabled;
     private final boolean defaultFlatTestClassPath;
     private final Collection<ArtifactKey> parentFirstArtifacts;
+    private final Supplier<DependencyInfoProvider> depInfoProvider;
 
     private QuarkusBootstrap(Builder builder) {
         this.applicationRoot = builder.applicationRoot;
@@ -98,6 +101,7 @@ public class QuarkusBootstrap implements Serializable {
         this.excludeFromClassPath = new ArrayList<>(builder.excludeFromClassPath);
         this.projectRoot = builder.projectRoot != null ? builder.projectRoot.normalize() : null;
         this.buildSystemProperties = builder.buildSystemProperties != null ? builder.buildSystemProperties : new Properties();
+        this.runtimeProperties = builder.runtimeProperties != null ? builder.runtimeProperties : new Properties();
         this.mode = builder.mode;
         this.offline = builder.offline;
         this.test = builder.test;
@@ -123,46 +127,16 @@ public class QuarkusBootstrap implements Serializable {
         this.hostApplicationIsTestOnly = builder.hostApplicationIsTestOnly;
         this.defaultFlatTestClassPath = builder.flatClassPath;
         this.parentFirstArtifacts = builder.parentFirstArtifacts;
+        this.depInfoProvider = builder.depInfoProvider;
     }
 
     public CuratedApplication bootstrap() throws BootstrapException {
         //all we want to do is resolve all our dependencies
         //once we have this it is up to augment to set up the class loader to actually use them
+        final CurationResult curationResult = existingModel != null
+                ? new CurationResult(existingModel)
+                : newAppModelFactory().resolveAppModel();
 
-        if (existingModel != null) {
-            final ConfiguredClassLoading classLoadingConfig = ConfiguredClassLoading.builder()
-                    .setApplicationRoot(applicationRoot)
-                    .setDefaultFlatTestClassPath(defaultFlatTestClassPath)
-                    .setMode(mode)
-                    .addParentFirstArtifacts(parentFirstArtifacts)
-                    .setApplicationModel(existingModel)
-                    .build();
-            return new CuratedApplication(this, new CurationResult(existingModel), classLoadingConfig);
-        }
-
-        BootstrapAppModelFactory appModelFactory = BootstrapAppModelFactory.newInstance()
-                .setOffline(offline)
-                .setMavenArtifactResolver(mavenArtifactResolver)
-                .setBootstrapAppModelResolver(appModelResolver)
-                .setLocalProjectsDiscovery(localProjectDiscovery)
-                .setAppArtifact(appArtifact)
-                .setManagingProject(managingProject)
-                .setForcedDependencies(forcedDependencies)
-                .setLocalArtifacts(localArtifacts)
-                .setProjectRoot(getProjectRoot());
-        if (mode == Mode.TEST || test) {
-            appModelFactory.setTest(true);
-            if (!disableClasspathCache) {
-                appModelFactory.setEnableClasspathCache(true);
-            }
-        }
-        if (mode == Mode.DEV) {
-            appModelFactory.setDevMode(true);
-            if (!disableClasspathCache) {
-                appModelFactory.setEnableClasspathCache(true);
-            }
-        }
-        CurationResult curationResult = appModelFactory.resolveAppModel();
         if (curationResult.getApplicationModel().getAppArtifact() != null) {
             if (curationResult.getApplicationModel().getAppArtifact().getArtifactId() != null) {
                 buildSystemProperties.putIfAbsent("quarkus.application.name",
@@ -184,8 +158,30 @@ public class QuarkusBootstrap implements Serializable {
         return new CuratedApplication(this, curationResult, classLoadingConfig);
     }
 
-    public AppModelResolver getAppModelResolver() {
-        return appModelResolver;
+    public BootstrapAppModelFactory newAppModelFactory() {
+        final BootstrapAppModelFactory appModelFactory = BootstrapAppModelFactory.newInstance()
+                .setOffline(offline)
+                .setMavenArtifactResolver(mavenArtifactResolver)
+                .setBootstrapAppModelResolver(appModelResolver)
+                .setLocalProjectsDiscovery(localProjectDiscovery)
+                .setAppArtifact(appArtifact)
+                .setManagingProject(managingProject)
+                .setForcedDependencies(forcedDependencies)
+                .setLocalArtifacts(localArtifacts)
+                .setProjectRoot(projectRoot);
+        if (mode == Mode.TEST || test) {
+            appModelFactory.setTest(true);
+            if (!disableClasspathCache) {
+                appModelFactory.setEnableClasspathCache(true);
+            }
+        }
+        if (mode == Mode.DEV) {
+            appModelFactory.setDevMode(true);
+            if (!disableClasspathCache) {
+                appModelFactory.setEnableClasspathCache(true);
+            }
+        }
+        return appModelFactory;
     }
 
     public PathCollection getApplicationRoot() {
@@ -206,6 +202,10 @@ public class QuarkusBootstrap implements Serializable {
 
     public Properties getBuildSystemProperties() {
         return buildSystemProperties;
+    }
+
+    public Properties getRuntimeProperties() {
+        return runtimeProperties;
     }
 
     public Path getProjectRoot() {
@@ -272,6 +272,7 @@ public class QuarkusBootstrap implements Serializable {
                 .setProjectRoot(projectRoot)
                 .setBaseClassLoader(baseClassLoader)
                 .setBuildSystemProperties(buildSystemProperties)
+                .setRuntimeProperties(runtimeProperties)
                 .setMode(mode)
                 .setTest(test)
                 .setLocalProjectDiscovery(localProjectDiscovery)
@@ -304,6 +305,10 @@ public class QuarkusBootstrap implements Serializable {
         return test;
     }
 
+    public Supplier<DependencyInfoProvider> getDependencyInfoProvider() {
+        return depInfoProvider;
+    }
+
     public static class Builder {
         public List<ClassLoaderEventListener> classLoadListeners = new ArrayList<>();
         public boolean hostApplicationIsTestOnly;
@@ -318,6 +323,7 @@ public class QuarkusBootstrap implements Serializable {
         final List<Path> additionalDeploymentArchives = new ArrayList<>();
         final List<Path> excludeFromClassPath = new ArrayList<>();
         Properties buildSystemProperties;
+        Properties runtimeProperties;
         Mode mode = Mode.PROD;
         Boolean offline;
         boolean test;
@@ -335,6 +341,7 @@ public class QuarkusBootstrap implements Serializable {
         final Set<ArtifactKey> localArtifacts = new HashSet<>();
         boolean auxiliaryApplication;
         List<ArtifactKey> parentFirstArtifacts = new ArrayList<>();
+        Supplier<DependencyInfoProvider> depInfoProvider;
 
         public Builder() {
         }
@@ -387,6 +394,11 @@ public class QuarkusBootstrap implements Serializable {
 
         public Builder setBuildSystemProperties(Properties buildSystemProperties) {
             this.buildSystemProperties = buildSystemProperties;
+            return this;
+        }
+
+        public Builder setRuntimeProperties(Properties runtimeProperties) {
+            this.runtimeProperties = runtimeProperties;
             return this;
         }
 
@@ -544,6 +556,11 @@ public class QuarkusBootstrap implements Serializable {
             boolean result = false;
             assert result = true;
             return result;
+        }
+
+        public Builder setDependencyInfoProvider(Supplier<DependencyInfoProvider> depInfoProvider) {
+            this.depInfoProvider = depInfoProvider;
+            return this;
         }
 
         public QuarkusBootstrap build() {

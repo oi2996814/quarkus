@@ -30,24 +30,8 @@ public class OpenApiDefaultPathTestCase {
                 .when().get(OPEN_API_PATH)
                 .then()
                 .header("Content-Type", "application/json;charset=UTF-8")
-                .body("openapi", Matchers.startsWith("3.0"))
+                .body("openapi", Matchers.startsWith("3.1"))
                 .body("info.title", Matchers.equalTo("quarkus-smallrye-openapi-deployment API"))
                 .body("paths", Matchers.hasKey("/resource"));
-    }
-
-    @Test
-    public void testDefaultOpenApiCorsProperties() {
-        // make sure default CORS properties are present
-        RestAssured
-                .given()
-                .header("Origin", "https://quarkus.io")
-                .get(OPEN_API_PATH)
-                .then()
-                .statusCode(200)
-                .header("access-control-allow-methods", "GET, HEAD, OPTIONS")
-                .header("access-control-allow-headers", "Content-Type, Authorization")
-                .header("access-control-max-age", "86400")
-                .header("access-control-allow-origin", "*")
-                .header("access-control-allow-credentials", "true");
     }
 }

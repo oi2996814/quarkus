@@ -5,16 +5,22 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Inject;
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 @Path("/fruits")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
 public class FruitResource {
     @Inject
     FruitService fruitService;
@@ -44,6 +50,20 @@ public class FruitResource {
         } else {
             throw new BadRequestException("Should provide name or color query parameter");
         }
+    }
+
+    @Path("bulk")
+    @DELETE
+    public Response delete(List<String> identityList) throws IOException {
+        fruitService.delete(identityList);
+        return Response.ok().build();
+    }
+
+    @Path("bulk")
+    @POST
+    public Response index(List<Fruit> list) throws IOException {
+        fruitService.index(list);
+        return Response.ok().build();
     }
 
 }

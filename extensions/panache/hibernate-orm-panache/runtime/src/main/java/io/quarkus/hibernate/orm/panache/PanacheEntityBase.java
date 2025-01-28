@@ -7,10 +7,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import javax.json.bind.annotation.JsonbTransient;
-import javax.persistence.EntityManager;
-import javax.persistence.LockModeType;
-import javax.persistence.Transient;
+import jakarta.json.bind.annotation.JsonbTransient;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.Transient;
+
+import org.hibernate.Session;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -38,6 +40,16 @@ public abstract class PanacheEntityBase {
      */
     @GenerateBridge
     public static EntityManager getEntityManager() {
+        throw implementationInjectionMissing();
+    }
+
+    /**
+     * Returns the {@link Session} for this entity class for extra operations (eg. CriteriaQueries)
+     *
+     * @return the {@link Session} for this entity class
+     */
+    @GenerateBridge
+    public static Session getSession() {
         throw implementationInjectionMissing();
     }
 

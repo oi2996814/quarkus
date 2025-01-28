@@ -2,7 +2,7 @@ package io.quarkus.scheduler.common.runtime;
 
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.event.Event;
+import jakarta.enterprise.event.Event;
 
 import org.jboss.logging.Logger;
 
@@ -32,16 +32,12 @@ public final class StatusEmitterInvoker extends DelegateInvoker {
 
     @Override
     public CompletionStage<Void> invoke(ScheduledExecution execution) throws Exception {
-        return delegate.invoke(execution).whenComplete((v, t) -> {
+        return invokeDelegate(execution).whenComplete((v, t) -> {
             if (t != null) {
                 LOG.errorf(t, "Error occurred while executing task for trigger %s", execution.getTrigger());
-                FailedExecution failed = new FailedExecution(execution, t);
-                failedEvent.fireAsync(failed);
-                failedEvent.fire(failed);
+                Events.fire(failedEvent, new FailedExecution(execution, t));
             } else {
-                SuccessfulExecution success = new SuccessfulExecution(execution);
-                successfulEvent.fireAsync(success);
-                successfulEvent.fire(success);
+                Events.fire(successfulEvent, new SuccessfulExecution(execution));
             }
         });
     }

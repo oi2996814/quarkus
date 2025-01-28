@@ -20,6 +20,7 @@ import io.quarkus.redis.datasource.list.ReactiveTransactionalListCommands;
 import io.quarkus.redis.datasource.search.ReactiveTransactionalSearchCommands;
 import io.quarkus.redis.datasource.set.ReactiveTransactionalSetCommands;
 import io.quarkus.redis.datasource.sortedset.ReactiveTransactionalSortedSetCommands;
+import io.quarkus.redis.datasource.stream.ReactiveTransactionalStreamCommands;
 import io.quarkus.redis.datasource.string.ReactiveTransactionalStringCommands;
 import io.quarkus.redis.datasource.timeseries.ReactiveTransactionalTimeSeriesCommands;
 import io.quarkus.redis.datasource.topk.ReactiveTransactionalTopKCommands;
@@ -107,6 +108,13 @@ public class ReactiveTransactionalRedisDataSourceImpl implements ReactiveTransac
     }
 
     @Override
+    public <K, F, V> ReactiveTransactionalStreamCommands<K, F, V> stream(Class<K> redisKeyType, Class<F> typeOfField,
+            Class<V> typeOfValue) {
+        return new ReactiveTransactionalStreamCommandsImpl<>(this,
+                (ReactiveStreamCommandsImpl<K, F, V>) this.reactive.stream(redisKeyType, typeOfField, typeOfValue), tx);
+    }
+
+    @Override
     public <K> ReactiveTransactionalJsonCommands<K> json(Class<K> redisKeyType) {
         return new ReactiveTransactionalJsonCommandsImpl<>(this,
                 (ReactiveJsonCommandsImpl<K>) this.reactive.json(redisKeyType), tx);
@@ -169,7 +177,7 @@ public class ReactiveTransactionalRedisDataSourceImpl implements ReactiveTransac
     @Override
     public Uni<Void> execute(String command, String... args) {
         nonNull(command, "command");
-        return execute(Command.create(command), args);
+        return execute(CommandMap.normalize(Command.create(command)), args);
     }
 
     @Override
@@ -177,6 +185,7 @@ public class ReactiveTransactionalRedisDataSourceImpl implements ReactiveTransac
         nonNull(command, "command");
         tx.enqueue(r -> r); // identity
 
+        command = CommandMap.normalize(command);
         RedisCommand c = RedisCommand.of(command).putAll(Arrays.asList(args));
 
         return reactive.execute(c.toRequest())
@@ -193,6 +202,7 @@ public class ReactiveTransactionalRedisDataSourceImpl implements ReactiveTransac
     @Override
     public Uni<Void> execute(io.vertx.redis.client.Command command, String... args) {
         nonNull(command, "command");
+        command = CommandMap.normalize(command);
         return execute(new Command(command), args);
     }
 }

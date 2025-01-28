@@ -10,6 +10,8 @@ import org.junit.jupiter.api.MethodOrderer.OrderAnnotation;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import io.quarkus.devtools.messagewriter.MessageIcons;
 import io.quarkus.devtools.messagewriter.MessageWriter;
@@ -194,8 +196,8 @@ public class CliHelpTest {
         writer.error("error"); // has emoji
         writer.warn("warn"); // has emoji
         writer.info(MessageIcons.NOOP_ICON + " info");
-        writer.info(MessageIcons.OK_ICON + " info");
-        writer.info(MessageIcons.NOK_ICON + " info");
+        writer.info(MessageIcons.SUCCESS_ICON + " info");
+        writer.info(MessageIcons.FAILURE_ICON + " info");
         writer.debug("debug");
     }
 
@@ -218,32 +220,18 @@ public class CliHelpTest {
         assertThat(result.stdout).contains("Usage");
         assertTrue(result.getStdout().contains("Commands:"), "Should list subcommands\n");
         assertTrue(result.getStdout().contains("docker"), "Should list docker subcommand\n");
+        assertTrue(result.getStdout().contains("podman"), "Should list podman subcommand\n");
         assertTrue(result.getStdout().contains("jib"), "Should list jib subcommand\n");
         assertTrue(result.getStdout().contains("openshift"), "Should list openshift subcommand\n");
         assertTrue(result.getStdout().contains("buildpack"), "Should list buildpack subcommand\n");
 
     }
 
-    @Test
+    @ParameterizedTest
     @Order(93)
-    public void testImageBuildDockerHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "build", "docker", "--help");
-        result.echoSystemOut();
-        assertThat(result.stdout).contains("Usage");
-    }
-
-    @Test
-    @Order(94)
-    public void testImageBuildJibHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "build", "jib", "--help");
-        result.echoSystemOut();
-        assertThat(result.stdout).contains("Usage");
-    }
-
-    @Test
-    @Order(95)
-    public void testImageBuildOpenshiftHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "build", "openshift", "--help");
+    @ValueSource(strings = { "docker", "podman", "jib", "openshift", "buildpack" })
+    public void testImageBuildBuilderHelp(String builder) throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "build", builder, "--help");
         result.echoSystemOut();
         assertThat(result.stdout).contains("Usage");
     }
@@ -260,35 +248,102 @@ public class CliHelpTest {
         assertThat(result.stdout).contains("--registry-password-stdin");
     }
 
-    @Test
+    @ParameterizedTest
     @Order(97)
-    public void testImagePushDockerHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "push", "docker", "--help");
+    @ValueSource(strings = { "docker", "podman", "jib", "openshift", "buildpack" })
+    public void testImagePushBuilderHelp(String builder) throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "push", builder, "--help");
         result.echoSystemOut();
         assertThat(result.stdout).contains("Usage");
     }
 
     @Test
-    @Order(98)
-    public void testImagePushJibHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "push", "jib", "--help");
+    @Order(101)
+    public void testDeployHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "deploy", "--help");
         result.echoSystemOut();
         assertThat(result.stdout).contains("Usage");
     }
 
     @Test
-    @Order(99)
-    public void testImagePushOpenshiftHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "push", "openshift", "--help");
+    @Order(102)
+    public void testDeployKubernetesHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "deploy", "kubernetes", "--help");
         result.echoSystemOut();
         assertThat(result.stdout).contains("Usage");
+        assertThat(result.stdout).contains("--api-server-url");
+        assertThat(result.stdout).contains("--token");
+        assertThat(result.stdout).contains("--namespace");
+        assertThat(result.stdout).contains("--deployment-kind");
     }
 
     @Test
-    @Order(99)
-    public void testImagePushBuildpackHelp() throws Exception {
-        CliDriver.Result result = CliDriver.execute(workspaceRoot, "image", "push", "buildpack", "--help");
+    @Order(103)
+    public void testDeployOpenshiftHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "deploy", "openshift", "--help");
         result.echoSystemOut();
         assertThat(result.stdout).contains("Usage");
+        assertThat(result.stdout).contains("--api-server-url");
+        assertThat(result.stdout).contains("--token");
+        assertThat(result.stdout).contains("--namespace");
+        assertThat(result.stdout).contains("--deployment-kind");
+    }
+
+    @Test
+    @Order(104)
+    public void testDeployKnativeHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "deploy", "knative", "--help");
+        result.echoSystemOut();
+        assertThat(result.stdout).contains("Usage");
+        assertThat(result.stdout).contains("--api-server-url");
+        assertThat(result.stdout).contains("--token");
+        assertThat(result.stdout).contains("--namespace");
+    }
+
+    @Order(105)
+    public void testPluginHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "plug", "--help");
+        result.echoSystemOut();
+        assertThat(result.stdout).contains("Usage");
+
+        CliDriver.Result result2 = CliDriver.execute(workspaceRoot, "plugin", "--help");
+        assertThat(result.stdout).isEqualTo(result2.stdout);
+        CliDriver.println("-- same as above\n\n");
+    }
+
+    @Test
+    @Order(106)
+    public void testPlugnListHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "plug", "list", "--help");
+        result.echoSystemOut();
+        assertThat(result.stdout).contains("Usage");
+
+        CliDriver.Result result2 = CliDriver.execute(workspaceRoot, "plugin", "list", "--help");
+        assertThat(result.stdout).isEqualTo(result2.stdout);
+        CliDriver.println("-- same as above\n\n");
+    }
+
+    @Test
+    @Order(107)
+    public void testPlugnAddHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "plug", "add", "--help");
+        result.echoSystemOut();
+        assertThat(result.stdout).contains("Usage");
+
+        CliDriver.Result result2 = CliDriver.execute(workspaceRoot, "plugin", "add", "--help");
+        assertThat(result.stdout).isEqualTo(result2.stdout);
+        CliDriver.println("-- same as above\n\n");
+    }
+
+    @Test
+    @Order(108)
+    public void testPlugnRemoveHelp() throws Exception {
+        CliDriver.Result result = CliDriver.execute(workspaceRoot, "plug", "remove", "--help");
+        result.echoSystemOut();
+        assertThat(result.stdout).contains("Usage");
+
+        CliDriver.Result result2 = CliDriver.execute(workspaceRoot, "plugin", "remove", "--help");
+        assertThat(result.stdout).isEqualTo(result2.stdout);
+        CliDriver.println("-- same as above\n\n");
     }
 }

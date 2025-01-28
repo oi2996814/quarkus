@@ -12,13 +12,13 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import javax.ws.rs.Consumes;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.ext.ContextResolver;
-import javax.ws.rs.ext.MessageBodyReader;
-import javax.ws.rs.ext.MessageBodyWriter;
-import javax.ws.rs.ext.Providers;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.ext.ContextResolver;
+import jakarta.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.ext.Providers;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
@@ -30,9 +30,9 @@ import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.core.MediaTypeMap;
-import org.jboss.resteasy.microprofile.config.FilterConfigSourceImpl;
-import org.jboss.resteasy.microprofile.config.ServletConfigSourceImpl;
-import org.jboss.resteasy.microprofile.config.ServletContextConfigSourceImpl;
+import org.jboss.resteasy.microprofile.config.FilterConfigSource;
+import org.jboss.resteasy.microprofile.config.ServletConfigSource;
+import org.jboss.resteasy.microprofile.config.ServletContextConfigSource;
 import org.jboss.resteasy.plugins.interceptors.AcceptEncodingGZIPFilter;
 import org.jboss.resteasy.plugins.interceptors.GZIPDecodingInterceptor;
 import org.jboss.resteasy.plugins.interceptors.GZIPEncodingInterceptor;
@@ -43,7 +43,6 @@ import org.jboss.resteasy.spi.InjectorFactory;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.BeanContainerBuildItem;
-import io.quarkus.arc.deployment.ConfigInjectionStaticInitBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.DotNames;
 import io.quarkus.deployment.Capabilities;
@@ -53,22 +52,20 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.Consume;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
-import io.quarkus.deployment.builditem.StaticInitConfigSourceProviderBuildItem;
+import io.quarkus.deployment.builditem.StaticInitConfigBuilderBuildItem;
 import io.quarkus.deployment.builditem.SystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
 import io.quarkus.deployment.util.ServiceUtil;
+import io.quarkus.resteasy.common.runtime.ResteasyCommonConfig;
 import io.quarkus.resteasy.common.runtime.ResteasyInjectorFactoryRecorder;
-import io.quarkus.resteasy.common.runtime.config.ResteasyConfigSourceProvider;
+import io.quarkus.resteasy.common.runtime.config.ResteasyConfigBuilder;
 import io.quarkus.resteasy.common.runtime.providers.ServerFormUrlEncodedProvider;
 import io.quarkus.resteasy.common.spi.ResteasyConfigBuildItem;
 import io.quarkus.resteasy.common.spi.ResteasyDotNames;
 import io.quarkus.resteasy.common.spi.ResteasyJaxrsProviderBuildItem;
 import io.quarkus.runtime.RuntimeValue;
-import io.quarkus.runtime.annotations.ConfigGroup;
-import io.quarkus.runtime.annotations.ConfigItem;
-import io.quarkus.runtime.annotations.ConfigRoot;
-import io.quarkus.runtime.configuration.MemorySize;
 
 public class ResteasyCommonProcessor {
 
@@ -92,7 +89,7 @@ public class ResteasyCommonProcessor {
 
     private static final DotName QUARKUS_JSONB_CONTEXT_RESOLVER = DotName
             .createSimple("io.quarkus.resteasy.common.runtime.jsonb.QuarkusJsonbContextResolver");
-    private static final DotName JSONB = DotName.createSimple("javax.json.bind.Jsonb");
+    private static final DotName JSONB = DotName.createSimple("jakarta.json.bind.Jsonb");
     private static final DotName QUARKUS_JSONB_SERIALIZER = DotName
             .createSimple("io.quarkus.resteasy.common.runtime.jsonb.QuarkusJsonbSerializer");
 
@@ -102,48 +99,23 @@ public class ResteasyCommonProcessor {
 
     private ResteasyCommonConfig resteasyCommonConfig;
 
-    @ConfigRoot(name = "resteasy")
-    public static final class ResteasyCommonConfig {
-        /**
-         * Enable gzip support for REST
-         */
-        public ResteasyCommonConfigGzip gzip;
-    }
-
-    @ConfigGroup
-    public static final class ResteasyCommonConfigGzip {
-        /**
-         * If gzip is enabled
-         */
-        @ConfigItem
-        public boolean enabled;
-        /**
-         * Maximum deflated file bytes size
-         * <p>
-         * If the limit is exceeded, Resteasy will return Response
-         * with status 413("Request Entity Too Large")
-         */
-        @ConfigItem(defaultValue = "10M")
-        public MemorySize maxInput;
-    }
-
     @BuildStep
     void addStaticInitConfigSourceProvider(
             Capabilities capabilities,
-            BuildProducer<StaticInitConfigSourceProviderBuildItem> initConfigSourceProvider,
+            BuildProducer<StaticInitConfigBuilderBuildItem> staticInitConfigBuilder,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClass) {
 
         if (!capabilities.isCapabilityWithPrefixPresent(Capability.SERVLET)) {
             return;
         }
 
-        initConfigSourceProvider.produce(
-                new StaticInitConfigSourceProviderBuildItem(ResteasyConfigSourceProvider.class.getName()));
+        staticInitConfigBuilder.produce(new StaticInitConfigBuilderBuildItem(ResteasyConfigBuilder.class));
 
-        reflectiveClass.produce(new ReflectiveClassBuildItem(false, false,
-                ServletConfigSourceImpl.class,
-                ServletContextConfigSourceImpl.class,
-                FilterConfigSourceImpl.class));
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder(ServletConfigSource.class,
+                ServletContextConfigSource.class,
+                FilterConfigSource.class)
+                .reason(getClass().getName())
+                .build());
     }
 
     @BuildStep
@@ -164,9 +136,16 @@ public class ResteasyCommonProcessor {
     }
 
     @BuildStep
+    void setupRestEasyManualProviders(BuildProducer<ResteasyJaxrsProviderBuildItem> providers) {
+        // this one is added manually in RESTEasy's ResteasyDeploymentImpl
+        // https://github.com/quarkusio/quarkus/issues/13667
+        providers.produce(new ResteasyJaxrsProviderBuildItem(ServerFormUrlEncodedProvider.class.getName()));
+    }
+
+    @BuildStep
     void setupGzipProviders(BuildProducer<ResteasyJaxrsProviderBuildItem> providers) {
         // If GZIP support is enabled, enable it
-        if (resteasyCommonConfig.gzip.enabled) {
+        if (resteasyCommonConfig.gzip().enabled()) {
             providers.produce(new ResteasyJaxrsProviderBuildItem(AcceptEncodingGZIPFilter.class.getName()));
             providers.produce(new ResteasyJaxrsProviderBuildItem(GZIPDecodingInterceptor.class.getName()));
             providers.produce(new ResteasyJaxrsProviderBuildItem(GZIPEncodingInterceptor.class.getName()));
@@ -183,11 +162,6 @@ public class ResteasyCommonProcessor {
     }
 
     @BuildStep
-    ConfigInjectionStaticInitBuildItem configInjectionStaticInitProvider() {
-        return new ConfigInjectionStaticInitBuildItem(ResteasyDotNames.PROVIDER);
-    }
-
-    @BuildStep
     JaxrsProvidersToRegisterBuildItem setupProviders(BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
             CombinedIndexBuildItem indexBuildItem,
             BeanArchiveIndexBuildItem beanArchiveIndexBuildItem,
@@ -197,22 +171,8 @@ public class ResteasyCommonProcessor {
             ResteasyConfigBuildItem resteasyConfig,
             Capabilities capabilities) throws Exception {
 
-        Set<String> contributedProviders = new HashSet<>();
-        for (ResteasyJaxrsProviderBuildItem contributedProviderBuildItem : contributedProviderBuildItems) {
-            contributedProviders.add(contributedProviderBuildItem.getName());
-        }
-
-        Set<String> annotatedProviders = new HashSet<>();
-        for (AnnotationInstance i : indexBuildItem.getIndex().getAnnotations(ResteasyDotNames.PROVIDER)) {
-            if (i.target().kind() == AnnotationTarget.Kind.CLASS) {
-                annotatedProviders.add(i.target().asClass().name().toString());
-            }
-        }
-        contributedProviders.addAll(annotatedProviders);
         Set<String> availableProviders = new HashSet<>(ServiceUtil.classNamesNamedIn(getClass().getClassLoader(),
                 "META-INF/services/" + Providers.class.getName()));
-        // this one is added manually in RESTEasy's ResteasyDeploymentImpl
-        availableProviders.add(ServerFormUrlEncodedProvider.class.getName());
 
         MediaTypeMap<String> categorizedReaders = new MediaTypeMap<>();
         MediaTypeMap<String> categorizedWriters = new MediaTypeMap<>();
@@ -221,9 +181,6 @@ public class ResteasyCommonProcessor {
 
         categorizeProviders(availableProviders, categorizedReaders, categorizedWriters, categorizedContextResolvers,
                 otherProviders);
-
-        // add the other providers detected
-        Set<String> providersToRegister = new HashSet<>(otherProviders);
 
         if (!capabilities.isPresent(Capability.VERTX)
                 && !capabilities.isCapabilityWithPrefixPresent(Capability.RESTEASY_JSON)) {
@@ -252,6 +209,8 @@ public class ResteasyCommonProcessor {
 
         }
 
+        // add the other providers detected
+        Set<String> providersToRegister = new HashSet<>(otherProviders);
         // we add a couple of default providers
         providersToRegister.add(StringTextStar.class.getName());
         providersToRegister.addAll(categorizedWriters.getPossible(MediaType.APPLICATION_JSON_TYPE));
@@ -264,17 +223,40 @@ public class ResteasyCommonProcessor {
                 providersToRegister, categorizedReaders, categorizedWriters, categorizedContextResolvers,
                 index, beansIndex);
 
+        Set<String> contributedProviders = new HashSet<>();
+        for (ResteasyJaxrsProviderBuildItem contributedProviderBuildItem : contributedProviderBuildItems) {
+            // If we use built-in providers, we can ignore duplicate entries
+            if (!useBuiltinProviders || !availableProviders.contains(contributedProviderBuildItem.getName())) {
+                contributedProviders.add(contributedProviderBuildItem.getName());
+            }
+        }
+
+        Set<String> annotatedProviders = new HashSet<>();
+        for (AnnotationInstance i : indexBuildItem.getIndex().getAnnotations(ResteasyDotNames.PROVIDER)) {
+            if (i.target().kind() == AnnotationTarget.Kind.CLASS) {
+                String annotatedProvider = i.target().asClass().name().toString();
+                // If we use build-in providers, we can ignore duplicate entries
+                if (!useBuiltinProviders || !availableProviders.contains(annotatedProvider)) {
+                    annotatedProviders.add(annotatedProvider);
+                }
+            }
+        }
+        contributedProviders.addAll(annotatedProviders);
+
+        providersToRegister.addAll(contributedProviders);
         if (useBuiltinProviders) {
-            providersToRegister = new HashSet<>(contributedProviders);
-            providersToRegister.addAll(availableProviders);
-        } else {
-            providersToRegister.addAll(contributedProviders);
+            // If we use built-in providers, we need to register all available providers
+            for (String availableProvider : availableProviders) {
+                reflectiveClass.produce(ReflectiveClassBuildItem.builder(availableProvider).fields().build());
+            }
         }
 
         if (providersToRegister.contains("org.jboss.resteasy.plugins.providers.jsonb.JsonBindingProvider")) {
             // This abstract one is also accessed directly via reflection
-            reflectiveClass.produce(new ReflectiveClassBuildItem(true, true,
-                    "org.jboss.resteasy.plugins.providers.jsonb.AbstractJsonBindingProvider"));
+            reflectiveClass.produce(
+                    ReflectiveClassBuildItem.builder("org.jboss.resteasy.plugins.providers.jsonb.AbstractJsonBindingProvider")
+                            .reason(getClass().getName())
+                            .methods().fields().build());
         }
 
         JaxrsProvidersToRegisterBuildItem result = new JaxrsProvidersToRegisterBuildItem(
@@ -342,6 +324,16 @@ public class ResteasyCommonProcessor {
     void registerNativeImageResources(BuildProducer<ServiceProviderBuildItem> serviceProvider) {
         serviceProvider.produce(ServiceProviderBuildItem
                 .allProvidersFromClassPath(org.jboss.resteasy.spi.config.ConfigurationFactory.class.getName()));
+    }
+
+    /**
+     * ResourceCleaner contains java.lang.ref.Cleaner references which need to get
+     * runtime initialized.
+     */
+    @BuildStep
+    public RuntimeInitializedClassBuildItem runtimeInitResourceCleaner() {
+        return new RuntimeInitializedClassBuildItem(
+                "org.jboss.resteasy.spi.ResourceCleaner");
     }
 
     private void registerJsonContextResolver(
@@ -543,7 +535,7 @@ public class ResteasyCommonProcessor {
         if (mediaTypeMethodAnnotationInstance == null) {
             // no media types defined on the method, let's consider the class annotations
             AnnotationInstance mediaTypeClassAnnotationInstance = methodTarget.declaringClass()
-                    .classAnnotation(mediaTypeAnnotation);
+                    .declaredAnnotation(mediaTypeAnnotation);
             if (mediaTypeClassAnnotationInstance != null) {
                 AnnotationValue mediaTypeClassValue = mediaTypeClassAnnotationInstance.value();
                 if ((mediaTypeClassValue != null)

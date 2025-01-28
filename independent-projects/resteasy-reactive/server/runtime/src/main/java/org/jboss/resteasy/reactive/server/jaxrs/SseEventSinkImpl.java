@@ -4,8 +4,8 @@ import java.util.Collections;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
-import javax.ws.rs.sse.OutboundSseEvent;
-import javax.ws.rs.sse.SseEventSink;
+import jakarta.ws.rs.sse.OutboundSseEvent;
+import jakarta.ws.rs.sse.SseEventSink;
 
 import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
 import org.jboss.resteasy.reactive.server.core.SseUtil;
@@ -32,31 +32,24 @@ public class SseEventSinkImpl implements SseEventSink {
         if (isClosed())
             throw new IllegalStateException("Already closed");
         // NOTE: we can't cast event to OutboundSseEventImpl because the TCK sends us its own subclass
-        CompletionStage<?> ret = SseUtil.send(context, event, Collections.emptyList());
-        if (broadcaster != null) {
-            return ret.whenComplete((value, x) -> {
-                if (x != null) {
-                    broadcaster.fireException(this, x);
-                }
-            });
-        }
-        return ret;
+        return SseUtil.send(context, event, Collections.emptyList());
     }
 
     @Override
     public synchronized void close() {
-        if (isClosed())
+        if (closed)
             return;
         closed = true;
-        // FIXME: do we need a state flag?
         ServerHttpResponse response = context.serverResponse();
-        if (!response.headWritten()) {
-            // make sure we send the headers if we're closing this sink before the
-            // endpoint method is over
-            SseUtil.setHeaders(context, response);
+        if (!response.closed()) {
+            if (!response.headWritten()) {
+                // make sure we send the headers if we're closing this sink before the
+                // endpoint method is over
+                SseUtil.setHeaders(context, response);
+            }
+            response.end();
+            context.close();
         }
-        response.end();
-        context.close();
         if (broadcaster != null)
             broadcaster.fireClose(this);
     }
@@ -77,11 +70,8 @@ public class SseEventSinkImpl implements SseEventSink {
                     // I don't think we should be firing the exception on the broadcaster here
                 }
             });
-            //            response.closeHandler(v -> {
-            //                // FIXME: notify of client closing
-            //                System.err.println("Server connection closed");
-            //            });
         }
+        response.addCloseHandler(this::close);
     }
 
     void register(SseBroadcasterImpl broadcaster) {

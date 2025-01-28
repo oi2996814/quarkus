@@ -28,26 +28,39 @@ import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.Annotations;
 import io.quarkus.arc.processor.AnnotationsTransformer;
 import io.quarkus.arc.processor.InterceptorBindingRegistrar;
+import io.quarkus.deployment.IsDevelopment;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.BuildSteps;
+import io.quarkus.deployment.annotations.Consume;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.deployment.builditem.SystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveMethodBuildItem;
+import io.quarkus.deployment.logging.LoggingSetupBuildItem;
 import io.quarkus.deployment.metrics.MetricsCapabilityBuildItem;
 import io.quarkus.deployment.metrics.MetricsFactoryConsumerBuildItem;
+import io.quarkus.devui.spi.page.CardPageBuildItem;
+import io.quarkus.devui.spi.page.Page;
 import io.quarkus.micrometer.deployment.export.PrometheusRegistryProcessor;
+import io.quarkus.micrometer.deployment.export.RegistryBuildItem;
 import io.quarkus.micrometer.runtime.ClockProvider;
 import io.quarkus.micrometer.runtime.CompositeRegistryCreator;
 import io.quarkus.micrometer.runtime.MeterFilterConstraint;
 import io.quarkus.micrometer.runtime.MeterFilterConstraints;
+import io.quarkus.micrometer.runtime.MeterRegistryCustomizer;
+import io.quarkus.micrometer.runtime.MeterRegistryCustomizerConstraint;
+import io.quarkus.micrometer.runtime.MeterRegistryCustomizerConstraints;
+import io.quarkus.micrometer.runtime.MeterTagsSupport;
 import io.quarkus.micrometer.runtime.MicrometerCounted;
 import io.quarkus.micrometer.runtime.MicrometerCountedInterceptor;
 import io.quarkus.micrometer.runtime.MicrometerRecorder;
 import io.quarkus.micrometer.runtime.MicrometerTimedInterceptor;
 import io.quarkus.micrometer.runtime.config.MicrometerConfig;
+import io.quarkus.micrometer.runtime.export.exemplars.NoopOpenTelemetryExemplarContextUnwrapper;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.metrics.MetricsFactory;
 import io.quarkus.vertx.http.deployment.NonApplicationRootPathBuildItem;
@@ -57,6 +70,7 @@ public class MicrometerProcessor {
     private static final DotName METER_REGISTRY = DotName.createSimple(MeterRegistry.class.getName());
     private static final DotName METER_BINDER = DotName.createSimple(MeterBinder.class.getName());
     private static final DotName METER_FILTER = DotName.createSimple(MeterFilter.class.getName());
+    private static final DotName METER_REGISTRY_CUSTOMIZER = DotName.createSimple(MeterRegistryCustomizer.class.getName());
     private static final DotName NAMING_CONVENTION = DotName.createSimple(NamingConvention.class.getName());
 
     private static final DotName COUNTED_ANNOTATION = DotName.createSimple(Counted.class.getName());
@@ -64,6 +78,12 @@ public class MicrometerProcessor {
     private static final DotName COUNTED_INTERCEPTOR = DotName.createSimple(MicrometerCountedInterceptor.class.getName());
     private static final DotName TIMED_ANNOTATION = DotName.createSimple(Timed.class.getName());
     private static final DotName TIMED_INTERCEPTOR = DotName.createSimple(MicrometerTimedInterceptor.class.getName());
+    private static final DotName METER_TAG_SUPPORT = DotName.createSimple(MeterTagsSupport.class.getName());
+
+    private static final List<String> OPERATING_SYSTEM_BEAN_CLASS_NAMES = List.of(
+            "com.ibm.lang.management.OperatingSystemMXBean", // J9
+            "com.sun.management.OperatingSystemMXBean" // HotSpot
+    );
 
     public static class MicrometerEnabled implements BooleanSupplier {
         MicrometerConfig mConfig;
@@ -81,6 +101,15 @@ public class MicrometerProcessor {
                 null);
     }
 
+    @BuildStep(onlyIfNot = PrometheusRegistryProcessor.PrometheusEnabled.class)
+    void registerEmptyExamplarProvider(
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans) {
+        additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                .addBeanClass(NoopOpenTelemetryExemplarContextUnwrapper.class)
+                .setUnremovable()
+                .build());
+    }
+
     @BuildStep(onlyIf = { PrometheusRegistryProcessor.PrometheusEnabled.class })
     MetricsCapabilityBuildItem metricsCapabilityPrometheusBuildItem(
             NonApplicationRootPathBuildItem nonApplicationRootPathBuildItem) {
@@ -93,24 +122,29 @@ public class MicrometerProcessor {
             BuildProducer<MicrometerRegistryProviderBuildItem> providerClasses,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClasses,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
-            BuildProducer<InterceptorBindingRegistrarBuildItem> interceptorBindings) {
+            BuildProducer<InterceptorBindingRegistrarBuildItem> interceptorBindings,
+            BuildProducer<ReflectiveMethodBuildItem> reflectiveMethods) {
 
         // Create and keep some basic Providers
         additionalBeans.produce(AdditionalBeanBuildItem.builder()
                 .setUnremovable()
                 .addBeanClass(ClockProvider.class)
                 .addBeanClass(CompositeRegistryCreator.class)
+                .addBeanClass(MeterRegistryCustomizer.class)
                 .build());
 
         // Add annotations and associated interceptors
         additionalBeans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClass(MeterFilterConstraint.class)
                 .addBeanClass(MeterFilterConstraints.class)
+                .addBeanClass(MeterRegistryCustomizerConstraint.class)
+                .addBeanClass(MeterRegistryCustomizerConstraints.class)
                 .addBeanClass(TIMED_ANNOTATION.toString())
                 .addBeanClass(TIMED_INTERCEPTOR.toString())
                 .addBeanClass(COUNTED_ANNOTATION.toString())
                 .addBeanClass(COUNTED_BINDING.toString())
                 .addBeanClass(COUNTED_INTERCEPTOR.toString())
+                .addBeanClass(METER_TAG_SUPPORT.toString())
                 .build());
 
         // @Timed is registered as an additional interceptor binding
@@ -129,9 +163,18 @@ public class MicrometerProcessor {
                 .builder("org.HdrHistogram.Histogram",
                         "org.HdrHistogram.DoubleHistogram",
                         "org.HdrHistogram.ConcurrentHistogram")
-                .constructors(true).build());
+                .build());
 
-        return UnremovableBeanBuildItem.beanTypes(METER_REGISTRY, METER_BINDER, METER_FILTER, NAMING_CONVENTION);
+        for (String beanClassName : OPERATING_SYSTEM_BEAN_CLASS_NAMES) {
+            String reason = "Accessed by io.micrometer.core.instrument.binder.system.ProcessorMetrics.ProcessorMetrics(java.lang.Iterable<io.micrometer.core.instrument.Tag>)";
+            reflectiveMethods.produce(new ReflectiveMethodBuildItem(reason, false, beanClassName, "getCpuLoad"));
+            reflectiveMethods.produce(new ReflectiveMethodBuildItem(reason, false, beanClassName, "getSystemCpuLoad"));
+            reflectiveMethods.produce(new ReflectiveMethodBuildItem(reason, false, beanClassName, "getProcessCpuLoad"));
+            reflectiveMethods.produce(new ReflectiveMethodBuildItem(reason, false, beanClassName, "getProcessCpuTime"));
+        }
+
+        return UnremovableBeanBuildItem.beanTypes(METER_REGISTRY, METER_BINDER, METER_FILTER, METER_REGISTRY_CUSTOMIZER,
+                NAMING_CONVENTION);
     }
 
     @BuildStep
@@ -159,12 +202,11 @@ public class MicrometerProcessor {
     }
 
     @BuildStep
+    @Consume(BeanContainerBuildItem.class)
     @Record(ExecutionTime.STATIC_INIT)
     RootMeterRegistryBuildItem createRootRegistry(MicrometerRecorder recorder,
             MicrometerConfig config,
-            NonApplicationRootPathBuildItem nonApplicationRootPathBuildItem,
-            BeanContainerBuildItem beanContainerBuildItem) {
-        // BeanContainerBuildItem is present to indicate we call this after Arc is initialized
+            NonApplicationRootPathBuildItem nonApplicationRootPathBuildItem) {
 
         RuntimeValue<MeterRegistry> registry = recorder.createRootRegistry(config,
                 nonApplicationRootPathBuildItem.getNonApplicationRootPath(),
@@ -173,11 +215,10 @@ public class MicrometerProcessor {
     }
 
     @BuildStep
+    @Consume(RootMeterRegistryBuildItem.class)
     @Record(ExecutionTime.STATIC_INIT)
     void registerExtensionMetrics(MicrometerRecorder recorder,
-            RootMeterRegistryBuildItem rootMeterRegistryBuildItem,
             List<MetricsFactoryConsumerBuildItem> metricsFactoryConsumerBuildItems) {
-        // RootMeterRegistryBuildItem is present to indicate we call this after the root registry has been initialized
 
         for (MetricsFactoryConsumerBuildItem item : metricsFactoryConsumerBuildItems) {
             if (item != null && item.executionTime() == ExecutionTime.STATIC_INIT) {
@@ -187,15 +228,25 @@ public class MicrometerProcessor {
     }
 
     @BuildStep
+    @Consume(RootMeterRegistryBuildItem.class)
+    @Consume(LoggingSetupBuildItem.class)
     @Record(ExecutionTime.RUNTIME_INIT)
     void configureRegistry(MicrometerRecorder recorder,
             MicrometerConfig config,
-            RootMeterRegistryBuildItem rootMeterRegistryBuildItem,
             List<MicrometerRegistryProviderBuildItem> providerClassItems,
             List<MetricsFactoryConsumerBuildItem> metricsFactoryConsumerBuildItems,
-            List<MicrometerRegistryProviderBuildItem> providerClasses,
-            ShutdownContextBuildItem shutdownContextBuildItem) {
-        // RootMeterRegistryBuildItem is present to indicate we call this after the root registry has been initialized
+            ShutdownContextBuildItem shutdownContextBuildItem,
+            BuildProducer<SystemPropertyBuildItem> systemProperty) {
+
+        // Avoid users from receiving:
+        // [io.mic.cor.ins.com.CompositeMeterRegistry] (main) A MeterFilter is being configured after a Meter has been
+        // registered to this registry...
+        // It's unavoidable because of how Quarkus startup works and users cannot do anything about it.
+        // see: https://github.com/micrometer-metrics/micrometer/issues/4920#issuecomment-2298348202
+        systemProperty.produce(
+                new SystemPropertyBuildItem(
+                        "quarkus.log.category.\"io.micrometer.core.instrument.composite.CompositeMeterRegistry\".level",
+                        "ERROR"));
 
         Set<Class<? extends MeterRegistry>> typeClasses = new HashSet<>();
         for (MicrometerRegistryProviderBuildItem item : providerClassItems) {
@@ -230,7 +281,33 @@ public class MicrometerProcessor {
             }
         }
 
-        return ReflectiveClassBuildItem.builder(classes.toArray(new String[0])).build();
+        return ReflectiveClassBuildItem.builder(classes.toArray(new String[0])).reason(getClass().getName()).build();
+    }
+
+    @BuildStep(onlyIf = IsDevelopment.class)
+    public CardPageBuildItem createCard(List<RegistryBuildItem> registries) {
+        var card = new CardPageBuildItem();
+
+        registries.stream().filter(r -> "JSON".equalsIgnoreCase(r.name())).findFirst().ifPresent(r -> {
+            card.addPage(Page.externalPageBuilder("JSON")
+                    .icon("font-awesome-solid:chart-line")
+                    .url(r.path())
+                    .isJsonContent());
+        });
+
+        registries.stream().filter(r -> "Prometheus".equalsIgnoreCase(r.name())).findFirst().ifPresent(r -> {
+            card.addPage(Page.externalPageBuilder("Prometheus")
+                    .icon("font-awesome-solid:chart-line")
+                    .url(r.path())
+                    .isJsonContent());
+            card.addPage(Page.externalPageBuilder("Prometheus (raw output)")
+                    .doNotEmbed()
+                    .icon("font-awesome-solid:up-right-from-square")
+                    .url(r.path())
+                    .mimeType("text/plain"));
+        });
+
+        return card;
     }
 
 }

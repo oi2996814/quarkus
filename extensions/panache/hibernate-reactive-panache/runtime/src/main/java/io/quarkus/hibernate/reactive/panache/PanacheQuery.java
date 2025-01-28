@@ -2,25 +2,25 @@ package io.quarkus.hibernate.reactive.panache;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
-import javax.persistence.LockModeType;
-import javax.persistence.NoResultException;
-import javax.persistence.NonUniqueResultException;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.NoResultException;
+import jakarta.persistence.NonUniqueResultException;
 
 import org.hibernate.Session;
 import org.hibernate.annotations.FilterDef;
 
+import io.quarkus.hibernate.reactive.panache.common.ProjectedFieldName;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Parameters;
+import io.quarkus.panache.common.exception.PanacheQueryException;
 import io.smallrye.common.annotation.CheckReturnValue;
-import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 
 /**
  * <p>
  * Interface representing an entity query, which abstracts the use of paging, getting the number of results, and
- * operating on {@link List} or {@link Stream}.
+ * operating on {@link List}.
  * </p>
  * <p>
  * Instances of this interface cannot mutate the query itself or its parameters: only paging information can be
@@ -35,10 +35,28 @@ public interface PanacheQuery<Entity> {
     // Builder
 
     /**
-     * Defines a projection class: the getters, and the public fields, will be used to restrict which fields should be
-     * retrieved from the database.
+     * Defines a projection class. This will transform the returned values into instances of the given type using the following
+     * mapping rules:
+     * <ul>
+     * <li>If your query already selects some specific columns (starts with <code>select distinct? a, b, c…</code>) then we
+     * transform
+     * it into a query of the form: <code>select distinct? new ProjectionClass(a, b, c)…</code>. There must be a matching
+     * constructor
+     * that accepts the selected column types, in the right order.</li>
+     * <li>If your query does not select any specific column (starts with <code>from…</code>) then we transform it into a query
+     * of the form:
+     * <code>select new ProjectionClass(a, b, c…) from…</code> where we fetch the list of selected columns from your projection
+     * class'
+     * single constructor, using its parameter names (or their {@link ProjectedFieldName} annotations), in the same order as the
+     * constructor.</li>
+     * <li>If this is already a project query of the form <code>select distinct? new…</code>, we throw a
+     * {@link PanacheQueryException}</li>
      *
-     * @return a new query with the same state as the previous one (params, page, range, lockMode, hints, ...).
+     * @param type the projected class type
+     * @return a new query with the same state as the previous one (params, page, range, lockMode, hints, ...) but a projected
+     *         result of the type
+     *         <code>type</code>
+     * @throws PanacheQueryException if this represents an already-projected query
      */
     public <T> PanacheQuery<T> project(Class<T> type);
 
@@ -232,23 +250,11 @@ public interface PanacheQuery<Entity> {
      * Returns the current page of results as a {@link List}.
      *
      * @return the current page of results as a {@link List}.
-     * @see #stream()
      * @see #page(Page)
      * @see #page()
      */
     @CheckReturnValue
     public <T extends Entity> Uni<List<T>> list();
-
-    /**
-     * Returns the current page of results as a {@link Stream}.
-     *
-     * @return the current page of results as a {@link Stream}.
-     * @see #list()
-     * @see #page(Page)
-     * @see #page()
-     */
-    @CheckReturnValue
-    public <T extends Entity> Multi<T> stream();
 
     /**
      * Returns the first result of the current page index. This ignores the current page size to fetch

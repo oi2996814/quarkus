@@ -5,8 +5,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import javax.enterprise.util.Nonbinding;
-import javax.interceptor.InterceptorBinding;
+import jakarta.enterprise.util.Nonbinding;
+import jakarta.interceptor.InterceptorBinding;
 
 /**
  * When a method annotated with {@link CacheResult} is invoked, Quarkus will use the method argument as key and use it to check
@@ -28,10 +28,13 @@ import javax.interceptor.InterceptorBinding;
  * annotations on a single method. Caching operations will always be executed in the same order: {@link CacheInvalidateAll}
  * first, then {@link CacheInvalidate} and finally {@link CacheResult}.
  * <p>
+ *
+ * @deprecated Use Infinispan Cache Extension
  */
 @InterceptorBinding
 @Target({ ElementType.TYPE, ElementType.METHOD })
 @Retention(RetentionPolicy.RUNTIME)
+@Deprecated(forRemoval = true)
 public @interface CacheResult {
 
     /**

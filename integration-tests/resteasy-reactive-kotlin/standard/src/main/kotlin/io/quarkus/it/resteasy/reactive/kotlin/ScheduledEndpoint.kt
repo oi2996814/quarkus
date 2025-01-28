@@ -2,11 +2,11 @@ package io.quarkus.it.resteasy.reactive.kotlin
 
 import io.quarkus.scheduler.Scheduled
 import io.quarkus.scheduler.ScheduledExecution
-import kotlinx.coroutines.delay
+import jakarta.ws.rs.GET
+import jakarta.ws.rs.Path
+import jakarta.ws.rs.core.Response
 import java.util.concurrent.atomic.AtomicInteger
-import javax.ws.rs.GET
-import javax.ws.rs.Path
-import javax.ws.rs.core.Response
+import kotlinx.coroutines.delay
 
 @Path("scheduled")
 class ScheduledEndpoint {
@@ -26,11 +26,7 @@ class ScheduledEndpoint {
         num2.compareAndSet(0, 1)
     }
 
-    @Path("num1")
-    @GET
-    fun num1() = Response.status(200 + num1.get()).build()
+    @Path("num1") @GET fun num1() = Response.status(200 + num1.get()).build()
 
-    @Path("num2")
-    @GET
-    fun num2() = Response.status(200 + num2.get()).build()
+    @Path("num2") @GET fun num2() = Response.status(200 + num2.get()).build()
 }
