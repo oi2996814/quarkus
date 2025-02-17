@@ -9,7 +9,7 @@ import org.jboss.logging.Logger;
 
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.VersionInfo;
-import io.quarkus.kubernetes.client.runtime.KubernetesClientUtils;
+import io.quarkus.kubernetes.client.spi.KubernetesClientBuildItem;
 
 public class KubernetesDeploy {
 
@@ -22,13 +22,13 @@ public class KubernetesDeploy {
     }
 
     /**
-     * @return {@code true} if @{code quarkus.kubernetes.deploy=true} AND the target Kubernetes API server is reachable,
+     * @return {@code true} if {@code quarkus.kubernetes.deploy=true} AND the target Kubernetes API server is reachable,
      *         {@code false} otherwise
      *
      * @throws RuntimeException if there was an error while communicating with the Kubernetes API server
      */
-    public boolean check() {
-        Result result = doCheck();
+    public boolean check(KubernetesClientBuildItem clientBuilder) {
+        Result result = doCheck(clientBuilder);
 
         if (result.getException().isPresent()) {
             throw result.getException().get();
@@ -38,14 +38,14 @@ public class KubernetesDeploy {
     }
 
     /**
-     * @return {@code true} if @{code quarkus.kubernetes.deploy=true} AND the target Kubernetes API server is reachable
+     * @return {@code true} if {@code quarkus.kubernetes.deploy=true} AND the target Kubernetes API server is reachable
      *         {@code false} otherwise or if there was an error while communicating with the Kubernetes API server
      */
-    public boolean checkSilently() {
-        return doCheck().isAllowed();
+    public boolean checkSilently(KubernetesClientBuildItem clientBuilder) {
+        return doCheck(clientBuilder).isAllowed();
     }
 
-    private Result doCheck() {
+    private Result doCheck(KubernetesClientBuildItem clientBuilder) {
         if (!KubernetesConfigUtil.isDeploymentEnabled()) {
             return Result.notConfigured();
         }
@@ -55,9 +55,8 @@ public class KubernetesDeploy {
             return Result.enabled();
         }
 
-        KubernetesClient client = KubernetesClientUtils.createClient();
-        String masterURL = client.getConfiguration().getMasterUrl();
-        try {
+        String masterURL = clientBuilder.getConfig().getMasterUrl();
+        try (KubernetesClient client = clientBuilder.buildClient()) {
             //Let's check if we can connect.
             VersionInfo version = client.getVersion();
             if (version == null) {
@@ -66,7 +65,7 @@ public class KubernetesDeploy {
                                 + masterURL + "' could not be determined. Please ensure that a valid token is being used."));
             }
 
-            log.info("Kubernetes API Server at '" + masterURL + "' successfully contacted.");
+            log.debugf("Kubernetes API Server at '" + masterURL + "' successfully contacted.");
             log.debugf("Kubernetes Version: %s.%s", version.getMajor(), version.getMinor());
             serverFound = true;
             return Result.enabled();
@@ -83,8 +82,6 @@ public class KubernetesDeploy {
                                 + masterURL + "'",
                         e));
             }
-        } finally {
-            client.close();
         }
     }
 

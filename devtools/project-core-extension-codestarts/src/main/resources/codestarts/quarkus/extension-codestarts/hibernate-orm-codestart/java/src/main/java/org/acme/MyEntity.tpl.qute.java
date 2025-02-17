@@ -1,9 +1,9 @@
 package org.acme;
 
 {#if !input.selected-extensions-ga.contains('io.quarkus:quarkus-hibernate-orm-panache')}
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
 
 /**
  * Example JPA entity.
@@ -31,10 +31,9 @@ public class MyEntity {
 
     public String field;
 }
-{/if}
-{#if input.selected-extensions-ga.contains('io.quarkus:quarkus-hibernate-orm-panache')}
+{#else}
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
-import javax.persistence.Entity;
+import jakarta.persistence.Entity;
 
 
 /**

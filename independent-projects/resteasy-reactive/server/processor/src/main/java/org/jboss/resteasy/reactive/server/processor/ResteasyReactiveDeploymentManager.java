@@ -17,8 +17,9 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.ws.rs.core.Application;
+import jakarta.ws.rs.core.Application;
 
+import org.jboss.jandex.AnnotationTransformation;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
@@ -82,6 +83,8 @@ public class ResteasyReactiveDeploymentManager {
     public static class ScanStep {
         final IndexView index;
         int inputBufferSize = 10000;
+
+        int minChunkSize = 128;
         int outputBufferSize = 8192;
         /**
          * By default, we assume a default produced media type of "text/plain"
@@ -98,6 +101,8 @@ public class ResteasyReactiveDeploymentManager {
          */
         private boolean defaultProduces;
 
+        private boolean removesTrailingSlash = true;
+
         private Map<DotName, ClassInfo> additionalResources = new HashMap<>();
         private Map<DotName, String> additionalResourcePaths = new HashMap<>();
         private Set<String> excludedClasses = new HashSet<>();
@@ -105,7 +110,7 @@ public class ResteasyReactiveDeploymentManager {
         private String applicationPath;
         private final List<MethodScanner> methodScanners = new ArrayList<>();
         private final List<FeatureScanner> featureScanners = new ArrayList<>();
-        private final List<AnnotationsTransformer> annotationsTransformers = new ArrayList<>();
+        private final List<AnnotationTransformation> annotationsTransformers = new ArrayList<>();
 
         public ScanStep(IndexView nonCalculatingIndex) {
             index = JandexUtil.createCalculatingIndex(nonCalculatingIndex);
@@ -173,8 +178,17 @@ public class ResteasyReactiveDeploymentManager {
             return this;
         }
 
+        /**
+         * @deprecated use {@link #addAnnotationTransformation(AnnotationTransformation)}
+         */
+        @Deprecated(forRemoval = true)
         public ScanStep addAnnotationsTransformer(AnnotationsTransformer annotationsTransformer) {
             this.annotationsTransformers.add(annotationsTransformer);
+            return this;
+        }
+
+        public ScanStep addAnnotationTransformation(AnnotationTransformation annotationTransformation) {
+            this.annotationsTransformers.add(annotationTransformation);
             return this;
         }
 
@@ -184,6 +198,11 @@ public class ResteasyReactiveDeploymentManager {
 
         public ScanStep setApplicationPath(String applicationPath) {
             this.applicationPath = applicationPath;
+            return this;
+        }
+
+        public ScanStep setRemovesTrailingSlash(boolean removesTrailingSlash) {
+            this.removesTrailingSlash = removesTrailingSlash;
             return this;
         }
 
@@ -208,17 +227,19 @@ public class ResteasyReactiveDeploymentManager {
                     .setIndex(index)
                     .setApplicationIndex(index)
                     .addContextTypes(contextTypes)
-                    .setAnnotationsTransformers(annotationsTransformers)
+                    .setAnnotationTransformations(annotationsTransformers)
                     .setScannedResourcePaths(resources.getScannedResourcePaths())
                     .addParameterContainerTypes(parameterContainers)
                     .setClassLevelExceptionMappers(new HashMap<>())
                     .setAdditionalReaders(readers)
                     .setAdditionalWriters(writers)
                     .setInjectableBeans(new HashMap<>())
-                    .setConfig(new ResteasyReactiveConfig(inputBufferSize, outputBufferSize, singleDefaultProduces,
-                            defaultProduces))
+                    .setConfig(
+                            new ResteasyReactiveConfig(inputBufferSize, minChunkSize, outputBufferSize, singleDefaultProduces,
+                                    defaultProduces))
                     .setHttpAnnotationToMethod(resources.getHttpAnnotationToMethod())
-                    .setApplicationScanningResult(applicationScanningResult);
+                    .setApplicationScanningResult(applicationScanningResult)
+                    .setRemovesTrailingSlash(removesTrailingSlash);
             for (MethodScanner scanner : methodScanners) {
                 builder.addMethodScanner(scanner);
             }
@@ -451,7 +472,7 @@ public class ResteasyReactiveDeploymentManager {
             String path = "/";
             if (sa.applicationScanningResult.getSelectedAppClass() != null) {
                 var pathAn = sa.applicationScanningResult.getSelectedAppClass()
-                        .classAnnotation(ResteasyReactiveDotNames.APPLICATION_PATH);
+                        .declaredAnnotation(ResteasyReactiveDotNames.APPLICATION_PATH);
                 if (pathAn != null) {
                     path = pathAn.value().asString();
                     if (!path.startsWith("/")) {

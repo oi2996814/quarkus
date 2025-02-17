@@ -3,12 +3,12 @@ package org.jboss.resteasy.reactive.client.handlers;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.StatusType;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.StatusType;
 
+import org.jboss.resteasy.reactive.RestResponse;
 import org.jboss.resteasy.reactive.client.api.WebClientApplicationException;
 import org.jboss.resteasy.reactive.client.impl.ClientRequestContextImpl;
 import org.jboss.resteasy.reactive.client.impl.ClientResponseContextImpl;
@@ -16,6 +16,7 @@ import org.jboss.resteasy.reactive.client.impl.RestClientRequestContext;
 import org.jboss.resteasy.reactive.client.spi.ClientRestHandler;
 import org.jboss.resteasy.reactive.common.core.Serialisers;
 import org.jboss.resteasy.reactive.common.jaxrs.StatusTypeImpl;
+import org.jboss.resteasy.reactive.common.util.QuarkusMultivaluedHashMap;
 
 import io.vertx.core.buffer.Buffer;
 
@@ -23,7 +24,7 @@ public class ClientSetResponseEntityRestHandler implements ClientRestHandler {
 
     @Override
     public void handle(RestClientRequestContext context) throws Exception {
-        ClientRequestContextImpl requestContext = context.getClientRequestContext();
+        ClientRequestContextImpl requestContext = context.getOrCreateClientRequestContext();
         if (context.isCheckSuccessfulFamily()) {
             StatusType effectiveResponseStatus = determineEffectiveResponseStatus(context, requestContext);
             if (Response.Status.Family.familyOf(effectiveResponseStatus.getStatusCode()) != Response.Status.Family.SUCCESSFUL) {
@@ -36,6 +37,12 @@ public class ClientSetResponseEntityRestHandler implements ClientRestHandler {
         // so we have to write it, but without filters/interceptors
         if (isAbortedWith(requestContext)) {
             propagateAbortedWithEntityToResponse(context);
+        } else {
+            StatusType effectiveResponseStatus = determineEffectiveResponseStatus(context, requestContext);
+            if ((effectiveResponseStatus.getStatusCode() == RestResponse.Status.NO_CONTENT.getStatusCode())
+                    && (requestContext != null && !requestContext.hasEntity())) {
+                context.setResponseEntityStream(null);
+            }
         }
     }
 
@@ -81,7 +88,7 @@ public class ClientSetResponseEntityRestHandler implements ClientRestHandler {
             entity = Entity.entity(untypedEntity, mediaType);
         }
         // FIXME: pass headers?
-        Buffer buffer = context.writeEntity(entity, (MultivaluedMap) Serialisers.EMPTY_MULTI_MAP,
+        Buffer buffer = context.writeEntity(entity, new QuarkusMultivaluedHashMap<>(),
                 Serialisers.NO_WRITER_INTERCEPTOR);
         return new ByteArrayInputStream(buffer.getBytes());
     }

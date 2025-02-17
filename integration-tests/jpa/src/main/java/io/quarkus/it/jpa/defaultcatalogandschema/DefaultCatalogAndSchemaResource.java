@@ -4,17 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
-import javax.transaction.Transactional;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 import org.hibernate.Session;
-import org.hibernate.type.LongType;
-import org.jboss.resteasy.annotations.jaxrs.QueryParam;
+import org.hibernate.type.StandardBasicTypes;
+import org.jboss.resteasy.reactive.RestQuery;
 
 @Path("/default-catalog-and-schema")
 @ApplicationScoped
@@ -27,7 +27,7 @@ public class DefaultCatalogAndSchemaResource {
     @Path("/test")
     @Produces(MediaType.TEXT_PLAIN)
     @Transactional
-    public String test(@QueryParam String expectedSchema) {
+    public String test(@RestQuery String expectedSchema) {
         assertThat(findUsingNativeQuery(expectedSchema, "foo")).isEmpty();
 
         EntityWithDefaultCatalogAndSchema entity = new EntityWithDefaultCatalogAndSchema();
@@ -47,7 +47,7 @@ public class DefaultCatalogAndSchemaResource {
                 .createNativeQuery(
                         "select id from \"" + schema + "\"." + EntityWithDefaultCatalogAndSchema.NAME
                                 + " where basic = :basic")
-                .addScalar("id", LongType.INSTANCE)
+                .addScalar("id", StandardBasicTypes.LONG)
                 .setParameter("basic", value)
                 .getResultList();
     }

@@ -8,8 +8,8 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Set;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.inject.Produces;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.Produces;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -27,7 +27,7 @@ public class EnumBeanTypesTest {
         InjectableBean<ExtendedBoolean> bean = Arc.container().instance(ExtendedBoolean.class).getBean();
         Set<Type> types = bean.getTypes();
 
-        assertEquals(5, types.size());
+        assertEquals(6, types.size());
         assertTrue(types.contains(Object.class));
         assertTrue(types.contains(Serializable.class));
         assertTrue(types.contains(ExtendedBoolean.class));

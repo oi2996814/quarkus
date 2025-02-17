@@ -5,8 +5,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import io.grpc.stub.AbstractStub;
 import io.quarkus.arc.Arc;
@@ -24,7 +24,7 @@ public class GrpcClientConfigProvider {
     GrpcConfiguration config;
 
     public GrpcClientConfiguration getConfiguration(String name) {
-        Map<String, GrpcClientConfiguration> clients = config.clients;
+        Map<String, GrpcClientConfiguration> clients = config.clients();
         if (clients == null) {
             return null;
         } else {
@@ -33,17 +33,17 @@ public class GrpcClientConfigProvider {
     }
 
     public GrpcServerConfiguration getServerConfiguration() {
-        return config.server;
+        return config.server();
     }
 
     AbstractStub<?> adjustCallOptions(String serviceName, AbstractStub<?> stub) {
-        GrpcClientConfiguration clientConfig = config.clients != null ? config.clients.get(serviceName) : null;
+        GrpcClientConfiguration clientConfig = config.clients() != null ? config.clients().get(serviceName) : null;
         if (clientConfig != null) {
-            if (clientConfig.compression.isPresent()) {
-                stub = stub.withCompression(clientConfig.compression.get());
+            if (clientConfig.compression().isPresent()) {
+                stub = stub.withCompression(clientConfig.compression().get());
             }
-            if (clientConfig.deadline.isPresent()) {
-                Duration deadline = clientConfig.deadline.get();
+            if (clientConfig.deadline().isPresent()) {
+                Duration deadline = clientConfig.deadline().get();
                 stub = stub.withDeadlineAfter(deadline.toMillis(), TimeUnit.MILLISECONDS);
             }
         }

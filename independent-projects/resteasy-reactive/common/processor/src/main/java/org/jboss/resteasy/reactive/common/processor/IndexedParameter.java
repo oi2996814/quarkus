@@ -10,13 +10,16 @@ import org.jboss.jandex.Type;
 import org.jboss.resteasy.reactive.common.model.ParameterType;
 
 public class IndexedParameter<T extends IndexedParameter<T>> {
+    private static final Object[] NO_ERROR_LOCATION_PARAMETERS = new Object[0];
+
     protected ClassInfo currentClassInfo;
     protected ClassInfo actualEndpointInfo;
     protected Map<String, String> existingConverters;
     protected AdditionalReaders additionalReaders;
     protected Map<DotName, AnnotationInstance> anns;
     protected Type paramType;
-    protected String errorLocation;
+    protected String rawErrorLocation;
+    protected Object[] errorLocationParameters;
     protected boolean hasRuntimeConverters;
     protected Set<String> pathParameters;
     protected String sourceName;
@@ -29,6 +32,7 @@ public class IndexedParameter<T extends IndexedParameter<T>> {
     protected String elementType;
     protected boolean single;
     protected boolean optional;
+    protected String separator;
 
     public boolean isObtainedAsCollection() {
         return !single
@@ -93,11 +97,20 @@ public class IndexedParameter<T extends IndexedParameter<T>> {
     }
 
     public String getErrorLocation() {
-        return errorLocation;
+        return String.format(rawErrorLocation, errorLocationParameters);
     }
 
-    public T setErrorLocation(String errorLocation) {
-        this.errorLocation = errorLocation;
+    String getRawErrorLocation() {
+        return rawErrorLocation;
+    }
+
+    Object[] getErrorLocationParameters() {
+        return errorLocationParameters;
+    }
+
+    public T setErrorLocation(String rawErrorLocation, Object[] parameters) {
+        this.rawErrorLocation = rawErrorLocation;
+        this.errorLocationParameters = parameters;
         return (T) this;
     }
 
@@ -206,6 +219,15 @@ public class IndexedParameter<T extends IndexedParameter<T>> {
 
     public T setOptional(boolean optional) {
         this.optional = optional;
+        return (T) this;
+    }
+
+    public String getSeparator() {
+        return separator;
+    }
+
+    public T setSeparator(String separator) {
+        this.separator = separator;
         return (T) this;
     }
 }

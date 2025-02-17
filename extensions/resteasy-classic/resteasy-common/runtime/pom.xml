@@ -10,12 +10,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>quarkus-resteasy-common</artifactId>
-    <name>Quarkus - RESTEasy - Common - Runtime</name>
-    <description>Components common to the RESTEasy server and the REST Client</description>
+    <name>Quarkus - RESTEasy Classic - Common - Runtime</name>
+    <description>Components common to the RESTEasy Classic server and REST Client</description>
     <dependencies>
         <dependency>
-            <groupId>org.graalvm.nativeimage</groupId>
-            <artifactId>svm</artifactId>
+            <groupId>org.graalvm.sdk</groupId>
+            <artifactId>nativeimage</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -41,8 +41,8 @@
             <artifactId>quarkus-arc</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.sun.activation</groupId>
-            <artifactId>jakarta.activation</artifactId>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>angus-activation</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -78,6 +78,10 @@
             <optional>true</optional>
         </dependency>
         <dependency>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.jboss.resteasy</groupId>
             <artifactId>resteasy-json-binding-provider</artifactId>
             <optional>true</optional>
@@ -88,6 +92,10 @@
                     <artifactId>jakarta.json</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.resteasy.microprofile</groupId>
+            <artifactId>microprofile-config</artifactId>
         </dependency>
     </dependencies>
 
@@ -101,48 +109,28 @@
                         <excludedArtifact>javax.ws.rs:javax.ws.rs-api</excludedArtifact>
                         <excludedArtifact>javax.activation:javax.activation-api</excludedArtifact>
                         <excludedArtifact>javax.activation:activation</excludedArtifact>
-                        <excludedArtifact>jakarta.ws.rs:jakarta.ws.rs-api</excludedArtifact>
-                        <excludedArtifact>org.jboss.resteasy:resteasy-context-propagation</excludedArtifact>
+                        <excludedArtifact>org.jboss.spec.javax.ws.rs:jboss-jaxrs-api_3.0_spec</excludedArtifact>
+                        <excludedArtifact>org.jboss.spec.javax.ws.rs:jboss-jaxrs-api_2.1_spec</excludedArtifact>
                     </excludedArtifacts>
                 </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>io.quarkus</groupId>
-                            <artifactId>quarkus-extension-processor</artifactId>
-                            <version>${project.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openrewrite.maven</groupId>
-                        <artifactId>rewrite-maven-plugin</artifactId>
-                        <configuration>
-                            <activeRecipes>
-                                <recipe>io.quarkus.resteasy-common</recipe>
-                                <recipe>io.quarkus.jakarta-angus-activation-switch</recipe>
-                            </activeRecipes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

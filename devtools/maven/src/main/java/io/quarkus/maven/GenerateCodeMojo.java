@@ -1,5 +1,6 @@
 package io.quarkus.maven;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.List;
@@ -16,6 +17,8 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import io.quarkus.bootstrap.app.CuratedApplication;
 import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.bootstrap.model.ApplicationModel;
+import io.quarkus.bootstrap.util.BootstrapUtils;
+import io.quarkus.maven.dependency.ArtifactCoords;
 import io.quarkus.paths.PathCollection;
 import io.quarkus.paths.PathList;
 import io.quarkus.runtime.LaunchMode;
@@ -30,14 +33,17 @@ public class GenerateCodeMojo extends QuarkusBootstrapMojo {
      * Skip the execution of this mojo
      */
     @Parameter(defaultValue = "false", property = "quarkus.generate-code.skip", alias = "quarkus.prepare.skip")
-    private boolean skipSourceGeneration = false;
+    boolean skipSourceGeneration = false;
 
+    /**
+     * Application launch mode for which to generate the source code.
+     */
     @Parameter(defaultValue = "NORMAL", property = "launchMode")
     String mode;
 
     @Override
     protected boolean beforeExecute() throws MojoExecutionException, MojoFailureException {
-        if (mavenProject().getPackaging().equals("pom")) {
+        if (mavenProject().getPackaging().equals(ArtifactCoords.TYPE_POM)) {
             getLog().info("Type of the artifact is POM, skipping build goal");
             return false;
         }
@@ -54,11 +60,18 @@ public class GenerateCodeMojo extends QuarkusBootstrapMojo {
                 path -> mavenProject().addCompileSourceRoot(path.toString()), false);
     }
 
-    void generateCode(PathCollection sourceParents,
-            Consumer<Path> sourceRegistrar,
-            boolean test) throws MojoFailureException, MojoExecutionException {
+    void generateCode(PathCollection sourceParents, Consumer<Path> sourceRegistrar, boolean test)
+            throws MojoExecutionException {
 
-        final LaunchMode launchMode = test ? LaunchMode.TEST : LaunchMode.valueOf(mode);
+        final LaunchMode launchMode;
+        if (test) {
+            launchMode = LaunchMode.TEST;
+        } else if (mavenSession().getGoals().contains("quarkus:dev")) {
+            // if the command was 'compile quarkus:dev' then we'll end up with prod launch mode but we want dev
+            launchMode = LaunchMode.DEVELOPMENT;
+        } else {
+            launchMode = LaunchMode.valueOf(mode);
+        }
         if (getLog().isDebugEnabled()) {
             getLog().debug("Bootstrapping Quarkus application in mode " + launchMode);
         }
@@ -78,21 +91,39 @@ public class GenerateCodeMojo extends QuarkusBootstrapMojo {
                     boolean.class);
             initAndRun.invoke(null, deploymentClassLoader, sourceParents,
                     generatedSourcesDir(test), buildDir().toPath(),
-                    sourceRegistrar, curatedApplication.getApplicationModel(), mavenProject().getProperties(),
+                    sourceRegistrar, curatedApplication.getApplicationModel(), getBuildSystemProperties(false),
                     launchMode.name(),
                     test);
         } catch (Exception any) {
             throw new MojoExecutionException("Quarkus code generation phase has failed", any);
         } finally {
-            // in case of test mode, we can't share the bootstrapped app with the testing plugins, so we are closing it right away
-            if (test && curatedApplication != null) {
-                curatedApplication.close();
-            }
             Thread.currentThread().setContextClassLoader(originalTccl);
             if (deploymentClassLoader != null) {
                 deploymentClassLoader.close();
             }
+            // In case of the test mode, we can't share the application model with the test plugins, so we are closing it right away,
+            // but we are serializing the application model so the test plugins can deserialize it from disk instead of re-initializing
+            // the resolver and re-resolving it as part of the test bootstrap
+            if (test && curatedApplication != null) {
+                var appModel = curatedApplication.getApplicationModel();
+                closeApplication(LaunchMode.TEST);
+                if (isSerializeTestModel()) {
+                    final int workspaceId = getWorkspaceId();
+                    if (workspaceId != 0) {
+                        try {
+                            BootstrapUtils.writeAppModelWithWorkspaceId(appModel, workspaceId, BootstrapUtils
+                                    .getSerializedTestAppModelPath(Path.of(mavenProject().getBuild().getDirectory())));
+                        } catch (IOException e) {
+                            getLog().warn("Failed to serialize application model", e);
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    protected boolean isSerializeTestModel() {
+        return false;
     }
 
     protected PathCollection getParentDirs(List<String> sourceDirs) {

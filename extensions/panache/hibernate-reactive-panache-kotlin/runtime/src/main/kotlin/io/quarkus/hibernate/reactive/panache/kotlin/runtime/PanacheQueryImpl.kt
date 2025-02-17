@@ -4,16 +4,21 @@ import io.quarkus.hibernate.reactive.panache.common.runtime.CommonPanacheQueryIm
 import io.quarkus.hibernate.reactive.panache.kotlin.PanacheQuery
 import io.quarkus.panache.common.Page
 import io.quarkus.panache.common.Parameters
-import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
+import jakarta.persistence.LockModeType
 import org.hibernate.reactive.mutiny.Mutiny
-import javax.persistence.LockModeType
 
 class PanacheQueryImpl<Entity : Any> : PanacheQuery<Entity> {
     private var delegate: CommonPanacheQueryImpl<Entity>
 
-    internal constructor(em: Uni<Mutiny.Session>, query: String?, orderBy: String?, paramsArrayOrMap: Any?) {
-        delegate = CommonPanacheQueryImpl(em, query, orderBy, paramsArrayOrMap)
+    internal constructor(
+        em: Uni<Mutiny.Session>,
+        query: String?,
+        originalQuery: String?,
+        orderBy: String?,
+        paramsArrayOrMap: Any?
+    ) {
+        delegate = CommonPanacheQueryImpl(em, query, originalQuery, orderBy, paramsArrayOrMap)
     }
 
     private constructor(delegate: CommonPanacheQueryImpl<Entity>) {
@@ -104,8 +109,6 @@ class PanacheQueryImpl<Entity : Any> : PanacheQuery<Entity> {
     override fun count() = delegate.count()
 
     override fun list(): Uni<List<Entity>> = delegate.list()
-
-    override fun stream(): Multi<Entity> = delegate.stream()
 
     override fun firstResult(): Uni<Entity?> = delegate.firstResult()
 

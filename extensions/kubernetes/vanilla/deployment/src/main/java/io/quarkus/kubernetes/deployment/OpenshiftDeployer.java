@@ -18,14 +18,15 @@ public class OpenshiftDeployer {
     @BuildStep
     public void checkEnvironment(Optional<SelectedKubernetesDeploymentTargetBuildItem> selectedDeploymentTarget,
             List<GeneratedKubernetesResourceBuildItem> resources,
-            KubernetesClientBuildItem client, BuildProducer<KubernetesDeploymentClusterBuildItem> deploymentCluster) {
+            KubernetesClientBuildItem kubernetesClientBuilder,
+            BuildProducer<KubernetesDeploymentClusterBuildItem> deploymentCluster) {
         selectedDeploymentTarget.ifPresent(target -> {
-            if (!KubernetesDeploy.INSTANCE.checkSilently()) {
+            if (!KubernetesDeploy.INSTANCE.checkSilently(kubernetesClientBuilder)) {
                 return;
             }
             if (target.getEntry().getName().equals(OPENSHIFT)) {
-                try (var openShiftClient = client.getClient().adapt(OpenShiftClient.class)) {
-                    if (openShiftClient.isSupported()) {
+                try (var openShiftClient = kubernetesClientBuilder.buildClient().adapt(OpenShiftClient.class)) {
+                    if (openShiftClient.hasApiGroup("openshift.io", false)) {
                         deploymentCluster.produce(new KubernetesDeploymentClusterBuildItem(OPENSHIFT));
                     } else {
                         throw new IllegalStateException(

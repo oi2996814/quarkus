@@ -2,21 +2,21 @@ package io.quarkus.it.reactive.mysql.client;
 
 import java.util.concurrent.CompletionStage;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.mutiny.mysqlclient.MySQLPool;
+import io.vertx.mutiny.sqlclient.Pool;
 import io.vertx.mutiny.sqlclient.Row;
 
 @Path("/fruits")
 public class FruitResource {
 
     @Inject
-    MySQLPool client;
+    Pool client;
 
     @PostConstruct
     void setupDb() {

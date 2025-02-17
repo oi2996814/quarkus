@@ -1,15 +1,16 @@
 package io.quarkus.opentelemetry.runtime.tracing.intrumentation.vertx;
 
-import static io.quarkus.opentelemetry.runtime.config.OpenTelemetryConfig.INSTRUMENTATION_NAME;
+import static io.quarkus.opentelemetry.runtime.config.build.OTelBuildConfig.INSTRUMENTATION_NAME;
 
 import java.util.Map;
 import java.util.function.BiConsumer;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientSpanNameExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.db.DbClientSpanNameExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.db.SqlClientAttributesExtractor;
+import io.quarkus.opentelemetry.runtime.config.runtime.OTelRuntimeConfig;
 import io.vertx.core.Context;
 import io.vertx.core.spi.tracing.SpanKind;
 import io.vertx.core.spi.tracing.TagExtractor;
@@ -19,12 +20,14 @@ public class SqlClientInstrumenterVertxTracer implements
         InstrumenterVertxTracer<SqlClientInstrumenterVertxTracer.QueryTrace, SqlClientInstrumenterVertxTracer.QueryTrace> {
     private final Instrumenter<QueryTrace, QueryTrace> sqlClientInstrumenter;
 
-    public SqlClientInstrumenterVertxTracer(final OpenTelemetry openTelemetry) {
+    public SqlClientInstrumenterVertxTracer(final OpenTelemetry openTelemetry, final OTelRuntimeConfig runtimeConfig) {
         SqlClientAttributesGetter sqlClientAttributesGetter = new SqlClientAttributesGetter();
 
         InstrumenterBuilder<QueryTrace, QueryTrace> serverBuilder = Instrumenter.builder(
                 openTelemetry,
                 INSTRUMENTATION_NAME, DbClientSpanNameExtractor.create(sqlClientAttributesGetter));
+
+        serverBuilder.setEnabled(!runtimeConfig.sdkDisabled());
 
         this.sqlClientInstrumenter = serverBuilder
                 .addAttributesExtractor(SqlClientAttributesExtractor.create(sqlClientAttributesGetter))
@@ -38,7 +41,7 @@ public class SqlClientInstrumenterVertxTracer implements
             return true;
         }
 
-        return tagExtractor.extract(request).containsKey("db.statement");
+        return "sql".equals(tagExtractor.extract(request).get("db.type"));
     }
 
     @Override
@@ -87,7 +90,7 @@ public class SqlClientInstrumenterVertxTracer implements
         return sqlClientInstrumenter;
     }
 
-    // From io.vertx.sqlclient.impl.tracing.QueryTracer
+    // From io.vertx.sqlclient.impl.tracing.QueryReporter
     static class QueryTrace {
         private final Map<String, String> attributes;
 
@@ -117,30 +120,30 @@ public class SqlClientInstrumenterVertxTracer implements
     }
 
     static class SqlClientAttributesGetter implements
-            io.opentelemetry.instrumentation.api.instrumenter.db.SqlClientAttributesGetter<QueryTrace> {
+            io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter<QueryTrace> {
 
         @Override
-        public String rawStatement(final QueryTrace queryTrace) {
+        public String getRawStatement(final QueryTrace queryTrace) {
             return queryTrace.rawStatement();
         }
 
         @Override
-        public String system(final QueryTrace queryTrace) {
+        public String getSystem(final QueryTrace queryTrace) {
             return queryTrace.system();
         }
 
         @Override
-        public String user(final QueryTrace queryTrace) {
+        public String getUser(final QueryTrace queryTrace) {
             return queryTrace.user();
         }
 
         @Override
-        public String name(final QueryTrace queryTrace) {
+        public String getName(final QueryTrace queryTrace) {
             return null;
         }
 
         @Override
-        public String connectionString(final QueryTrace queryTrace) {
+        public String getConnectionString(final QueryTrace queryTrace) {
             return queryTrace.connectionString();
         }
     }

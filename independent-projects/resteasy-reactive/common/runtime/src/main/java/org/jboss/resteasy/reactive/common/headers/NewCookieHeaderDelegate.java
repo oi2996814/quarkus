@@ -6,8 +6,8 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.ws.rs.core.NewCookie;
-import javax.ws.rs.ext.RuntimeDelegate;
+import jakarta.ws.rs.core.NewCookie;
+import jakarta.ws.rs.ext.RuntimeDelegate;
 
 import org.jboss.resteasy.reactive.common.util.DateUtil;
 import org.jboss.resteasy.reactive.common.util.OrderedParameterParser;
@@ -32,6 +32,7 @@ public class NewCookieHeaderDelegate implements RuntimeDelegate.HeaderDelegate {
         boolean secure = false;
         int version = NewCookie.DEFAULT_VERSION;
         boolean httpOnly = false;
+        NewCookie.SameSite sameSite = null;
         Date expiry = null;
 
         OrderedParameterParser parser = new OrderedParameterParser();
@@ -59,6 +60,8 @@ public class NewCookieHeaderDelegate implements RuntimeDelegate.HeaderDelegate {
                 version = Integer.parseInt(value);
             } else if (name.equalsIgnoreCase("HttpOnly")) {
                 httpOnly = true;
+            } else if (name.equalsIgnoreCase("SameSite")) {
+                sameSite = NewCookie.SameSite.valueOf(value.toUpperCase());
             } else if (name.equalsIgnoreCase("Expires")) {
                 try {
                     expiry = new SimpleDateFormat(OLD_COOKIE_PATTERN, Locale.US).parse(value);
@@ -71,7 +74,18 @@ public class NewCookieHeaderDelegate implements RuntimeDelegate.HeaderDelegate {
             cookieValue = "";
         }
 
-        return new NewCookie(cookieName, cookieValue, path, domain, version, comment, maxAge, expiry, secure, httpOnly);
+        return new NewCookie.Builder(cookieName)
+                .value(cookieValue)
+                .path(path)
+                .domain(domain)
+                .version(version)
+                .comment(comment)
+                .maxAge(maxAge)
+                .expiry(expiry)
+                .secure(secure)
+                .httpOnly(httpOnly)
+                .sameSite(sameSite)
+                .build();
 
     }
 
@@ -124,6 +138,23 @@ public class NewCookieHeaderDelegate implements RuntimeDelegate.HeaderDelegate {
             b.append(";Secure");
         if (cookie.isHttpOnly())
             b.append(";HttpOnly");
+        if (cookie.getSameSite() != null) {
+            b.append(";SameSite=");
+            appendCorrectCase(b, cookie.getSameSite());
+        }
         return b.toString();
     }
+
+    private static void appendCorrectCase(final StringBuilder sb, final Enum<?> e) {
+        boolean first = true;
+        for (char c : e.name().toCharArray()) {
+            if (first) {
+                sb.append(c);
+                first = false;
+            } else {
+                sb.append(Character.toLowerCase(c));
+            }
+        }
+    }
+
 }

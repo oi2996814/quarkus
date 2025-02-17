@@ -4,12 +4,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
-import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 
 import io.dekorate.kubernetes.decorator.Decorator;
@@ -19,6 +15,7 @@ import io.fabric8.kubernetes.api.model.ObjectReference;
 import io.fabric8.openshift.api.model.ImageStreamTag;
 import io.fabric8.openshift.api.model.SourceBuildStrategyFluent;
 import io.fabric8.openshift.client.OpenShiftClient;
+import io.quarkus.kubernetes.spi.DeployStrategy;
 
 /**
  * This class is copied from Dekorate, with the difference that the {@code waitForImageStreamTags} method
@@ -27,6 +24,11 @@ import io.fabric8.openshift.client.OpenShiftClient;
  * TODO: Update dekorate to take the client as an argument and then remove this class
  */
 public class OpenshiftUtils {
+
+    private static final String OPENSHIFT_NAMESPACE = "quarkus.openshift.namespace";
+    private static final String KUBERNETES_NAMESPACE = "quarkus.kubernetes.namespace";
+    private static final String OPENSHIFT_DEPLOY_STRATEGY = "quarkus.openshift.deploy-strategy";
+    private static final String KUBERNETES_DEPLOY_STRATEGY = "quarkus.kubernetes.deploy-strategy";
 
     /**
      * Wait for the references ImageStreamTags to become available.
@@ -81,65 +83,19 @@ public class OpenshiftUtils {
     }
 
     /**
-     * Merges {@link OpenshiftConfig} with {@link S2iConfig} prioritizing in the former.
-     *
-     * @param openshiftConfig the Openshift config
-     * @param s2iConfig the s2i config
-     * @return an instance of {@link OpenshiftConfig} with the merged configuration.
+     * @return the openshift namespace set in the OpenShift extension.
      */
-    public static OpenshiftConfig mergeConfig(OpenshiftConfig openshiftConfig, S2iConfig s2iConfig) {
-        OpenshiftConfig result = openshiftConfig != null ? openshiftConfig : new OpenshiftConfig();
-        if (s2iConfig == null) {
-            return result;
-        }
+    public static Optional<String> getNamespace() {
+        return ConfigProvider.getConfig().getOptionalValue(OPENSHIFT_NAMESPACE, String.class)
+                .or(() -> ConfigProvider.getConfig().getOptionalValue(KUBERNETES_NAMESPACE, String.class));
+    }
 
-        Config config = ConfigProvider.getConfig();
-        Set<String> properties = StreamSupport.stream(config.getPropertyNames().spliterator(), false)
-                .filter(s -> s.startsWith("quarkus.s2i.") || s.startsWith("quarkus.openshift."))
-                .collect(Collectors.toSet());
-
-        boolean hasS2iBaseJvmImage = properties.contains("quarkus.s2i.base-jvm-image");
-        boolean hasS2iBaseNativeImage = properties.contains("quarkus.s2i.base-native-image");
-        boolean hasS2iJvmArguments = properties.contains("quarkus.s2i.jvm-arguments");
-        boolean hasS2iNativeArguments = properties.contains("quarkus.s2i.native-arguments");
-        boolean hasS2iJarDirectory = properties.contains("quarkus.s2i.jar-directory");
-        boolean hasS2iJarFileName = properties.contains("quarkus.s2i.jar-file-name");
-        boolean hasS2iNativeBinaryDirectory = properties.contains("quarkus.s2i.native-binary-directory");
-        boolean hasS2iNativeBinaryFileName = properties.contains("quarkus.s2i.native-binary-file-name");
-        boolean hasS2iBuildTimeout = properties.contains("quarkus.s2i.native-binary-file-name");
-
-        boolean hasOpenshiftBaseJvmImage = properties.contains("quarkus.openshift.base-jvm-image");
-        boolean hasOpenshiftBaseNativeImage = properties.contains("quarkus.openshift.base-native-image");
-        boolean hasOpenshiftJvmArguments = properties.contains("quarkus.openshift.jvm-arguments");
-        boolean hasOpenshiftNativeArguments = properties.contains("quarkus.openshift.native-arguments");
-        boolean hasOpenshiftJarDirectory = properties.contains("quarkus.openshift.jar-directory");
-        boolean hasOpenshiftJarFileName = properties.contains("quarkus.openshift.jar-file-name");
-        boolean hasOpenshiftNativeBinaryDirectory = properties.contains("quarkus.openshift.native-binary-directory");
-        boolean hasOpenshiftNativeBinaryFileName = properties.contains("quarkus.openshift.native-binary-file-name");
-        boolean hasOpenshiftBuildTimeout = properties.contains("quarkus.openshift.native-binary-file-name");
-
-        result.baseJvmImage = hasS2iBaseJvmImage && !hasOpenshiftBaseJvmImage ? s2iConfig.baseJvmImage
-                : openshiftConfig.baseJvmImage;
-        result.baseNativeImage = hasS2iBaseNativeImage && !hasOpenshiftBaseNativeImage ? s2iConfig.baseNativeImage
-                : openshiftConfig.baseNativeImage;
-        result.jvmArguments = hasS2iJvmArguments && !hasOpenshiftJvmArguments ? s2iConfig.jvmArguments
-                : openshiftConfig.jvmArguments;
-        result.nativeArguments = hasS2iNativeArguments && !hasOpenshiftNativeArguments ? s2iConfig.nativeArguments
-                : openshiftConfig.nativeArguments;
-        result.jarDirectory = hasS2iJarDirectory && !hasOpenshiftJarDirectory ? Optional.of(s2iConfig.jarDirectory)
-                : openshiftConfig.jarDirectory;
-        result.jarFileName = hasS2iJarFileName && !hasOpenshiftJarFileName ? s2iConfig.jarFileName
-                : openshiftConfig.jarFileName;
-        result.nativeBinaryDirectory = hasS2iNativeBinaryDirectory && !hasOpenshiftNativeBinaryDirectory
-                ? Optional.of(s2iConfig.nativeBinaryDirectory)
-                : openshiftConfig.nativeBinaryDirectory;
-        result.nativeBinaryFileName = hasS2iNativeBinaryFileName && !hasOpenshiftNativeBinaryFileName
-                ? s2iConfig.nativeBinaryFileName
-                : openshiftConfig.nativeBinaryFileName;
-        result.buildTimeout = hasS2iBuildTimeout && !hasOpenshiftBuildTimeout ? s2iConfig.buildTimeout
-                : openshiftConfig.buildTimeout;
-        result.buildStrategy = openshiftConfig.buildStrategy;
-
-        return result;
+    /**
+     * @return the openshift deploy strategy set in the OpenShift/Kubernetes extensions.
+     */
+    public static DeployStrategy getDeployStrategy() {
+        return ConfigProvider.getConfig().getOptionalValue(OPENSHIFT_DEPLOY_STRATEGY, DeployStrategy.class)
+                .or(() -> ConfigProvider.getConfig().getOptionalValue(KUBERNETES_DEPLOY_STRATEGY, DeployStrategy.class))
+                .orElse(DeployStrategy.CreateOrUpdate);
     }
 }

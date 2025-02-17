@@ -1,11 +1,11 @@
 package io.quarkus.vertx.http.devmode;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
-import io.quarkus.vertx.http.runtime.HttpBuildTimeConfig;
+import io.quarkus.vertx.http.runtime.VertxHttpBuildTimeConfig;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.client.HttpRequest;
 import io.vertx.ext.web.client.WebClient;
@@ -15,7 +15,7 @@ import io.vertx.ext.web.client.WebClient;
 public class LiveReloadEndpoint {
 
     @Inject
-    HttpBuildTimeConfig httpConfig;
+    VertxHttpBuildTimeConfig httpBuildTimeConfig;
 
     void addConfigRoute(@Observes Router router) {
         router.route("/test")

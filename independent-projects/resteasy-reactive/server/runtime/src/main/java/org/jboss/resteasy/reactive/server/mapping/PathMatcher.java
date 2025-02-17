@@ -15,6 +15,7 @@ import java.util.TreeSet;
  *
  * @author Stuart Douglas
  */
+@SuppressWarnings("ForLoopReplaceableByForEach")
 class PathMatcher<T> implements Dumpable {
 
     private final T defaultHandler;
@@ -50,6 +51,10 @@ class PathMatcher<T> implements Dumpable {
                 }
             }
         }
+        return defaultMatch(path);
+    }
+
+    PathMatch<T> defaultMatch(String path) {
         return new PathMatch<>("/", path, defaultHandler);
     }
 

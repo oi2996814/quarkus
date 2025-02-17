@@ -1,6 +1,6 @@
 package io.quarkus.opentelemetry.deployment.exporter.otlp;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -14,8 +14,9 @@ public class OtlpExporterBadEndpointTest {
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .withEmptyApplication()
-            .overrideConfigKey("quarkus.opentelemetry.tracer.exporter.otlp.endpoint", "httz://nada:zero")
-            .setExpectedException(IllegalStateException.class);
+            .overrideConfigKey("quarkus.otel.traces.exporter", "cdi")
+            .overrideConfigKey("quarkus.otel.exporter.otlp.endpoint", "httz://nada:zero")
+            .setExpectedException(IllegalArgumentException.class);
 
     @Inject
     OpenTelemetry openTelemetry;

@@ -4,6 +4,7 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -11,31 +12,32 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import javax.enterprise.event.Observes;
-import javax.inject.Inject;
-import javax.interceptor.InterceptorBinding;
-import javax.persistence.EntityManager;
-import javax.transaction.Transactional;
-import javax.validation.ConstraintViolation;
-import javax.validation.ConstraintViolationException;
-import javax.validation.Valid;
-import javax.validation.Validator;
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Digits;
-import javax.validation.constraints.Email;
-import javax.validation.constraints.Pattern;
-import javax.validation.groups.ConvertGroup;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
+import jakarta.interceptor.InterceptorBinding;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
+import jakarta.validation.Validator;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.groups.ConvertGroup;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import org.hibernate.validator.constraints.Length;
 
@@ -43,12 +45,14 @@ import io.quarkus.it.hibernate.validator.custom.MyOtherBean;
 import io.quarkus.it.hibernate.validator.groups.MyBeanWithGroups;
 import io.quarkus.it.hibernate.validator.groups.ValidationGroups;
 import io.quarkus.it.hibernate.validator.injection.InjectedConstraintValidatorConstraint;
+import io.quarkus.it.hibernate.validator.injection.InjectedRuntimeConstraintValidatorConstraint;
 import io.quarkus.it.hibernate.validator.injection.MyService;
 import io.quarkus.it.hibernate.validator.orm.TestEntity;
 import io.quarkus.runtime.StartupEvent;
 
 @Path("/hibernate-validator/test")
 public class HibernateValidatorTestResource
+        extends HibernateValidatorTestResourceSuperclass
         implements HibernateValidatorTestResourceGenericInterface<Integer>, HibernateValidatorTestResourceInterface {
 
     @Inject
@@ -165,6 +169,13 @@ public class HibernateValidatorTestResource
         return id;
     }
 
+    // all JAX-RS annotations are defined in the superclass
+    @Override
+    @SomeInterceptorBindingAnnotation
+    public String testRestEndPointInterfaceValidationWithAnnotationOnOverriddenMethod(String id) {
+        return id;
+    }
+
     @GET
     @Path("/rest-end-point-generic-method-validation/{id}")
     @Produces(MediaType.TEXT_PLAIN)
@@ -188,6 +199,12 @@ public class HibernateValidatorTestResource
         result.append(formatViolations(validator.validate(new BeanWithInjectedConstraintValidatorConstraint(MyService.VALID))));
 
         result.append(formatViolations(validator.validate(new BeanWithInjectedConstraintValidatorConstraint("Invalid value"))));
+
+        result.append(formatViolations(
+                validator.validate(new BeanWithInjectedRuntimeConstraintValidatorConstraint("any text is valid"))));
+
+        result.append(formatViolations(
+                validator.validate(new BeanWithInjectedRuntimeConstraintValidatorConstraint("numbers 12345 don't work"))));
 
         return result.build();
     }
@@ -313,6 +330,17 @@ public class HibernateValidatorTestResource
         return result;
     }
 
+    @GET
+    @Path("/rest-end-point-clock-based-constraints")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testClockBasedConstraints() {
+        ResultBuilder result = new ResultBuilder();
+
+        result.append(formatViolations(validator.validate(new Task())));
+
+        return result.build();
+    }
+
     private String formatViolations(Set<? extends ConstraintViolation<?>> violations) {
         if (violations.isEmpty()) {
             return "passed";
@@ -411,6 +439,20 @@ public class HibernateValidatorTestResource
         }
     }
 
+    public static class BeanWithInjectedRuntimeConstraintValidatorConstraint {
+
+        @InjectedRuntimeConstraintValidatorConstraint
+        private String value;
+
+        public BeanWithInjectedRuntimeConstraintValidatorConstraint(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+    }
+
     @Target(ElementType.METHOD)
     @Retention(RetentionPolicy.RUNTIME)
     @InterceptorBinding
@@ -438,5 +480,10 @@ public class HibernateValidatorTestResource
 
         @SuppressWarnings("unused")
         private String property;
+    }
+
+    public static class Task {
+        @PastOrPresent
+        public LocalDateTime created = LocalDateTime.now();
     }
 }

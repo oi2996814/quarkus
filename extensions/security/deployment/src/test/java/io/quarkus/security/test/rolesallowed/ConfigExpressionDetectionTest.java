@@ -1,11 +1,13 @@
 package io.quarkus.security.test.rolesallowed;
 
+import static io.quarkus.commons.classloading.ClassLoaderHelper.fromClassNameToResourceName;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.annotation.security.RolesAllowed;
+import jakarta.annotation.security.RolesAllowed;
 
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.Indexer;
@@ -24,8 +26,9 @@ public class ConfigExpressionDetectionTest {
         // point here is to verify expected values gathered from @RolesAllowed annotation are detected correctly
         var indexer = new Indexer();
         for (Class<?> aClass : new Class<?>[] { ConfigExpressionDetectionTest.class, ValidValues.class }) {
+            final String resourceName = fromClassNameToResourceName(aClass.getName());
             try (InputStream stream = ConfigExpressionDetectionTest.class.getClassLoader()
-                    .getResourceAsStream(aClass.getName().replace('.', '/') + ".class")) {
+                    .getResourceAsStream(resourceName)) {
                 assert stream != null;
                 indexer.index(stream);
             } catch (IOException e) {

@@ -2,9 +2,9 @@ package ilove.quark.us;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.QueryParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
 import java.util.List;
 import java.util.Set;
 
@@ -17,7 +17,7 @@ import java.util.Set;
  *     MyRemoteService myRemoteService;
  *
  *     public void doSomething() {
- *         Set<MyRemoteService.Extension> restClientExtensions = myRemoteService.getExtensionsById("io.quarkus:quarkus-rest-client");
+ *         Set<MyRemoteService.Extension> restClientExtensions = myRemoteService.getExtensionsById("io.quarkus:quarkus-hibernate-validator");
  *     }
  * }
  */

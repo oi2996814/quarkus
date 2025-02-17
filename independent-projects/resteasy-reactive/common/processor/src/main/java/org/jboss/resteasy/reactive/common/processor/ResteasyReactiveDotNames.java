@@ -4,12 +4,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
+import java.time.Year;
+import java.time.YearMonth;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Collection;
@@ -21,62 +24,64 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow.Publisher;
 
-import javax.annotation.Priority;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.RequestScoped;
-import javax.enterprise.inject.Typed;
-import javax.enterprise.inject.Vetoed;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.ws.rs.ApplicationPath;
-import javax.ws.rs.BeanParam;
-import javax.ws.rs.ConstrainedTo;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.CookieParam;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.Encoded;
-import javax.ws.rs.FormParam;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.MatrixParam;
-import javax.ws.rs.NameBinding;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.client.InvocationCallback;
-import javax.ws.rs.container.ContainerRequestContext;
-import javax.ws.rs.container.ContainerRequestFilter;
-import javax.ws.rs.container.ContainerResponseContext;
-import javax.ws.rs.container.ContainerResponseFilter;
-import javax.ws.rs.container.DynamicFeature;
-import javax.ws.rs.container.PreMatching;
-import javax.ws.rs.container.ResourceContext;
-import javax.ws.rs.container.ResourceInfo;
-import javax.ws.rs.container.Suspended;
-import javax.ws.rs.core.Application;
-import javax.ws.rs.core.Configuration;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.Feature;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.PathSegment;
-import javax.ws.rs.core.Request;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.SecurityContext;
-import javax.ws.rs.core.UriInfo;
-import javax.ws.rs.ext.ContextResolver;
-import javax.ws.rs.ext.ExceptionMapper;
-import javax.ws.rs.ext.MessageBodyReader;
-import javax.ws.rs.ext.MessageBodyWriter;
-import javax.ws.rs.ext.ParamConverterProvider;
-import javax.ws.rs.ext.Provider;
-import javax.ws.rs.ext.Providers;
-import javax.ws.rs.ext.ReaderInterceptor;
-import javax.ws.rs.ext.WriterInterceptor;
-import javax.ws.rs.sse.Sse;
-import javax.ws.rs.sse.SseEventSink;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.inject.Typed;
+import jakarta.enterprise.inject.Vetoed;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.ws.rs.ApplicationPath;
+import jakarta.ws.rs.BeanParam;
+import jakarta.ws.rs.ConstrainedTo;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.CookieParam;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.Encoded;
+import jakarta.ws.rs.FormParam;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.MatrixParam;
+import jakarta.ws.rs.NameBinding;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.client.InvocationCallback;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.container.DynamicFeature;
+import jakarta.ws.rs.container.PreMatching;
+import jakarta.ws.rs.container.ResourceContext;
+import jakarta.ws.rs.container.ResourceInfo;
+import jakarta.ws.rs.container.Suspended;
+import jakarta.ws.rs.core.Application;
+import jakarta.ws.rs.core.Configuration;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.Feature;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.PathSegment;
+import jakarta.ws.rs.core.Request;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.SecurityContext;
+import jakarta.ws.rs.core.UriInfo;
+import jakarta.ws.rs.ext.ContextResolver;
+import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.ext.ParamConverterProvider;
+import jakarta.ws.rs.ext.Provider;
+import jakarta.ws.rs.ext.Providers;
+import jakarta.ws.rs.ext.ReaderInterceptor;
+import jakarta.ws.rs.ext.WriterInterceptor;
+import jakarta.ws.rs.sse.Sse;
+import jakarta.ws.rs.sse.SseEventSink;
 
 import org.jboss.jandex.DotName;
 import org.jboss.resteasy.reactive.DummyElementType;
@@ -87,13 +92,13 @@ import org.jboss.resteasy.reactive.RestCookie;
 import org.jboss.resteasy.reactive.RestForm;
 import org.jboss.resteasy.reactive.RestHeader;
 import org.jboss.resteasy.reactive.RestMatrix;
+import org.jboss.resteasy.reactive.RestMulti;
 import org.jboss.resteasy.reactive.RestPath;
 import org.jboss.resteasy.reactive.RestQuery;
 import org.jboss.resteasy.reactive.RestResponse;
 import org.jboss.resteasy.reactive.RestSseElementType;
 import org.jboss.resteasy.reactive.RestStreamElementType;
 import org.jboss.resteasy.reactive.Separator;
-import org.reactivestreams.Publisher;
 
 import io.smallrye.common.annotation.Blocking;
 import io.smallrye.common.annotation.NonBlocking;
@@ -140,14 +145,14 @@ public final class ResteasyReactiveDotNames {
     public static final DotName SEPARATOR = DotName.createSimple(Separator.class.getName());
     public static final DotName REST_MATRIX_PARAM = DotName.createSimple(RestMatrix.class.getName());
     public static final DotName REST_COOKIE_PARAM = DotName.createSimple(RestCookie.class.getName());
-    public static final DotName GET = DotName.createSimple(javax.ws.rs.GET.class.getName());
-    public static final DotName HEAD = DotName.createSimple(javax.ws.rs.HEAD.class.getName());
-    public static final DotName DELETE = DotName.createSimple(javax.ws.rs.DELETE.class.getName());
-    public static final DotName OPTIONS = DotName.createSimple(javax.ws.rs.OPTIONS.class.getName());
-    public static final DotName PATCH = DotName.createSimple(javax.ws.rs.PATCH.class.getName());
-    public static final DotName POST = DotName.createSimple(javax.ws.rs.POST.class.getName());
-    public static final DotName PUT = DotName.createSimple(javax.ws.rs.PUT.class.getName());
-    public static final DotName HTTP_METHOD = DotName.createSimple(javax.ws.rs.HttpMethod.class.getName());
+    public static final DotName GET = DotName.createSimple(jakarta.ws.rs.GET.class.getName());
+    public static final DotName HEAD = DotName.createSimple(jakarta.ws.rs.HEAD.class.getName());
+    public static final DotName DELETE = DotName.createSimple(jakarta.ws.rs.DELETE.class.getName());
+    public static final DotName OPTIONS = DotName.createSimple(jakarta.ws.rs.OPTIONS.class.getName());
+    public static final DotName PATCH = DotName.createSimple(jakarta.ws.rs.PATCH.class.getName());
+    public static final DotName POST = DotName.createSimple(jakarta.ws.rs.POST.class.getName());
+    public static final DotName PUT = DotName.createSimple(jakarta.ws.rs.PUT.class.getName());
+    public static final DotName HTTP_METHOD = DotName.createSimple(jakarta.ws.rs.HttpMethod.class.getName());
     public static final DotName APPLICATION_PATH = DotName.createSimple(ApplicationPath.class.getName());
     public static final DotName PATH = DotName.createSimple(Path.class.getName());
     public static final DotName PARAM_CONVERTER_PROVIDER = DotName.createSimple(ParamConverterProvider.class.getName());
@@ -173,6 +178,7 @@ public final class ResteasyReactiveDotNames {
     public static final DotName APPLICATION_SCOPED = DotName.createSimple(ApplicationScoped.class.getName());
     public static final DotName SINGLETON = DotName.createSimple(Singleton.class.getName());
     public static final DotName REQUEST_SCOPED = DotName.createSimple(RequestScoped.class.getName());
+    public static final DotName DEPENDENT = DotName.createSimple(Dependent.class.getName());
     public static final DotName WEB_APPLICATION_EXCEPTION = DotName.createSimple(WebApplicationException.class.getName());
 
     public static final DotName INVOCATION_CALLBACK = DotName.createSimple(InvocationCallback.class.getName());
@@ -182,7 +188,7 @@ public final class ResteasyReactiveDotNames {
     public static final DotName NON_BLOCKING = DotName.createSimple(NonBlocking.class.getName());
     public static final DotName SUSPENDED = DotName.createSimple(Suspended.class.getName());
     public static final DotName PRE_MATCHING = DotName.createSimple(PreMatching.class.getName());
-    public static final DotName TRANSACTIONAL = DotName.createSimple("javax.transaction.Transactional");
+    public static final DotName TRANSACTIONAL = DotName.createSimple("jakarta.transaction.Transactional");
 
     public static final DotName COLLECTION = DotName.createSimple(Collection.class.getName());
     public static final DotName LIST = DotName.createSimple(List.class.getName());
@@ -199,12 +205,16 @@ public final class ResteasyReactiveDotNames {
     public static final DotName OFFSET_DATE_TIME = DotName.createSimple(OffsetDateTime.class.getName());
     public static final DotName OFFSET_TIME = DotName.createSimple(OffsetTime.class.getName());
     public static final DotName ZONED_DATE_TIME = DotName.createSimple(ZonedDateTime.class.getName());
+    public static final DotName YEAR = DotName.createSimple(Year.class.getName());
+    public static final DotName YEAR_MONTH = DotName.createSimple(YearMonth.class.getName());
 
     public static final DotName UNI = DotName.createSimple(Uni.class.getName());
     public static final DotName MULTI = DotName.createSimple(Multi.class.getName());
+    public static final DotName REST_MULTI = DotName.createSimple(RestMulti.class.getName());
     public static final DotName COMPLETION_STAGE = DotName.createSimple(CompletionStage.class.getName());
     public static final DotName COMPLETABLE_FUTURE = DotName.createSimple(CompletableFuture.class.getName());
     public static final DotName PUBLISHER = DotName.createSimple(Publisher.class.getName());
+    public static final DotName LEGACY_PUBLISHER = DotName.createSimple(org.reactivestreams.Publisher.class.getName());
     public static final DotName REST_RESPONSE = DotName.createSimple(RestResponse.class.getName());
 
     public static final DotName INTEGER = DotName.createSimple(Integer.class.getName());
@@ -230,13 +240,15 @@ public final class ResteasyReactiveDotNames {
     public static final DotName INPUT_STREAM = DotName.createSimple(InputStream.class.getName());
     public static final DotName OUTPUT_STREAM = DotName.createSimple(OutputStream.class.getName());
     public static final DotName THROWABLE = DotName.createSimple(Throwable.class.getName());
+    public static final DotName URI = DotName.createSimple(java.net.URI.class.getName());
+    public static final DotName URL = DotName.createSimple(java.net.URL.class.getName());
 
-    public static final DotName JSONP_JSON_OBJECT = DotName.createSimple(javax.json.JsonObject.class.getName());
-    public static final DotName JSONP_JSON_ARRAY = DotName.createSimple(javax.json.JsonArray.class.getName());
-    public static final DotName JSONP_JSON_STRUCTURE = DotName.createSimple(javax.json.JsonStructure.class.getName());
-    public static final DotName JSONP_JSON_NUMBER = DotName.createSimple(javax.json.JsonNumber.class.getName());
-    public static final DotName JSONP_JSON_VALUE = DotName.createSimple(javax.json.JsonValue.class.getName());
-    public static final DotName JSONP_JSON_STRING = DotName.createSimple(javax.json.JsonString.class.getName());
+    public static final DotName JSONP_JSON_OBJECT = DotName.createSimple(jakarta.json.JsonObject.class.getName());
+    public static final DotName JSONP_JSON_ARRAY = DotName.createSimple(jakarta.json.JsonArray.class.getName());
+    public static final DotName JSONP_JSON_STRUCTURE = DotName.createSimple(jakarta.json.JsonStructure.class.getName());
+    public static final DotName JSONP_JSON_NUMBER = DotName.createSimple(jakarta.json.JsonNumber.class.getName());
+    public static final DotName JSONP_JSON_VALUE = DotName.createSimple(jakarta.json.JsonValue.class.getName());
+    public static final DotName JSONP_JSON_STRING = DotName.createSimple(jakarta.json.JsonString.class.getName());
 
     public static final DotName CONTAINER_REQUEST_CONTEXT = DotName.createSimple(ContainerRequestContext.class.getName());
     public static final DotName CONTAINER_RESPONSE_CONTEXT = DotName.createSimple(ContainerResponseContext.class.getName());
@@ -265,6 +277,7 @@ public final class ResteasyReactiveDotNames {
             .createSimple("org.jboss.resteasy.reactive.server.WithFormRead");
 
     public static final DotName OBJECT = DotName.createSimple(Object.class.getName());
+    public static final DotName RECORD = DotName.createSimple(Record.class.getName());
 
     public static final DotName CONTINUATION = DotName.createSimple("kotlin.coroutines.Continuation");
     public static final DotName KOTLIN_UNIT = DotName.createSimple("kotlin.Unit");
@@ -272,23 +285,26 @@ public final class ResteasyReactiveDotNames {
     // TODO: fix this hack by moving all the logic that handles this annotation to the server processor
     public static final DotName SERVER_EXCEPTION_MAPPER = DotName
             .createSimple("org.jboss.resteasy.reactive.server.ServerExceptionMapper");
+
+    public static final DotName MULTI_PART_DATA_INPUT = DotName
+            .createSimple("org.jboss.resteasy.reactive.server.multipart.MultipartFormDataInput");
     public static final DotName OBJECT_NAME = DotName.createSimple(Object.class.getName());
     // Types ignored for reflection used by the RESTEasy and SmallRye REST client extensions.
     private static final Set<DotName> TYPES_IGNORED_FOR_REFLECTION = new HashSet<>(Arrays.asList(
-            // javax.json
-            DotName.createSimple("javax.json.JsonObject"),
-            DotName.createSimple("javax.json.JsonArray"),
-            DotName.createSimple("javax.json.JsonValue"),
+            // jakarta.json
+            DotName.createSimple("jakarta.json.JsonObject"),
+            DotName.createSimple("jakarta.json.JsonArray"),
+            DotName.createSimple("jakarta.json.JsonValue"),
 
             // Jackson
             DotName.createSimple("com.fasterxml.jackson.databind.JsonNode"),
 
             // JAX-RS
-            DotName.createSimple("javax.ws.rs.core.Response"),
-            DotName.createSimple("javax.ws.rs.container.AsyncResponse"),
-            DotName.createSimple("javax.ws.rs.core.StreamingOutput"),
-            DotName.createSimple("javax.ws.rs.core.Form"),
-            DotName.createSimple("javax.ws.rs.core.MultivaluedMap"),
+            DotName.createSimple("jakarta.ws.rs.core.Response"),
+            DotName.createSimple("jakarta.ws.rs.container.AsyncResponse"),
+            DotName.createSimple("jakarta.ws.rs.core.StreamingOutput"),
+            DotName.createSimple("jakarta.ws.rs.core.Form"),
+            DotName.createSimple("jakarta.ws.rs.core.MultivaluedMap"),
 
             // RESTEasy
             DotName.createSimple("org.jboss.resteasy.plugins.providers.multipart.MultipartInput"),

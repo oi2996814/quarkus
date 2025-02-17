@@ -23,7 +23,7 @@ import java.nio.charset.Charset;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import javax.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.MultivaluedMap;
 
 /**
  * Utilities for dealing with URLs
@@ -61,12 +61,6 @@ public class URLUtils {
     public static void parseQueryString(final String string, final MultivaluedMap<String, String> exchange,
             final Charset charset, final boolean doDecode, int maxParameters) {
         QUERY_STRING_PARSER.parse(string, exchange, charset, doDecode, maxParameters);
-    }
-
-    @Deprecated
-    public static void parsePathParms(final String string, final MultivaluedMap<String, String> exchange, final Charset charset,
-            final boolean doDecode, int maxParameters) {
-        parsePathParams(string, exchange, charset, doDecode, maxParameters);
     }
 
     public static int parsePathParams(final String string, final MultivaluedMap<String, String> exchange, final Charset charset,
@@ -223,8 +217,8 @@ public class URLUtils {
         return s;
     }
 
-    private static RuntimeException failedToDecodeURL(String s, Charset enc, Throwable o) {
-        return new RuntimeException("Failed to decode URL " + s + " to " + enc, o);
+    private static IllegalArgumentException failedToDecodeURL(String s, Charset enc, Throwable o) {
+        return new IllegalArgumentException("Failed to decode URL " + s + " to " + enc, o);
     }
 
     private static byte[] expandBytes(byte[] bytes) {

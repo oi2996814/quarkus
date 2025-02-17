@@ -6,8 +6,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import javax.enterprise.event.TransactionPhase;
-import javax.enterprise.inject.spi.ObserverMethod;
+import jakarta.enterprise.event.TransactionPhase;
+import jakarta.enterprise.inject.spi.ObserverMethod;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationValue;
@@ -35,6 +35,7 @@ public final class ObserverConfigurator extends ConfiguratorBase<ObserverConfigu
     boolean isAsync;
     TransactionPhase transactionPhase;
     Consumer<MethodCreator> notifyConsumer;
+    boolean forceApplicationClass;
 
     public ObserverConfigurator(Consumer<ObserverConfigurator> consumer) {
         this.consumer = consumer;
@@ -42,6 +43,11 @@ public final class ObserverConfigurator extends ConfiguratorBase<ObserverConfigu
         this.priority = ObserverMethod.DEFAULT_PRIORITY;
         this.isAsync = false;
         this.transactionPhase = TransactionPhase.IN_PROGRESS;
+    }
+
+    @Override
+    protected ObserverConfigurator self() {
+        return this;
     }
 
     /**
@@ -110,6 +116,15 @@ public final class ObserverConfigurator extends ConfiguratorBase<ObserverConfigu
 
     public ObserverConfigurator notify(Consumer<MethodCreator> notifyConsumer) {
         this.notifyConsumer = notifyConsumer;
+        return this;
+    }
+
+    /**
+     * Forces the observer to be considered an 'application class', so it will be defined in the runtime
+     * ClassLoader and re-created on each redeployment.
+     */
+    public ObserverConfigurator forceApplicationClass() {
+        this.forceApplicationClass = true;
         return this;
     }
 

@@ -2,7 +2,7 @@ package io.quarkus.hal;
 
 import java.util.Map;
 
-import javax.ws.rs.core.Link;
+import jakarta.ws.rs.core.Link;
 
 public abstract class HalWrapper {
 
@@ -24,7 +24,9 @@ public abstract class HalWrapper {
     @SuppressWarnings("unused")
     public void addLinks(Link... links) {
         for (Link link : links) {
-            this.links.put(link.getRel(), new HalLink(link.getUri().toString()));
+            this.links.put(link.getRel(), new HalLink(link.getUri().toString(),
+                    link.getTitle(),
+                    link.getType()));
         }
     }
 }

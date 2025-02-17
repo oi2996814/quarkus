@@ -9,8 +9,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
+import org.opentest4j.AssertionFailedError;
 
 import io.smallrye.mutiny.Uni;
 
@@ -94,6 +96,11 @@ public class UniAsserterTest {
     }
 
     @Test
+    public void testFail() {
+        testAsserterFailure(ua -> ua.fail(), t -> AssertionFailedError.class.isInstance(t));
+    }
+
+    @Test
     public void testExecute() throws InterruptedException, ExecutionException {
         CompletableFuture<Object> cf = new CompletableFuture<>();
         AtomicInteger executeExecuted = new AtomicInteger(0);
@@ -168,6 +175,40 @@ public class UniAsserterTest {
                 }));
     }
 
+    @Test
+    public void testInterceptorFailures() {
+        // UniAsserter should fail even though the supplier returns a non-null value
+        testAsserterFailure(ua -> {
+            UniAsserter asserter = new AlwaysFailingUniAsserterInterceptor(ua);
+            asserter.assertNotNull(() -> Uni.createFrom().item(Boolean.TRUE));
+        }, t -> IllegalStateException.class.isInstance(t));
+    }
+
+    @Test
+    public void testInterceptorData() {
+        testAsserter(ua -> {
+            UniAsserter asserter = new UniAsserterInterceptor(ua) {
+                @Override
+                public Object getData(String key) {
+                    return "found";
+                }
+            };
+            asserter.assertEquals(() -> Uni.createFrom().item(asserter.getData("foo")), "found");
+        });
+    }
+
+    static class AlwaysFailingUniAsserterInterceptor extends UniAsserterInterceptor {
+
+        public AlwaysFailingUniAsserterInterceptor(UniAsserter asserter) {
+            super(asserter);
+        }
+
+        @Override
+        protected <T> Supplier<Uni<T>> transformUni(Supplier<Uni<T>> uniSupplier) {
+            return () -> Uni.createFrom().failure(new IllegalStateException());
+        }
+
+    }
     // utils
 
     private <T> void testAsserter(Consumer<UniAsserter> assertion) {
@@ -203,7 +244,7 @@ public class UniAsserterTest {
             fail("No failure");
         } catch (ExecutionException e) {
             if (expected != null) {
-                assertTrue(expected.test(e.getCause()));
+                assertTrue(expected.test(e.getCause()), "Unexpected exception thrown: " + e.getCause());
             }
         } catch (InterruptedException e) {
             throw new RuntimeException(e);

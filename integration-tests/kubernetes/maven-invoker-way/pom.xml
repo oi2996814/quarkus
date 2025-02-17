@@ -24,6 +24,11 @@
             <artifactId>quarkus-container-image-jib</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-grpc</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -49,16 +54,34 @@
             <groupId>io.dekorate</groupId>
             <artifactId>kubernetes-annotations</artifactId>
             <classifier>noapt</classifier>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.fabric8</groupId>
+                    <artifactId>kubernetes-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>io.dekorate</groupId>
             <artifactId>openshift-annotations</artifactId>
             <classifier>noapt</classifier>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.fabric8</groupId>
+                    <artifactId>kubernetes-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>io.dekorate</groupId>
             <artifactId>knative-annotations</artifactId>
             <classifier>noapt</classifier>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.fabric8</groupId>
+                    <artifactId>kubernetes-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -167,6 +190,19 @@
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-grpc-deployment</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
             <artifactId>quarkus-junit5</artifactId>
             <version>${project.version}</version>
             <type>pom</type>
@@ -180,12 +216,6 @@
         </dependency>
     </dependencies>
     <build>
-        <testResources>
-            <testResource>
-                <directory>src/it</directory>
-                <filtering>true</filtering>
-            </testResource>
-        </testResources>
         <plugins>
             <plugin>
                 <artifactId>maven-invoker-plugin</artifactId>
@@ -259,7 +289,7 @@
                         <artifactId>maven-invoker-plugin</artifactId>
                         <configuration>
                             <filterProperties>
-                                <kubernetes-client-master-url>-Dquarkus.kubernetes-client.master-url=http://localhost:12345</kubernetes-client-master-url>
+                                <kubernetes-client-api-server-url>-Dquarkus.kubernetes-client.api-server-url=http://localhost:12345</kubernetes-client-api-server-url>
                                 <build-result>failure</build-result>
                             </filterProperties>
                         </configuration>
@@ -286,7 +316,7 @@
                             <skipInvocation>${skipTests}</skipInvocation>
                             <filterProperties>
                                 <!-- this is on purpose to make sure the property is expanded -->
-                                <kubernetes-client-master-url>-Dinvalid-on-purpose</kubernetes-client-master-url>
+                                <kubernetes-client-api-server-url>-Dinvalid-on-purpose</kubernetes-client-api-server-url>
                                 <build-result>success</build-result>
                             </filterProperties>
                         </configuration>
@@ -312,7 +342,7 @@
                             <skipInvocation>${skipTests}</skipInvocation>
                             <filterProperties>
                                 <!-- this is on purpose to make sure the property is expanded -->
-                                <kubernetes-client-master-url>-Dinvalid-on-purpose</kubernetes-client-master-url>
+                                <kubernetes-client-api-server-url>-Dinvalid-on-purpose</kubernetes-client-api-server-url>
                                 <build-result>success</build-result>
                             </filterProperties>
                         </configuration>
@@ -338,7 +368,7 @@
                             <skipInvocation>${skipTests}</skipInvocation>
                             <filterProperties>
                                 <!-- this is on purpose to make sure the property is expanded -->
-                                <kubernetes-client-master-url>-Dinvalid-on-purpose</kubernetes-client-master-url>
+                                <kubernetes-client-api-server-url>-Dinvalid-on-purpose</kubernetes-client-api-server-url>
                                 <build-result>success</build-result>
                             </filterProperties>
                         </configuration>

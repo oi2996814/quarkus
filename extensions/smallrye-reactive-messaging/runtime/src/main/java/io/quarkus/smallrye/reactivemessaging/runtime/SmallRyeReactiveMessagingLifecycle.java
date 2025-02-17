@@ -1,14 +1,14 @@
 package io.quarkus.smallrye.reactivemessaging.runtime;
 
-import javax.annotation.Priority;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Dependent;
-import javax.enterprise.context.Initialized;
-import javax.enterprise.event.Observes;
-import javax.enterprise.inject.spi.DefinitionException;
-import javax.enterprise.inject.spi.DeploymentException;
-import javax.inject.Inject;
-import javax.interceptor.Interceptor;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.Initialized;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.spi.DefinitionException;
+import jakarta.enterprise.inject.spi.DeploymentException;
+import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InjectableContext;
@@ -29,7 +29,8 @@ public class SmallRyeReactiveMessagingLifecycle {
             QuarkusWorkerPoolRegistry workerPoolRegistry) {
         mediatorManager.addAnalyzed(context.getMediatorConfigurations());
         for (WorkerConfiguration worker : context.getWorkerConfigurations()) {
-            workerPoolRegistry.defineWorker(worker.getClassName(), worker.getMethodName(), worker.getPoolName());
+            workerPoolRegistry.defineWorker(worker.getClassName(), worker.getMethodName(), worker.getPoolName(),
+                    worker.isVirtualThread());
         }
         for (EmitterConfiguration emitter : context.getEmitterConfigurations()) {
             mediatorManager.addEmitter(emitter);

@@ -7,17 +7,19 @@ https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 include::_attributes.adoc[]
 :categories: web, serialization
 :summary: JSON is now the lingua franca between microservices. In this guide, we see how you can get your REST services to consume and produce JSON payloads.
+:topics: rest,json,resteasy-reactive
+:extensions: io.quarkus:quarkus-rest-jackson,io.quarkus:quarkus-rest-jsonb,io.quarkus:quarkus-rest
 
 JSON is now the _lingua franca_ between microservices.
 
 In this guide, we see how you can get your REST services to consume and produce JSON payloads.
 
-TIP: there is another guide if you need a xref:rest-client-reactive.adoc[REST client] (including support for JSON).
+TIP: there is another guide if you need a xref:rest-client.adoc[REST client] (including support for JSON).
 
 [TIP]
 ====
 This is an introduction to writing JSON REST services with Quarkus.
-A more detailed guide about RESTEasy Reactive is available xref:resteasy-reactive.adoc[here].
+A more detailed guide about Quarkus REST (formerly RESTEasy Reactive) is available xref:rest.adoc[here].
 ====
 
 == Prerequisites
@@ -37,17 +39,17 @@ However, you can go right to the completed example.
 
 Clone the Git repository: `git clone {quickstarts-clone-url}`, or download an {quickstarts-archive-url}[archive].
 
-The solution is located in the `rest-json-quickstart` {quickstarts-tree-url}/rest-json-quickstart[directory].
+The solution is located in the `rest-json-quickstart` link:{quickstarts-tree-url}/rest-json-quickstart[directory].
 
 == Creating the Maven project
 
 First, we need a new project. Create a new project with the following command:
 
 :create-app-artifact-id: rest-json-quickstart
-:create-app-extensions: resteasy-reactive-jackson
+:create-app-extensions: rest-jackson
 include::{includes}/devtools/create-app.adoc[]
 
-This command generates a new project importing the RESTEasy Reactive/JAX-RS and https://github.com/FasterXML/jackson[Jackson] extensions,
+This command generates a new project importing the Quarkus REST/Jakarta REST and https://github.com/FasterXML/jackson[Jackson] extensions,
 and in particular adds the following dependency:
 
 [source,xml,role="primary asciidoc-tabs-target-sync-cli asciidoc-tabs-target-sync-maven"]
@@ -55,14 +57,14 @@ and in particular adds the following dependency:
 ----
 <dependency>
     <groupId>io.quarkus</groupId>
-    <artifactId>quarkus-resteasy-reactive-jackson</artifactId>
+    <artifactId>quarkus-rest-jackson</artifactId>
 </dependency>
 ----
 
 [source,gradle,role="secondary asciidoc-tabs-target-sync-gradle"]
 .build.gradle
 ----
-implementation("io.quarkus:quarkus-resteasy-reactive-jackson")
+implementation("io.quarkus:quarkus-rest-jackson")
 ----
 
 [NOTE]
@@ -70,13 +72,13 @@ implementation("io.quarkus:quarkus-resteasy-reactive-jackson")
 To improve user experience, Quarkus registers the three Jackson https://github.com/FasterXML/jackson-modules-java8[Java 8 modules] so you don't need to do it manually.
 ====
 
-Quarkus also supports https://eclipse-ee4j.github.io/jsonb-api/[JSON-B] so, if you prefer JSON-B over Jackson, you can create a project relying on the RESTEasy Reactive JSON-B extension instead:
+Quarkus also supports https://eclipse-ee4j.github.io/jsonb-api/[JSON-B] so, if you prefer JSON-B over Jackson, you can create a project relying on the Quarkus REST JSON-B extension instead:
 
 :create-app-artifact-id: rest-json-quickstart
-:create-app-extensions: resteasy-reactive-jsonb
+:create-app-extensions: rest-jsonb
 include::{includes}/devtools/create-app.adoc[]
 
-This command generates a new project importing the RESTEasy Reactive/JAX-RS and https://eclipse-ee4j.github.io/jsonb-api/[JSON-B] extensions,
+This command generates a new project importing the Quarkus REST/Jakarta REST and https://eclipse-ee4j.github.io/jsonb-api/[JSON-B] extensions,
 and in particular adds the following dependency:
 
 [source,xml,role="primary asciidoc-tabs-target-sync-cli asciidoc-tabs-target-sync-maven"]
@@ -84,21 +86,21 @@ and in particular adds the following dependency:
 ----
 <dependency>
     <groupId>io.quarkus</groupId>
-    <artifactId>quarkus-resteasy-reactive-jsonb</artifactId>
+    <artifactId>quarkus-rest-jsonb</artifactId>
 </dependency>
 ----
 
 [source,gradle,role="secondary asciidoc-tabs-target-sync-gradle"]
 .build.gradle
 ----
-implementation("io.quarkus:quarkus-resteasy-reactive-jsonb")
+implementation("io.quarkus:quarkus-rest-jsonb")
 ----
+
+include::{includes}/json-provider-note.adoc[]
 
 [NOTE]
 ====
-While named "reactive", RESTEasy Reactive supports equally well both traditional blocking patterns and reactive patterns.
-
-For more information about RESTEasy Reactive, please refer to the xref:resteasy-reactive.adoc[dedicated guide].
+For more information about Quarkus REST, please refer to the xref:rest.adoc[dedicated guide].
 ====
 
 == Creating your first JSON REST service
@@ -138,10 +140,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Set;
 
-import javax.ws.rs.DELETE;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
 
 @Path("/fruits")
 public class FruitResource {
@@ -172,14 +174,14 @@ public class FruitResource {
 }
 ----
 
-The implementation is pretty straightforward, and you just need to define your endpoints using the JAX-RS annotations.
+The implementation is pretty straightforward, and you just need to define your endpoints using the Jakarta REST annotations.
 
 The `Fruit` objects will be automatically serialized/deserialized by https://eclipse-ee4j.github.io/jsonb-api/[JSON-B] or https://github.com/FasterXML/jackson[Jackson],
 depending on the extension you chose when initializing the project.
 
 [NOTE]
 ====
-When a JSON extension is installed such as `quarkus-resteasy-reactive-jackson` or `quarkus-resteasy-reactive-jsonb`, Quarkus will use the `application/json` media type
+When a JSON extension is installed such as `quarkus-rest-jackson` or `quarkus-rest-jsonb`, Quarkus will use the `application/json` media type
 by default for most return values, unless the media type is explicitly set via
 `@Produces` or `@Consumes` annotations (there are some exceptions for well known types, such as `String` and `File`, which default to `text/plain` and `application/octet-stream`
 respectively).
@@ -213,7 +215,7 @@ An example where a custom module needs to be registered would look like so:
 ----
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.jackson.ObjectMapperCustomizer;
-import javax.inject.Singleton;
+import jakarta.inject.Singleton;
 
 @Singleton
 public class RegisterCustomModuleCustomizer implements ObjectMapperCustomizer {
@@ -226,23 +228,22 @@ public class RegisterCustomModuleCustomizer implements ObjectMapperCustomizer {
 
 Users can even provide their own `ObjectMapper` bean if they so choose.
 If this is done, it is very important to manually inject and apply all `io.quarkus.jackson.ObjectMapperCustomizer` beans in the CDI producer that produces `ObjectMapper`.
-Failure to do so will prevent Jackson specific customizations provided by various extensions from being applied. 
+Failure to do so will prevent Jackson specific customizations provided by various extensions from being applied.
 
 [source,java]
 ----
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.arc.All;
 import io.quarkus.jackson.ObjectMapperCustomizer;
-
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.Produces;
-import javax.inject.Singleton;
+import java.util.List;
+import jakarta.inject.Singleton;
 
 public class CustomObjectMapper {
 
     // Replaces the CDI producer for ObjectMapper built into Quarkus
     @Singleton
     @Produces
-    ObjectMapper objectMapper(Instance<ObjectMapperCustomizer> customizers) {
+    ObjectMapper objectMapper(@All List<ObjectMapperCustomizer> customizers) {
         ObjectMapper mapper = myObjectMapper(); // Custom `ObjectMapper`
 
         // Apply all ObjectMapperCustomizer beans (incl. Quarkus)
@@ -272,9 +273,9 @@ If for example a custom serializer named `FooSerializer` for type `com.example.F
 [source,java]
 ----
 import io.quarkus.jsonb.JsonbConfigCustomizer;
-import javax.inject.Singleton;
-import javax.json.bind.JsonbConfig;
-import javax.json.bind.serializer.JsonbSerializer;
+import jakarta.inject.Singleton;
+import jakarta.json.bind.JsonbConfig;
+import jakarta.json.bind.serializer.JsonbSerializer;
 
 @Singleton
 public class FooSerializerRegistrationCustomizer implements JsonbConfigCustomizer {
@@ -285,17 +286,17 @@ public class FooSerializerRegistrationCustomizer implements JsonbConfigCustomize
 }
 ----
 
-A more advanced option would be to directly provide a bean of `javax.json.bind.JsonbConfig` (with a `Dependent` scope) or in the extreme case to provide a bean of type `javax.json.bind.Jsonb` (with a `Singleton` scope).
-If the latter approach is leveraged it is very important to manually inject and apply all `io.quarkus.jsonb.JsonbConfigCustomizer` beans in the CDI producer that produces `javax.json.bind.Jsonb`.
+A more advanced option would be to directly provide a bean of `jakarta.json.bind.JsonbConfig` (with a `Dependent` scope) or in the extreme case to provide a bean of type `jakarta.json.bind.Jsonb` (with a `Singleton` scope).
+If the latter approach is leveraged it is very important to manually inject and apply all `io.quarkus.jsonb.JsonbConfigCustomizer` beans in the CDI producer that produces `jakarta.json.bind.Jsonb`.
 Failure to do so will prevent JSON-B specific customizations provided by various extensions from being applied.
 
 [source,java]
 ----
 import io.quarkus.jsonb.JsonbConfigCustomizer;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.inject.Instance;
-import javax.json.bind.JsonbConfig;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.Instance;
+import jakarta.json.bind.JsonbConfig;
 
 public class CustomJsonbConfig {
 
@@ -319,7 +320,7 @@ public class CustomJsonbConfig {
 
 Now let's add a simple web page to interact with our `FruitResource`.
 Quarkus automatically serves static resources located under the `META-INF/resources` directory.
-In the `src/main/resources/META-INF/resources` directory, add a `fruits.html` file with the content from this {quickstarts-blob-url}/rest-json-quickstart/src/main/resources/META-INF/resources/fruits.html[fruits.html] file in it.
+In the `src/main/resources/META-INF/resources` directory, add a `fruits.html` file with the content from this link:{quickstarts-blob-url}/rest-json-quickstart/src/main/resources/META-INF/resources/fruits.html[fruits.html] file in it.
 
 You can now interact with your REST service:
 
@@ -365,7 +366,7 @@ public List<Fruit> list() {
 Quarkus does that for you automatically by analyzing the REST methods at build time
 and that's why we didn't need any reflection registration in the first part of this guide.
 
-Another common pattern in the JAX-RS world is to use the `Response` object.
+Another common pattern in the Jakarta REST world is to use the `Response` object.
 `Response` comes with some nice perks:
 
  * you can return different entity types depending on what happens in your method (a `Legume` or an `Error` for instance);
@@ -421,9 +422,9 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Response;
 
 @Path("/legumes")
 public class LegumeResource {
@@ -507,7 +508,7 @@ This time, you can see our list of legumes.
 You can return _reactive types_ to handle asynchronous processing.
 Quarkus recommends the usage of https://smallrye.io/smallrye-mutiny[Mutiny] to write reactive and asynchronous code.
 
-RESTEasy Reactive is naturally integrated with Mutiny.
+Quarkus REST is naturally integrated with Mutiny.
 
 Your endpoints can return `Uni` or `Multi` instances:
 

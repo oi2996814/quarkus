@@ -6,7 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
@@ -14,8 +17,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+
 import io.quarkus.redis.datasource.pubsub.PubSubCommands;
 import io.quarkus.redis.datasource.pubsub.ReactivePubSubCommands;
+import io.quarkus.redis.datasource.pubsub.RedisPubSubMessage;
 import io.quarkus.redis.runtime.datasource.BlockingRedisDataSourceImpl;
 import io.quarkus.redis.runtime.datasource.ReactiveRedisDataSourceImpl;
 import io.smallrye.common.vertx.VertxContext;
@@ -34,7 +40,7 @@ public class PubSubCommandsTest extends DatasourceTestBase {
         ds = new BlockingRedisDataSourceImpl(vertx, redis, api, Duration.ofSeconds(5));
         pubsub = ds.pubsub(Person.class);
 
-        ReactiveRedisDataSourceImpl reactiveDS = new ReactiveRedisDataSourceImpl(vertx, redis, api);
+        var reactiveDS = new ReactiveRedisDataSourceImpl(vertx, redis, api);
         reactive = reactiveDS.pubsub(Person.class);
     }
 
@@ -113,7 +119,38 @@ public class PubSubCommandsTest extends DatasourceTestBase {
         List<Person> people1 = new CopyOnWriteArrayList<>();
         List<Person> people2 = new CopyOnWriteArrayList<>();
         PubSubCommands.RedisSubscriber subscriber1 = pubsub.subscribe(channel, people1::add);
-        PubSubCommands.RedisSubscriber subscriber2 = pubsub.subscribeToPattern(channel + "*", people2::add);
+        PubSubCommands.RedisSubscriber subscriber2 = pubsub.subscribeToPattern(channel + "*", p -> people2.add(p));
+
+        pubsub.publish(channel, new Person("luke", "skywalker"));
+        pubsub.publish(channel + "-another", new Person("luke", "skywalker"));
+
+        Awaitility.await().until(() -> people1.size() == 1);
+        Awaitility.await().until(() -> people2.size() == 2);
+
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel + "-yet", new Person("leia", "skywalker"));
+
+        Awaitility.await().until(() -> people1.size() == 3);
+        Awaitility.await().until(() -> people2.size() == 5);
+
+        subscriber2.unsubscribe();
+        subscriber1.unsubscribe();
+
+        awaitNoMoreActiveChannels();
+
+    }
+
+    @Test
+    void testMultipleSubscribersAndBiConsumer() {
+
+        List<Person> people1 = new CopyOnWriteArrayList<>();
+        List<Person> people2 = new CopyOnWriteArrayList<>();
+        PubSubCommands.RedisSubscriber subscriber1 = pubsub.subscribe(channel, people1::add);
+        PubSubCommands.RedisSubscriber subscriber2 = pubsub.subscribeToPattern(channel + "*", (s, p) -> {
+            assertThat(s).isIn(channel, channel + "-another", channel + "-yet");
+            people2.add(p);
+        });
 
         pubsub.publish(channel, new Person("luke", "skywalker"));
         pubsub.publish(channel + "-another", new Person("luke", "skywalker"));
@@ -156,7 +193,10 @@ public class PubSubCommandsTest extends DatasourceTestBase {
         })).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> pubsub.subscribeToPatterns(Collections.emptyList(), p -> {
         })).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> pubsub.subscribeToPattern("aaa", null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> pubsub.subscribeToPattern("aaa", (Consumer<Person>) null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> pubsub.subscribeToPattern("aaa", (BiConsumer<String, Person>) null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -185,7 +225,34 @@ public class PubSubCommandsTest extends DatasourceTestBase {
     @Test
     void subscribeToMultiplePatterns() {
         List<Person> people1 = new CopyOnWriteArrayList<>();
-        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPatterns(List.of(channel + "*", "foo"), people1::add);
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPatterns(List.of(channel + "*", "foo"),
+                p -> people1.add(p));
+
+        pubsub.publish(channel, new Person("luke", "skywalker"));
+        pubsub.publish("foo", new Person("luke", "skywalker"));
+
+        Awaitility.await().until(() -> people1.size() == 2);
+
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish("foo", new Person("leia", "skywalker"));
+
+        Awaitility.await().until(() -> people1.size() == 5);
+
+        subscriber.unsubscribe();
+
+        awaitNoMoreActiveChannels();
+
+    }
+
+    @Test
+    void subscribeToMultiplePatternsWithBiConsumer() {
+        List<Person> people1 = new CopyOnWriteArrayList<>();
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPatterns(List.of(channel + "*", "foo"),
+                (s, p) -> {
+                    assertThat(s).isIn("foo", channel);
+                    people1.add(p);
+                });
 
         pubsub.publish(channel, new Person("luke", "skywalker"));
         pubsub.publish("foo", new Person("luke", "skywalker"));
@@ -226,6 +293,32 @@ public class PubSubCommandsTest extends DatasourceTestBase {
     }
 
     @Test
+    void subscribeToMultiplePatternsWithMultiAsMessages() {
+        List<RedisPubSubMessage<Person>> people = new CopyOnWriteArrayList<>();
+        Multi<RedisPubSubMessage<Person>> multi = reactive.subscribeAsMessagesToPatterns(channel + "*", "foo");
+
+        Cancellable cancellable = multi.subscribe().with(people::add);
+
+        pubsub.publish(channel, new Person("luke", "skywalker"));
+        pubsub.publish("foo", new Person("luke", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish("foo", new Person("leia", "skywalker"));
+
+        Awaitility.await().until(() -> people.size() > 1);
+
+        assertThat(people).allSatisfy(m -> {
+            assertThat(m.getChannel()).isNotBlank();
+            assertThat(m.getPayload()).isNotNull();
+        });
+
+        cancellable.cancel();
+
+        awaitNoMoreActiveChannels();
+
+    }
+
+    @Test
     void subscribeToSingleWithMulti() {
         List<Person> people1 = new CopyOnWriteArrayList<>();
         Multi<Person> multi = reactive.subscribeToPatterns(channel + "*");
@@ -242,6 +335,64 @@ public class PubSubCommandsTest extends DatasourceTestBase {
         pubsub.publish(channel + "foo", new Person("leia", "skywalker"));
 
         Awaitility.await().until(() -> people1.size() == 4);
+
+        cancellable.cancel();
+
+        awaitNoMoreActiveChannels();
+
+    }
+
+    @Test
+    void subscribeToSingleWithMultiAsMessages() {
+        List<RedisPubSubMessage<Person>> people = new CopyOnWriteArrayList<>();
+        Multi<RedisPubSubMessage<Person>> multi = reactive.subscribeAsMessagesToPatterns(channel + "*");
+
+        Cancellable cancellable = multi.subscribe().with(people::add);
+
+        pubsub.publish("foo", new Person("luke", "skywalker"));
+        pubsub.publish(channel, new Person("luke", "skywalker"));
+
+        Awaitility.await().until(() -> people.size() == 1);
+
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel + "foo", new Person("leia", "skywalker"));
+
+        Awaitility.await().until(() -> people.size() == 4);
+
+        assertThat(people).allSatisfy(m -> {
+            assertThat(m.getChannel()).isNotBlank();
+            assertThat(m.getPayload()).isNotNull();
+        });
+
+        cancellable.cancel();
+
+        awaitNoMoreActiveChannels();
+
+    }
+
+    @Test
+    void testSubscribeAsMessages() {
+        List<RedisPubSubMessage<Person>> people = new CopyOnWriteArrayList<>();
+        Multi<RedisPubSubMessage<Person>> multi = reactive.subscribeAsMessages(channel);
+
+        Cancellable cancellable = multi.subscribe().with(people::add);
+
+        pubsub.publish("foo", new Person("luke", "skywalker"));
+        pubsub.publish(channel, new Person("luke", "skywalker"));
+
+        Awaitility.await().until(() -> people.size() == 1);
+
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+        pubsub.publish(channel, new Person("leia", "skywalker"));
+
+        Awaitility.await().until(() -> people.size() == 4);
+
+        assertThat(people).allSatisfy(m -> {
+            assertThat(m.getChannel()).isNotBlank();
+            assertThat(m.getPayload()).isNotNull();
+        });
 
         cancellable.cancel();
 
@@ -308,7 +459,7 @@ public class PubSubCommandsTest extends DatasourceTestBase {
     void unsubscribePattern() {
 
         List<Person> people = new CopyOnWriteArrayList<>();
-        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPattern(channel + "*", people::add);
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPattern(channel + "*", p -> people.add(p));
         pubsub.publish(channel + "1", new Person("luke", "skywalker"));
         Awaitility.await().until(() -> people.size() == 1);
 
@@ -324,7 +475,7 @@ public class PubSubCommandsTest extends DatasourceTestBase {
     void unsubscribeAllPatterns() {
 
         List<Person> people = new CopyOnWriteArrayList<>();
-        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPattern(channel + "*", people::add);
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPattern(channel + "*", p -> people.add(p));
         pubsub.publish(channel + "1", new Person("luke", "skywalker"));
         Awaitility.await().until(() -> people.size() == 1);
 
@@ -341,7 +492,7 @@ public class PubSubCommandsTest extends DatasourceTestBase {
     @Test
     void unsubscribeOnePattern() {
         List<Person> people = new CopyOnWriteArrayList<>();
-        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPatterns(List.of("foo*", "bar*"), people::add);
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribeToPatterns(List.of("foo*", "bar*"), p -> people.add(p));
         pubsub.publish("foo1", new Person("luke", "skywalker"));
         pubsub.publish("bar2", new Person("luke", "skywalker"));
         Awaitility.await().until(() -> people.size() == 2);
@@ -372,6 +523,28 @@ public class PubSubCommandsTest extends DatasourceTestBase {
         subscriber.unsubscribe();
 
         awaitNoMoreActiveChannels();
+    }
+
+    @Test
+    void testPubSubWithTypeReference() {
+        var pubsub = ds.pubsub(new TypeReference<Map<String, Person>>() {
+            // Empty on purpose
+        });
+        List<Person> people = new CopyOnWriteArrayList<>();
+        PubSubCommands.RedisSubscriber subscriber = pubsub.subscribe(channel, map -> people.addAll(map.values()));
+
+        pubsub.publish(channel, Map.of("luke", new Person("luke", "skywalker")));
+
+        Awaitility.await().until(() -> people.size() == 1);
+
+        pubsub.publish(channel, Map.of("leia", new Person("leia", "skywalker")));
+
+        Awaitility.await().until(() -> people.size() == 2);
+
+        subscriber.unsubscribe();
+
+        awaitNoMoreActiveChannels();
+
     }
 
 }

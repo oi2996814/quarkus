@@ -4,7 +4,7 @@ import java.util.Collection;
 import java.util.Optional;
 import java.util.function.IntFunction;
 
-import javax.enterprise.inject.spi.DeploymentException;
+import jakarta.enterprise.inject.spi.DeploymentException;
 
 import org.eclipse.microprofile.config.Config;
 import org.jboss.jandex.DotName;
@@ -164,7 +164,8 @@ final class ConfigurationPropertiesUtil {
         // We need to register for reflection in case an implicit converter is required.
         if (!ConfigBuildStep.isHandledByProducers(type)) {
             if (type.kind() != Type.Kind.ARRAY) {
-                reflectiveClasses.produce(new ReflectiveClassBuildItem(true, false, type.name().toString()));
+                reflectiveClasses
+                        .produce(ReflectiveClassBuildItem.builder(type.name().toString()).methods().build());
             }
         }
     }

@@ -1,9 +1,9 @@
 package io.quarkus.deployment.dev.testing;
 
+import static io.quarkus.commons.classloading.ClassLoaderHelper.fromClassNameToResourceName;
+
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.AnnotatedElement;
-import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,8 +37,6 @@ import org.jboss.jandex.Indexer;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Tags;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestTemplate;
@@ -48,6 +46,7 @@ import org.junit.platform.engine.FilterResult;
 import org.junit.platform.engine.TestDescriptor;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestSource;
+import org.junit.platform.engine.TestTag;
 import org.junit.platform.engine.UniqueId;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
 import org.junit.platform.engine.reporting.ReportEntry;
@@ -57,6 +56,7 @@ import org.junit.platform.launcher.EngineFilter;
 import org.junit.platform.launcher.Launcher;
 import org.junit.platform.launcher.LauncherDiscoveryRequest;
 import org.junit.platform.launcher.PostDiscoveryFilter;
+import org.junit.platform.launcher.TagFilter;
 import org.junit.platform.launcher.TestExecutionListener;
 import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
@@ -84,7 +84,6 @@ public class JunitTestRunner {
     public static final DotName QUARKUS_TEST = DotName.createSimple("io.quarkus.test.junit.QuarkusTest");
     public static final DotName QUARKUS_MAIN_TEST = DotName.createSimple("io.quarkus.test.junit.main.QuarkusMainTest");
     public static final DotName QUARKUS_INTEGRATION_TEST = DotName.createSimple("io.quarkus.test.junit.QuarkusIntegrationTest");
-    public static final DotName NATIVE_IMAGE_TEST = DotName.createSimple("io.quarkus.test.junit.NativeImageTest");
     public static final DotName TEST_PROFILE = DotName.createSimple("io.quarkus.test.junit.TestProfile");
     public static final DotName TEST = DotName.createSimple(Test.class.getName());
     public static final DotName REPEATED_TEST = DotName.createSimple(RepeatedTest.class.getName());
@@ -164,9 +163,9 @@ public class JunitTestRunner {
                 launchBuilder.filters(testClassUsages.getTestsToRun(classScanResult.getChangedClassNames(), testState));
             }
             if (!includeTags.isEmpty()) {
-                launchBuilder.filters(new TagFilter(false, includeTags));
+                launchBuilder.filters(TagFilter.includeTags(new ArrayList<>(includeTags)));
             } else if (!excludeTags.isEmpty()) {
-                launchBuilder.filters(new TagFilter(true, excludeTags));
+                launchBuilder.filters(TagFilter.excludeTags(new ArrayList<>(excludeTags)));
             }
             if (include != null) {
                 launchBuilder.filters(new RegexFilter(false, include));
@@ -241,7 +240,6 @@ public class JunitTestRunner {
                                 Class<?> testClass = getTestClassFromSource(testIdentifier.getSource());
                                 if (testClass != null) {
                                     testClassName = testClass.getName();
-                                    Thread.currentThread().setContextClassLoader(testClass.getClassLoader());
                                 }
                                 for (TestRunListener listener : listeners) {
                                     listener.testStarted(testIdentifier, testClassName);
@@ -261,8 +259,9 @@ public class JunitTestRunner {
                                 if (testClass != null) {
                                     Map<UniqueId, TestResult> results = resultsByClass.computeIfAbsent(testClass.getName(),
                                             s -> new HashMap<>());
-                                    TestResult result = new TestResult(displayName, testClass.getName(), id,
-                                            TestExecutionResult.aborted(null),
+                                    TestResult result = new TestResult(displayName, testClass.getName(),
+                                            toTagList(testIdentifier),
+                                            id, TestExecutionResult.aborted(null),
                                             logHandler.captureOutput(), testIdentifier.isTest(), runId, 0, true);
                                     results.put(id, result);
                                     if (result.isTest()) {
@@ -315,8 +314,9 @@ public class JunitTestRunner {
                                 }
                                 Map<UniqueId, TestResult> results = resultsByClass.computeIfAbsent(testClassName,
                                         s -> new HashMap<>());
-                                TestResult result = new TestResult(displayName, testClassName, id,
-                                        testExecutionResult,
+                                TestResult result = new TestResult(displayName, testClassName,
+                                        toTagList(testIdentifier),
+                                        id, testExecutionResult,
                                         logHandler.captureOutput(), testIdentifier.isTest(), runId,
                                         System.currentTimeMillis() - startTimes.get(testIdentifier), true);
                                 if (!results.containsKey(id)) {
@@ -335,6 +335,7 @@ public class JunitTestRunner {
                                         results.put(id,
                                                 new TestResult(currentNonDynamicTest.get().getDisplayName(),
                                                         result.getTestClass(),
+                                                        toTagList(testIdentifier),
                                                         currentNonDynamicTest.get().getUniqueIdObject(),
                                                         TestExecutionResult.failed(failure), List.of(), false, runId, 0,
                                                         false));
@@ -352,6 +353,7 @@ public class JunitTestRunner {
                                     for (TestIdentifier child : children) {
                                         UniqueId childId = UniqueId.parse(child.getUniqueId());
                                         result = new TestResult(child.getDisplayName(), testClassName,
+                                                toTagList(testIdentifier),
                                                 childId,
                                                 testExecutionResult,
                                                 logHandler.captureOutput(), child.isTest(), runId,
@@ -420,6 +422,15 @@ public class JunitTestRunner {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static List<String> toTagList(TestIdentifier testIdentifier) {
+        return testIdentifier
+                .getTags()
+                .stream()
+                .map(TestTag::getName)
+                .sorted()
+                .toList();
     }
 
     private Class<?> getTestClassFromSource(Optional<TestSource> optionalTestSource) {
@@ -555,13 +566,11 @@ public class JunitTestRunner {
         //we now have all the classes by name
         //these tests we never run
         Set<String> integrationTestClasses = new HashSet<>();
-        for (DotName intAnno : Arrays.asList(QUARKUS_INTEGRATION_TEST, NATIVE_IMAGE_TEST)) {
-            for (AnnotationInstance i : index.getAnnotations(intAnno)) {
-                DotName name = i.target().asClass().name();
-                integrationTestClasses.add(name.toString());
-                for (ClassInfo clazz : index.getAllKnownSubclasses(name)) {
-                    integrationTestClasses.add(clazz.name().toString());
-                }
+        for (AnnotationInstance i : index.getAnnotations(QUARKUS_INTEGRATION_TEST)) {
+            DotName name = i.target().asClass().name();
+            integrationTestClasses.add(name.toString());
+            for (ClassInfo clazz : index.getAllKnownSubclasses(name)) {
+                integrationTestClasses.add(clazz.name().toString());
             }
         }
         Set<String> quarkusTestClasses = new HashSet<>();
@@ -576,6 +585,7 @@ public class JunitTestRunner {
                 }
             }
         }
+
         Set<DotName> allTestAnnotations = collectTestAnnotations(index);
         Set<DotName> allTestClasses = new HashSet<>();
         Map<DotName, DotName> enclosingClasses = new HashMap<>();
@@ -584,7 +594,7 @@ public class JunitTestRunner {
                 if (instance.target().kind() == AnnotationTarget.Kind.METHOD) {
                     ClassInfo classInfo = instance.target().asMethod().declaringClass();
                     allTestClasses.add(classInfo.name());
-                    if (classInfo.classAnnotation(NESTED) != null) {
+                    if (classInfo.declaredAnnotation(NESTED) != null) {
                         var enclosing = classInfo.enclosingClass();
                         if (enclosing != null) {
                             enclosingClasses.put(classInfo.name(), enclosing);
@@ -593,7 +603,7 @@ public class JunitTestRunner {
                 } else if (instance.target().kind() == AnnotationTarget.Kind.FIELD) {
                     ClassInfo classInfo = instance.target().asField().declaringClass();
                     allTestClasses.add(classInfo.name());
-                    if (classInfo.classAnnotation(NESTED) != null) {
+                    if (classInfo.declaredAnnotation(NESTED) != null) {
                         var enclosing = classInfo.enclosingClass();
                         if (enclosing != null) {
                             enclosingClasses.put(classInfo.name(), enclosing);
@@ -607,7 +617,8 @@ public class JunitTestRunner {
         Set<String> unitTestClasses = new HashSet<>();
         for (DotName testClass : allTestClasses) {
             String name = testClass.toString();
-            if (integrationTestClasses.contains(name) || quarkusTestClasses.contains(name)) {
+            if (integrationTestClasses.contains(name)
+                    || quarkusTestClasses.contains(name)) {
                 continue;
             }
             var enclosing = enclosingClasses.get(testClass);
@@ -642,7 +653,7 @@ public class JunitTestRunner {
             @Override
             public String apply(Class<?> aClass) {
                 ClassInfo def = index.getClassByName(DotName.createSimple(aClass.getName()));
-                AnnotationInstance testProfile = def.classAnnotation(TEST_PROFILE);
+                AnnotationInstance testProfile = def.declaredAnnotation(TEST_PROFILE);
                 if (testProfile == null) {
                     return "$$" + aClass.getName();
                 }
@@ -655,17 +666,18 @@ public class JunitTestRunner {
             //this is a lot more complex
             //we need to transform the classes to make the tracing magic work
             QuarkusClassLoader deploymentClassLoader = (QuarkusClassLoader) Thread.currentThread().getContextClassLoader();
-            Set<String> classesToTransform = new HashSet<>(deploymentClassLoader.getLocalClassNames());
+            Set<String> classesToTransform = new HashSet<>(deploymentClassLoader.getReloadableClassNames());
             Map<String, byte[]> transformedClasses = new HashMap<>();
             for (String i : classesToTransform) {
                 try {
+                    String resourceName = fromClassNameToResourceName(i);
                     byte[] classData = IoUtil
-                            .readBytes(deploymentClassLoader.getResourceAsStream(i.replace('.', '/') + ".class"));
+                            .readBytes(deploymentClassLoader.getResourceAsStream(resourceName));
                     ClassReader cr = new ClassReader(classData);
                     ClassWriter writer = new QuarkusClassWriter(cr,
                             ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
                     cr.accept(new TestTracingProcessor.TracingClassVisitor(writer, i), 0);
-                    transformedClasses.put(i.replace('.', '/') + ".class", writer.toByteArray());
+                    transformedClasses.put(resourceName, writer.toByteArray());
                 } catch (Exception e) {
                     log.error("Failed to instrument " + i + " for usage tracking", e);
                 }
@@ -754,7 +766,6 @@ public class JunitTestRunner {
         private TestType testType = TestType.ALL;
         private TestState testState;
         private long runId = -1;
-        private DevModeContext devModeContext;
         private CuratedApplication testApplication;
         private ClassScanResult classScanResult;
         private TestClassUsages testClassUsages;
@@ -780,11 +791,6 @@ public class JunitTestRunner {
 
         public Builder setTestType(TestType testType) {
             this.testType = testType;
-            return this;
-        }
-
-        public Builder setDevModeContext(DevModeContext devModeContext) {
-            this.devModeContext = devModeContext;
             return this;
         }
 
@@ -849,7 +855,6 @@ public class JunitTestRunner {
         }
 
         public JunitTestRunner build() {
-            Objects.requireNonNull(devModeContext, "devModeContext");
             Objects.requireNonNull(testClassUsages, "testClassUsages");
             Objects.requireNonNull(testApplication, "testApplication");
             Objects.requireNonNull(testState, "testState");
@@ -859,71 +864,6 @@ public class JunitTestRunner {
         public Builder setFailingTestsOnly(boolean failingTestsOnly) {
             this.failingTestsOnly = failingTestsOnly;
             return this;
-        }
-    }
-
-    private static class TagFilter implements PostDiscoveryFilter {
-
-        final boolean exclude;
-        final Set<String> tags;
-
-        private TagFilter(boolean exclude, Set<String> tags) {
-            this.exclude = exclude;
-            this.tags = tags;
-        }
-
-        @Override
-        public FilterResult apply(TestDescriptor testDescriptor) {
-            if (testDescriptor.getSource().isPresent()) {
-                if (testDescriptor.getSource().get() instanceof MethodSource) {
-                    MethodSource methodSource = (MethodSource) testDescriptor.getSource().get();
-                    Method m = methodSource.getJavaMethod();
-                    FilterResult res = filterTags(m);
-                    if (res != null) {
-                        return res;
-                    }
-                    res = filterTags(methodSource.getJavaClass());
-                    if (res != null) {
-                        return res;
-                    }
-                    return FilterResult.includedIf(exclude);
-                }
-            }
-            return FilterResult.included("not a method");
-        }
-
-        public FilterResult filterTags(AnnotatedElement clz) {
-            List<Tag> all = new ArrayList<>();
-            gatherTags(clz, all);
-            if (all.isEmpty())
-                return null;
-            for (Tag i : all) {
-                if (tags.contains(i.value())) {
-                    return FilterResult.includedIf(!exclude);
-                }
-            }
-            return FilterResult.includedIf(exclude);
-        }
-
-        private void gatherTags(AnnotatedElement clz, List<Tag> all) {
-            Tag tag = clz.getAnnotation(Tag.class);
-            Tags tagsAnn = clz.getAnnotation(Tags.class);
-            if (tag != null) {
-                all.add(tag);
-            } else if (tagsAnn != null) {
-                all.addAll(List.of(tagsAnn.value()));
-            }
-            if (clz instanceof Class) {
-                if (((Class<?>) clz).isAnnotation()) {
-                    //only scan meta annotations one level deep
-                    return;
-                }
-            }
-
-            //meta annotations can also provide tags
-            for (var a : clz.getAnnotations()) {
-                gatherTags(a.annotationType(), all);
-            }
         }
     }
 

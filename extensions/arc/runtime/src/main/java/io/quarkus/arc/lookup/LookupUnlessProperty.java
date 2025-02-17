@@ -6,7 +6,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import javax.enterprise.inject.Instance;
+import jakarta.enterprise.inject.Instance;
 
 /**
  * Indicates that a bean should only be obtained by programmatic lookup if the property does not match the provided value.
@@ -30,7 +30,7 @@ import javax.enterprise.inject.Instance;
  *  }
  *
  *  {@literal @ApplicationScoped}
- *  class ServiceBar {
+ *  class ServiceBar implements Service {
  *
  *     public String name() {
  *        return "bar";
@@ -71,7 +71,7 @@ public @interface LookupUnlessProperty {
     String stringValue();
 
     /**
-     * Determines if the bean should be suppressed when the property name specified by {@code name} has not been specified at
+     * Determines if the bean should be looked up when the property name specified by {@code name} has not been specified at
      * all
      */
     boolean lookupIfMissing() default false;

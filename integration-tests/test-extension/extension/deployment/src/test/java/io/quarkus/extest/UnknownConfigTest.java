@@ -10,15 +10,15 @@ import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
-import io.quarkus.vertx.http.runtime.HttpBuildTimeConfig;
-import io.quarkus.vertx.http.runtime.HttpConfiguration;
+import io.quarkus.vertx.http.runtime.VertxHttpBuildTimeConfig;
+import io.quarkus.vertx.http.runtime.VertxHttpConfig;
 
 public class UnknownConfigTest {
     @RegisterExtension
@@ -32,19 +32,20 @@ public class UnknownConfigTest {
                         .map(Object::toString).collect(Collectors.toSet());
                 assertTrue(properties.contains("quarkus.unknown.prop"));
                 assertFalse(properties.contains("quarkus.build.unknown.prop"));
+                assertFalse(properties.contains("proprietary.should.not.report.unknown"));
             });
 
     @Inject
     Config config;
     @Inject
-    HttpBuildTimeConfig httpBuildTimeConfig;
+    VertxHttpBuildTimeConfig httpBuildTimeConfig;
     @Inject
-    HttpConfiguration httpConfiguration;
+    VertxHttpConfig httpConfig;
 
     @Test
     void unknown() {
         assertEquals("1234", config.getConfigValue("quarkus.unknown.prop").getValue());
-        assertEquals("/1234", httpBuildTimeConfig.nonApplicationRootPath);
-        assertEquals(4443, httpConfiguration.sslPort);
+        assertEquals("/1234", httpBuildTimeConfig.nonApplicationRootPath());
+        assertEquals(4443, httpConfig.sslPort());
     }
 }

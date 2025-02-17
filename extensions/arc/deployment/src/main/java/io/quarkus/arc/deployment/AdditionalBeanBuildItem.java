@@ -5,11 +5,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.jboss.jandex.DotName;
 
 import io.quarkus.builder.item.MultiBuildItem;
+import io.smallrye.common.annotation.CheckReturnValue;
 
 /**
  * This build item is used to specify one or more additional bean classes to be analyzed during bean discovery.
@@ -21,6 +21,11 @@ import io.quarkus.builder.item.MultiBuildItem;
  * An additional bean may have the scope defaulted via {@link #defaultScope} and {@link Builder#setDefaultScope(DotName)}. The
  * default scope is only used if there is no scope declared on the bean class. The default scope should be used in cases where a
  * bean class source is not controlled by the extension and the scope annotation cannot be declared directly on the class.
+ *
+ * <h2>Generated Classes</h2>
+ *
+ * This build item should never be produced for a generated class - {@link GeneratedBeanBuildItem} and
+ * {@link GeneratedBeanGizmoAdaptor} should be used instead.
  */
 public final class AdditionalBeanBuildItem extends MultiBuildItem {
 
@@ -34,8 +39,9 @@ public final class AdditionalBeanBuildItem extends MultiBuildItem {
      * @param beanClass
      * @return a new build item
      */
+    @CheckReturnValue
     public static AdditionalBeanBuildItem unremovableOf(Class<?> beanClass) {
-        return new AdditionalBeanBuildItem(Collections.singletonList(beanClass.getName()), false, null);
+        return new AdditionalBeanBuildItem(List.of(beanClass.getName()), false, null);
     }
 
     /**
@@ -44,8 +50,9 @@ public final class AdditionalBeanBuildItem extends MultiBuildItem {
      * @param beanClass
      * @return a new build item
      */
+    @CheckReturnValue
     public static AdditionalBeanBuildItem unremovableOf(String beanClass) {
-        return new AdditionalBeanBuildItem(Collections.singletonList(beanClass), false, null);
+        return new AdditionalBeanBuildItem(List.of(beanClass), false, null);
     }
 
     private final List<String> beanClasses;
@@ -53,21 +60,21 @@ public final class AdditionalBeanBuildItem extends MultiBuildItem {
     private final DotName defaultScope;
 
     public AdditionalBeanBuildItem(String... beanClasses) {
-        this(Arrays.asList(beanClasses), true, null);
+        this(List.of(beanClasses), true, null);
     }
 
     public AdditionalBeanBuildItem(Class<?>... beanClasses) {
-        this(Arrays.stream(beanClasses).map(Class::getName).collect(Collectors.toList()), true, null);
+        this(Arrays.stream(beanClasses).map(Class::getName).toArray(String[]::new));
     }
 
-    AdditionalBeanBuildItem(List<String> beanClasses, boolean removable, DotName defaultScope) {
+    private AdditionalBeanBuildItem(List<String> beanClasses, boolean removable, DotName defaultScope) {
         this.beanClasses = beanClasses;
         this.removable = removable;
         this.defaultScope = defaultScope;
     }
 
     public List<String> getBeanClasses() {
-        return Collections.unmodifiableList(beanClasses);
+        return beanClasses;
     }
 
     public boolean contains(String beanClass) {
@@ -143,7 +150,7 @@ public final class AdditionalBeanBuildItem extends MultiBuildItem {
         }
 
         public AdditionalBeanBuildItem build() {
-            return new AdditionalBeanBuildItem(new ArrayList<>(beanClasses), removable, defaultScope);
+            return new AdditionalBeanBuildItem(List.copyOf(beanClasses), removable, defaultScope);
         }
 
     }

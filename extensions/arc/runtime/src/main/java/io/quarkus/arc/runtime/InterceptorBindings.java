@@ -3,12 +3,16 @@ package io.quarkus.arc.runtime;
 import java.lang.annotation.Annotation;
 import java.util.Set;
 
-import javax.interceptor.InvocationContext;
+import jakarta.interceptor.InvocationContext;
 
 import io.quarkus.arc.AbstractAnnotationLiteral;
 import io.quarkus.arc.ArcInvocationContext;
 
-public class InterceptorBindings {
+/**
+ *
+ * @see ArcInvocationContext#getInterceptorBindings()
+ */
+public final class InterceptorBindings {
 
     @SuppressWarnings("unchecked")
     public static Set<Annotation> getInterceptorBindings(InvocationContext invocationContext) {

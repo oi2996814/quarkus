@@ -2,7 +2,7 @@ package io.quarkus.quartz.test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
@@ -17,7 +17,7 @@ public final class HaltedSchedulerTest {
     @RegisterExtension
     static final QuarkusUnitTest TEST = new QuarkusUnitTest()
             .withApplicationRoot((jar) -> jar
-                    .addAsResource(new StringAsset("quarkus.quartz.start-mode=halted"),
+                    .addAsResource(new StringAsset("quarkus.scheduler.start-mode=halted"),
                             "application.properties"));
 
     @Inject

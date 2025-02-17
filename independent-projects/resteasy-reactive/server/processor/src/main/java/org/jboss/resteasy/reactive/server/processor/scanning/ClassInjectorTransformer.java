@@ -9,15 +9,17 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.BiFunction;
 
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.NotFoundException;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
 
 import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.PrimitiveType.Primitive;
+import org.jboss.jandex.RecordComponentInfo;
 import org.jboss.jandex.Type.Kind;
 import org.jboss.resteasy.reactive.common.model.ParameterType;
 import org.jboss.resteasy.reactive.common.processor.AsmUtil;
@@ -36,6 +38,7 @@ import org.jboss.resteasy.reactive.server.core.parameters.converters.ArrayConver
 import org.jboss.resteasy.reactive.server.core.parameters.converters.DelegatingParameterConverterSupplier;
 import org.jboss.resteasy.reactive.server.core.parameters.converters.ParameterConverter;
 import org.jboss.resteasy.reactive.server.core.parameters.converters.ParameterConverterSupplier;
+import org.jboss.resteasy.reactive.server.core.parameters.converters.ParameterConverterSupport;
 import org.jboss.resteasy.reactive.server.core.parameters.converters.RuntimeResolvedConverter;
 import org.jboss.resteasy.reactive.server.injection.ResteasyReactiveInjectionContext;
 import org.jboss.resteasy.reactive.server.injection.ResteasyReactiveInjectionTarget;
@@ -76,6 +79,9 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
     public static final String INIT_CONVERTER_METHOD_NAME = "__quarkus_init_converter__";
     private static final String INIT_CONVERTER_FIELD_NAME = "__quarkus_converter__";
     private static final String INIT_CONVERTER_METHOD_DESCRIPTOR = "(" + QUARKUS_REST_DEPLOYMENT_DESCRIPTOR + ")V";
+
+    private static final String PARAMETER_CONVERTER_SUPPORT_BINARY_NAME = ParameterConverterSupport.class.getName().replace('.',
+            '/');
 
     private static final String MULTIPART_SUPPORT_BINARY_NAME = MultipartSupport.class.getName().replace('.', '/');
 
@@ -158,11 +164,17 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         private final boolean requireCreateBeanParams;
         private IndexView indexView;
         private boolean seenClassInit;
+        private boolean isRecord;
+        private Map<String, FieldInfo> fieldInfoByName;
 
         public ClassInjectorVisitor(int api, ClassVisitor classVisitor, Map<FieldInfo, ServerIndexedParameter> fieldExtractors,
                 boolean superTypeIsInjectable, boolean requireCreateBeanParams, IndexView indexView) {
             super(api, classVisitor);
             this.fieldExtractors = fieldExtractors;
+            this.fieldInfoByName = new HashMap<>();
+            for (FieldInfo fieldInfo : fieldExtractors.keySet()) {
+                fieldInfoByName.put(fieldInfo.name(), fieldInfo);
+            }
             this.superTypeIsInjectable = superTypeIsInjectable;
             this.requireCreateBeanParams = requireCreateBeanParams;
             this.indexView = indexView;
@@ -197,6 +209,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
             }
             superTypeName = superName;
             thisName = name;
+            isRecord = (access & Opcodes.ACC_RECORD) != 0;
         }
 
         @Override
@@ -223,84 +236,140 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         public void visitEnd() {
             // FIXME: handle setters
             // FIXME: handle multi fields
-            MethodVisitor injectMethod = visitMethod(Opcodes.ACC_PUBLIC, INJECT_METHOD_NAME, INJECT_METHOD_DESCRIPTOR, null,
+            // this is static for records
+            MethodVisitor injectMethod = visitMethod(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC | (isRecord ? Opcodes.ACC_STATIC : 0), INJECT_METHOD_NAME,
+                    isRecord ? "(" + QUARKUS_REST_INJECTION_CONTEXT_DESCRIPTOR + ")L" + thisName + ";"
+                            : INJECT_METHOD_DESCRIPTOR,
+                    null,
                     null);
             injectMethod.visitParameter("ctx", 0 /* modifiers */);
             injectMethod.visitCode();
+            // this is always false for records who can't have a supertype
             if (superTypeIsInjectable) {
                 // this
-                injectMethod.visitIntInsn(Opcodes.ALOAD, 0);
+                injectMethod.visitVarInsn(Opcodes.ALOAD, 0);
                 // ctx param
-                injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                injectMethod.visitVarInsn(Opcodes.ALOAD, 1);
                 // call inject on our bean param field
                 injectMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, superTypeName,
                         INJECT_METHOD_NAME,
                         INJECT_METHOD_DESCRIPTOR, false);
             }
+            Label end = new Label();
+            Label start = new Label();
+            Map<String, Integer> fieldVariableIndices = new HashMap<>();
+            // make local variables for every record component, instead of setting fields
+            if (isRecord) {
+                // 0 is ctx param for records, since it's a static method
+                int fieldIndex = 1;
+                injectMethod.visitLabel(start);
+                for (Entry<FieldInfo, ServerIndexedParameter> entry : fieldExtractors.entrySet()) {
+                    FieldInfo fieldInfo = entry.getKey();
+                    // FIXME: some fields are ignored and should not have variables
+                    injectMethod.visitInsn(AsmUtil.getNullValueOpcode(fieldInfo.type()));
+                    injectMethod.visitVarInsn(AsmUtil.getStoreOpcode(fieldInfo.type()), fieldIndex);
+                    fieldVariableIndices.put(fieldInfo.name(), fieldIndex);
+                    fieldIndex += AsmUtil.getParameterSize(fieldInfo.type());
+                }
+            }
+            int ctxParamIndex = isRecord ? 0 : 1;
             for (Entry<FieldInfo, ServerIndexedParameter> entry : fieldExtractors.entrySet()) {
                 FieldInfo fieldInfo = entry.getKey();
                 ServerIndexedParameter extractor = entry.getValue();
+                int fieldIndex = isRecord ? fieldVariableIndices.get(fieldInfo.name()) : -1;
                 switch (extractor.getType()) {
                     case BEAN:
-                        // this
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 0);
-                        String typeDescriptor = AsmUtil.getDescriptor(fieldInfo.type(), name -> null);
-                        if (requireCreateBeanParams) {
-                            String type = fieldInfo.type().name().toString().replace(".", "/");
-                            injectMethod.visitTypeInsn(Opcodes.NEW, type);
-                            injectMethod.visitInsn(Opcodes.DUP);
-                            injectMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, type, "<init>", "()V", false);
-                            injectMethod.visitInsn(Opcodes.DUP_X1);
-                            injectMethod.visitFieldInsn(Opcodes.PUTFIELD, thisName, fieldInfo.name(),
-                                    typeDescriptor);
-                        } else {
-                            // our bean param field
-                            injectMethod.visitFieldInsn(Opcodes.GETFIELD, thisName, fieldInfo.name(),
-                                    typeDescriptor);
-                        }
-                        // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
-                        // call inject on our bean param field
-                        injectMethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, QUARKUS_REST_INJECTION_TARGET_BINARY_NAME,
-                                INJECT_METHOD_NAME,
-                                INJECT_METHOD_DESCRIPTOR, true);
+                        injectBeanParameter(injectMethod, fieldInfo, fieldIndex, ctxParamIndex);
                         break;
                     case ASYNC_RESPONSE:
                     case BODY:
                         // spec says not supported
                         break;
                     case CONTEXT:
-                        // already set by CDI
+                        // already set by CDI for non-records
+                        if (isRecord) {
+                            injectContextParameter(injectMethod, fieldInfo, ctxParamIndex);
+                        }
                         break;
                     case FORM:
                         injectParameterWithConverter(injectMethod, "getFormParameter", fieldInfo, extractor, true, true,
-                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED));
+                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED), false, fieldIndex, ctxParamIndex);
                         break;
                     case HEADER:
-                        injectParameterWithConverter(injectMethod, "getHeader", fieldInfo, extractor, true, false, false);
+                        injectParameterWithConverter(injectMethod, "getHeader", fieldInfo, extractor, true, false, false,
+                                false, fieldIndex, ctxParamIndex);
                         break;
                     case MATRIX:
                         injectParameterWithConverter(injectMethod, "getMatrixParameter", fieldInfo, extractor, true, true,
-                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED));
+                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED), false, fieldIndex, ctxParamIndex);
                         break;
                     case COOKIE:
                         injectParameterWithConverter(injectMethod, "getCookieParameter", fieldInfo, extractor, false, false,
-                                false);
+                                false, false, fieldIndex, ctxParamIndex);
                         break;
                     case PATH:
                         injectParameterWithConverter(injectMethod, "getPathParameter", fieldInfo, extractor, false, true,
-                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED));
+                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED), false, fieldIndex, ctxParamIndex);
                         break;
                     case QUERY:
                         injectParameterWithConverter(injectMethod, "getQueryParameter", fieldInfo, extractor, true, true,
-                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED));
+                                fieldInfo.hasAnnotation(ResteasyReactiveDotNames.ENCODED), true, fieldIndex, ctxParamIndex);
                         break;
                     default:
                         break;
 
                 }
+                // FIXME: some fields are ignored and should not have variables
+                fieldIndex += AsmUtil.getParameterSize(fieldInfo.type());
             }
-            injectMethod.visitInsn(Opcodes.RETURN);
+            if (isRecord) {
+                injectMethod.visitTypeInsn(Opcodes.NEW, thisName);
+                injectMethod.visitInsn(Opcodes.DUP);
+                ClassInfo recordClass = indexView.getClassByName(thisName.replace('/', '.'));
+                // records must have exactly one constructor
+                String constructorSignature = recordClass.constructors().get(0).descriptor();
+                for (RecordComponentInfo recordComponentInfo : recordClass.unsortedRecordComponents()) {
+                    FieldInfo fieldInfo = fieldInfoByName.get(recordComponentInfo.name());
+                    if (fieldInfo == null) {
+                        throw new RuntimeException("Record component " + recordComponentInfo.name()
+                                + " is not a valid @BeanParam member: it must be a @*Param, @Rest* or @Context annotated member");
+                    }
+                    ServerIndexedParameter extractor = fieldExtractors.get(fieldInfo);
+                    switch (extractor.getType()) {
+                        case ASYNC_RESPONSE:
+                        case BODY:
+                            // spec says not supported
+                            break;
+                        case CONTEXT:
+                        case BEAN:
+                        case FORM:
+                        case HEADER:
+                        case MATRIX:
+                        case COOKIE:
+                        case PATH:
+                        case QUERY:
+                            int fieldIndex = fieldVariableIndices.get(fieldInfo.name());
+                            injectMethod.visitVarInsn(AsmUtil.getLoadOpcode(fieldInfo.type()), fieldIndex);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                injectMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, thisName, "<init>", constructorSignature, false);
+                injectMethod.visitInsn(Opcodes.ARETURN);
+                injectMethod.visitLabel(end);
+                for (Entry<FieldInfo, ServerIndexedParameter> entry : fieldExtractors.entrySet()) {
+                    FieldInfo fieldInfo = entry.getKey();
+                    ServerIndexedParameter extractor = entry.getValue();
+                    // FIXME: some fields are ignored and should not have variables
+                    int fieldIndex = fieldVariableIndices.get(fieldInfo.name());
+                    injectMethod.visitLocalVariable(fieldInfo.name(), fieldInfo.type().descriptor(), null, start, end,
+                            fieldIndex);
+                }
+            } else {
+                injectMethod.visitInsn(Opcodes.RETURN);
+            }
             injectMethod.visitEnd();
             injectMethod.visitMaxs(0, 0);
 
@@ -333,7 +402,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
 
             if (!seenClassInit && !partTypes.isEmpty()) {
                 // add a class init method for the part types special fields
-                MethodVisitor mv = super.visitMethod(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
+                MethodVisitor mv = super.visitMethod(Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, "<clinit>", "()V", null, null);
                 for (Entry<FieldInfo, ServerIndexedParameter> entry : partTypes.entrySet()) {
                     generateMultipartFormStaticInit(mv, entry.getKey(), entry.getValue());
                 }
@@ -342,6 +411,93 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 mv.visitMaxs(0, 0);
             }
             super.visitEnd();
+        }
+
+        private void injectBeanParameter(MethodVisitor injectMethod, FieldInfo fieldInfo, int fieldIndex, int ctxParamIndex) {
+            if (!isRecord) {
+                // this for the put/get field
+                injectMethod.visitVarInsn(Opcodes.ALOAD, 0);
+            }
+            String typeDescriptor = fieldInfo.type().descriptor();
+            ClassInfo memberBeanClassInfo = indexView.getClassByName(fieldInfo.type().name());
+            boolean memberBeanIsRecord = memberBeanClassInfo.isRecord();
+            if (!memberBeanIsRecord) {
+                if (isRecord) {
+                    // we need to obtain the non-record bean param from CDI
+                    // stack: []
+                    // ctx param
+                    injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
+                    // stack: [ctx]
+                    // type
+                    injectMethod.visitLdcInsn(Type.getType(fieldInfo.type().descriptor()));
+                    // stack: [ctx, bean-param-class]
+                    // call getContextParameter on the ctx
+                    injectMethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, QUARKUS_REST_INJECTION_CONTEXT_BINARY_NAME,
+                            "getBeanParameter",
+                            "(Ljava/lang/Class;)Ljava/lang/Object;", true);
+                    // stack: [bean-param]
+                    injectMethod.visitTypeInsn(Opcodes.CHECKCAST, fieldInfo.type().name().toString().replace('.', '/'));
+                    injectMethod.visitInsn(Opcodes.DUP);
+                    // stack: [bean-param, bean-param]
+                    injectMethod.visitVarInsn(AsmUtil.getStoreOpcode(fieldInfo.type()), fieldIndex);
+                    // stack: [bean-param]
+                } else if (requireCreateBeanParams) {
+                    String type = fieldInfo.type().name().toString().replace(".", "/");
+                    // stack: [this]
+                    injectMethod.visitTypeInsn(Opcodes.NEW, type);
+                    // stack: [this, new]
+                    injectMethod.visitInsn(Opcodes.DUP);
+                    // stack: [this, new, new]
+                    injectMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, type, "<init>", "()V", false);
+                    // stack: [this, new]
+                    injectMethod.visitInsn(Opcodes.DUP_X1);
+                    // stack: [new, this, new]
+                    injectMethod.visitFieldInsn(Opcodes.PUTFIELD, thisName, fieldInfo.name(),
+                            typeDescriptor);
+                    // stack: [bean-param]
+                } else {
+                    // our bean param field
+                    injectMethod.visitFieldInsn(Opcodes.GETFIELD, thisName, fieldInfo.name(),
+                            typeDescriptor);
+                    // stack: [bean-param]
+                }
+                // ctx param
+                injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
+                // call inject on our bean param field
+                injectMethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, QUARKUS_REST_INJECTION_TARGET_BINARY_NAME,
+                        INJECT_METHOD_NAME,
+                        INJECT_METHOD_DESCRIPTOR, true);
+            } else {
+                // stack non-record: [this]
+                // stack record: []
+                // ctx param
+                injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
+                // stack non-record: [this, ctx]
+                // stack record: [ctx]
+                // call member bean record factory method
+                injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, fieldInfo.type().name().toString('/'),
+                        INJECT_METHOD_NAME,
+                        "(" + QUARKUS_REST_INJECTION_CONTEXT_DESCRIPTOR + ")" + fieldInfo.type().descriptor(), false);
+                if (isRecord) {
+                    // stack record: [new]
+                    injectMethod.visitVarInsn(AsmUtil.getStoreOpcode(fieldInfo.type()), fieldIndex);
+                } else {
+                    // stack non-record: [this, new]
+                    injectMethod.visitFieldInsn(Opcodes.PUTFIELD, thisName, fieldInfo.name(),
+                            typeDescriptor);
+                }
+            }
+        }
+
+        private void injectContextParameter(MethodVisitor injectMethod, FieldInfo fieldInfo, int ctxParamIndex) {
+            // ctx param
+            injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
+            // type
+            injectMethod.visitLdcInsn(Type.getType(fieldInfo.type().descriptor()));
+            // call getContextParameter on the ctx
+            injectMethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, QUARKUS_REST_INJECTION_CONTEXT_BINARY_NAME,
+                    "getContextParameter",
+                    "(Ljava/lang/Class;)Ljava/lang/Object;", true);
         }
 
         private void generateMultipartFormFields(FieldInfo fieldInfo, ServerIndexedParameter extractor) {
@@ -375,7 +531,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
             if (!extractor.isSingle()) {
                 boolean isArray = type.kind() == org.jboss.jandex.Type.Kind.ARRAY;
                 // it's T[] or List<T>
-                type = isArray ? type.asArrayType().component()
+                type = isArray ? type.asArrayType().constituent()
                         : type.asParameterizedType().arguments().get(0);
             }
             // type
@@ -433,7 +589,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
             initConverterMethod.visitParameter("deployment", 0 /* modifiers */);
             initConverterMethod.visitCode();
             // deployment param
-            initConverterMethod.visitIntInsn(Opcodes.ALOAD, 0);
+            initConverterMethod.visitVarInsn(Opcodes.ALOAD, 0);
             // this class
             initConverterMethod.visitLdcInsn(Type.getType("L" + thisName + ";"));
             // param name
@@ -455,18 +611,14 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 initConverterMethod.visitJumpInsn(Opcodes.IFNONNULL, notNull);
                 // stack: [converter]
                 initConverterMethod.visitInsn(Opcodes.POP);
-                // stack: []
-                // let's instantiate our delegate
-                initConverterMethod.visitTypeInsn(Opcodes.NEW, delegateBinaryName);
-                // stack: [converter]
-                initConverterMethod.visitInsn(Opcodes.DUP);
-                // stack: [converter, converter]
-                initConverterMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, delegateBinaryName, "<init>",
-                        "()V", false);
-                // stack: [converter]
-                // If we don't cast this to ParameterConverter, ASM in computeFrames will call getCommonSuperType
-                // and try to load our generated class before we can load it, so we insert this cast to avoid that
-                initConverterMethod.visitTypeInsn(Opcodes.CHECKCAST, PARAMETER_CONVERTER_BINARY_NAME);
+
+                // className param
+                initConverterMethod.visitLdcInsn(delegateBinaryName.replace('/', '.'));
+                initConverterMethod.visitMethodInsn(Opcodes.INVOKESTATIC, PARAMETER_CONVERTER_SUPPORT_BINARY_NAME,
+                        "create",
+                        "(" + STRING_DESCRIPTOR + ")" + PARAMETER_CONVERTER_DESCRIPTOR,
+                        false);
+
                 // end default delegate
                 initConverterMethod.visitLabel(notNull);
             }
@@ -487,7 +639,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 // [instance, instance, converter]
                 // array converter wants the array instance type
                 if (converter instanceof ArrayConverter.ArraySupplier) {
-                    org.jboss.jandex.Type componentType = fieldInfo.type().asArrayType().component();
+                    org.jboss.jandex.Type componentType = fieldInfo.type().asArrayType().constituent();
                     initConverterMethod.visitLdcInsn(componentType.name().toString('.'));
                     // [instance, instance, converter, componentType]
                     initConverterMethod.visitMethodInsn(Opcodes.INVOKESPECIAL, delegatorBinaryName, "<init>",
@@ -517,7 +669,8 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         }
 
         private void injectParameterWithConverter(MethodVisitor injectMethod, String methodName, FieldInfo fieldInfo,
-                ServerIndexedParameter extractor, boolean extraSingleParameter, boolean extraEncodedParam, boolean encoded) {
+                ServerIndexedParameter extractor, boolean extraSingleParameter, boolean extraEncodedParam, boolean encoded,
+                boolean extraSeparatorParam, int fieldIndex, int ctxParamIndex) {
 
             // spec says:
             /*
@@ -551,9 +704,10 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
             // push the parameter value
             MultipartFormParamExtractor.Type multipartType = getMultipartFormType(extractor);
             if (multipartType == null) {
-                loadParameter(injectMethod, methodName, extractor, extraSingleParameter, extraEncodedParam, encoded);
+                loadParameter(injectMethod, methodName, extractor, extraSingleParameter, extraEncodedParam, encoded,
+                        extraSeparatorParam, ctxParamIndex);
             } else {
-                loadMultipartParameter(injectMethod, fieldInfo, extractor, multipartType);
+                loadMultipartParameter(injectMethod, fieldInfo, extractor, multipartType, ctxParamIndex);
             }
             Label valueWasNull = null;
             if (!extractor.isOptional()) {
@@ -563,9 +717,11 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 injectMethod.visitJumpInsn(Opcodes.IFNULL, valueWasNull);
             }
             convertParameter(injectMethod, extractor, fieldInfo);
-            // inject this (for the put field) before the injected value
-            injectMethod.visitIntInsn(Opcodes.ALOAD, 0);
-            injectMethod.visitInsn(Opcodes.SWAP);
+            if (!isRecord) {
+                // inject this (for the put field) before the injected value
+                injectMethod.visitVarInsn(Opcodes.ALOAD, 0);
+                injectMethod.visitInsn(Opcodes.SWAP);
+            }
             if (fieldInfo.type().kind() == Kind.PRIMITIVE) {
                 // this already does the right checkcast
                 AsmUtil.unboxIfRequired(injectMethod, fieldInfo.type());
@@ -575,8 +731,12 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 injectMethod.visitTypeInsn(Opcodes.CHECKCAST, fieldInfo.type().name().toString().replace('.', '/'));
             }
             // store our param field
-            injectMethod.visitFieldInsn(Opcodes.PUTFIELD, thisName, fieldInfo.name(),
-                    AsmUtil.getDescriptor(fieldInfo.type(), name -> null));
+            if (isRecord) {
+                injectMethod.visitVarInsn(AsmUtil.getStoreOpcode(fieldInfo.type()), fieldIndex);
+            } else {
+                injectMethod.visitFieldInsn(Opcodes.PUTFIELD, thisName, fieldInfo.name(),
+                        fieldInfo.type().descriptor());
+            }
             Label endLabel = new Label();
             injectMethod.visitJumpInsn(Opcodes.GOTO, endLabel);
 
@@ -631,28 +791,28 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         }
 
         private void loadMultipartParameter(MethodVisitor injectMethod, FieldInfo fieldInfo, ServerIndexedParameter param,
-                MultipartFormParamExtractor.Type multipartType) {
+                MultipartFormParamExtractor.Type multipartType, int ctxParamIndex) {
             switch (multipartType) {
                 case String:
                     /*
                      * return single ? MultipartSupport.getString(name, context)
                      * : MultipartSupport.getStrings(name, context);
                      */
-                    invokeMultipartSupport(param, injectMethod, "getString", STRING_DESCRIPTOR);
+                    invokeMultipartSupport(param, injectMethod, "getString", STRING_DESCRIPTOR, ctxParamIndex);
                     break;
                 case ByteArray:
                     /*
                      * return single ? MultipartSupport.getByteArray(name, context)
                      * : MultipartSupport.getByteArrays(name, context);
                      */
-                    invokeMultipartSupport(param, injectMethod, "getByteArray", BYTE_ARRAY_DESCRIPTOR);
+                    invokeMultipartSupport(param, injectMethod, "getByteArray", BYTE_ARRAY_DESCRIPTOR, ctxParamIndex);
                     break;
                 case InputStream:
                     /*
                      * return single ? MultipartSupport.getInputStream(name, context)
                      * : MultipartSupport.getInputStreams(name, context);
                      */
-                    invokeMultipartSupport(param, injectMethod, "getInputStream", INPUT_STREAM_DESCRIPTOR);
+                    invokeMultipartSupport(param, injectMethod, "getInputStream", INPUT_STREAM_DESCRIPTOR, ctxParamIndex);
                     break;
                 case FileUpload:
                     /*
@@ -664,12 +824,13 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                      */
                     if (param.getName().equals(FileUpload.ALL)) {
                         // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                        injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                         injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                         injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, "getFileUploads",
                                 "(" + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")" + LIST_DESCRIPTOR, false);
                     } else {
-                        invokeMultipartSupport(param, injectMethod, "getFileUpload", DEFAULT_FILE_UPLOAD_DESCRIPTOR);
+                        invokeMultipartSupport(param, injectMethod, "getFileUpload", DEFAULT_FILE_UPLOAD_DESCRIPTOR,
+                                ctxParamIndex);
                     }
                     break;
                 case File:
@@ -685,7 +846,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                         // name param
                         injectMethod.visitLdcInsn(param.getName());
                         // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                        injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                         injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                         injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, "getFileUpload",
                                 "(" + STRING_DESCRIPTOR + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")"
@@ -712,7 +873,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                         // name param
                         injectMethod.visitLdcInsn(param.getName());
                         // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                        injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                         injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                         injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME,
                                 "getJavaIOFileUploads",
@@ -733,7 +894,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                         // name param
                         injectMethod.visitLdcInsn(param.getName());
                         // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                        injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                         injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                         injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, "getFileUpload",
                                 "(" + STRING_DESCRIPTOR + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")"
@@ -757,7 +918,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                         // name param
                         injectMethod.visitLdcInsn(param.getName());
                         // ctx param
-                        injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                        injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                         injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                         injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME,
                                 "getJavaPathFileUploads",
@@ -768,52 +929,38 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 case PartType:
                     /*
                      * if (single) {
-                     * String param = (String) context.getFormParameter(name, true, false);
-                     * return MultipartSupport.convertFormAttribute(param, typeClass, genericType, MediaType.valueOf(mimeType),
-                     * context,
-                     * name);
+                     * return MultipartSupport.getConvertedFormAttribute(name, typeClass, genericType,
+                     * MediaType.valueOf(mimeType),
+                     * context);
                      * } else {
-                     * List<String> params = (List<String>) context.getFormParameter(name, false, false);
-                     * return MultipartSupport.convertFormAttributes(params, typeClass, genericType,
-                     * MediaType.valueOf(mimeType), context, name);
+                     * return MultipartSupport.getConvertedFormAttributes(name, typeClass, genericType,
+                     * MediaType.valueOf(mimeType),
+                     * context);
                      * }
                      */
-                    // ctx param
-                    injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
                     // name
                     injectMethod.visitLdcInsn(param.getName());
-                    // single
-                    injectMethod.visitLdcInsn(param.isSingle());
-                    // encoded
-                    injectMethod.visitLdcInsn(false);
-                    injectMethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, QUARKUS_REST_INJECTION_CONTEXT_BINARY_NAME,
-                            "getFormParameter",
-                            "(Ljava/lang/String;ZZ)Ljava/lang/Object;", true);
-                    injectMethod.visitTypeInsn(Opcodes.CHECKCAST, param.isSingle() ? STRING_BINARY_NAME : LIST_BINARY_NAME);
-                    // class, generic type, media type, context, name
+                    // class, generic type, media type
                     injectMethod.visitFieldInsn(Opcodes.GETSTATIC, this.thisName, fieldInfo.name() + "_type", CLASS_DESCRIPTOR);
                     injectMethod.visitFieldInsn(Opcodes.GETSTATIC, this.thisName, fieldInfo.name() + "_genericType",
                             TYPE_DESCRIPTOR);
                     injectMethod.visitFieldInsn(Opcodes.GETSTATIC, this.thisName, fieldInfo.name() + "_mediaType",
                             MEDIA_TYPE_DESCRIPTOR);
-                    injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                    // ctx param
+                    injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                     injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
-                    injectMethod.visitLdcInsn(param.getName());
-                    String firstParamDescriptor;
                     String returnDescriptor;
                     String methodName;
                     if (param.isSingle()) {
-                        firstParamDescriptor = STRING_DESCRIPTOR;
                         returnDescriptor = OBJECT_DESCRIPTOR;
-                        methodName = "convertFormAttribute";
+                        methodName = "getConvertedFormAttribute";
                     } else {
-                        firstParamDescriptor = LIST_DESCRIPTOR;
                         returnDescriptor = LIST_DESCRIPTOR;
-                        methodName = "convertFormAttributes";
+                        methodName = "getConvertedFormAttributes";
                     }
                     injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, methodName,
-                            "(" + firstParamDescriptor + CLASS_DESCRIPTOR + TYPE_DESCRIPTOR + MEDIA_TYPE_DESCRIPTOR
-                                    + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + STRING_DESCRIPTOR + ")" + returnDescriptor,
+                            "(" + STRING_DESCRIPTOR + CLASS_DESCRIPTOR + TYPE_DESCRIPTOR + MEDIA_TYPE_DESCRIPTOR
+                                    + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")" + returnDescriptor,
                             false);
                     break;
                 default:
@@ -822,12 +969,12 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         }
 
         private void invokeMultipartSupport(ServerIndexedParameter param, MethodVisitor injectMethod,
-                String singleOperationName, String singleOperationReturnDescriptor) {
+                String singleOperationName, String singleOperationReturnDescriptor, int ctxParamIndex) {
             if (param.isSingle()) {
                 // name param
                 injectMethod.visitLdcInsn(param.getName());
                 // ctx param
-                injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                 injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                 injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, singleOperationName,
                         "(" + STRING_DESCRIPTOR + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")"
@@ -838,7 +985,7 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
                 // name param
                 injectMethod.visitLdcInsn(param.getName());
                 // ctx param
-                injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+                injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
                 injectMethod.visitTypeInsn(Opcodes.CHECKCAST, RESTEASY_REACTIVE_REQUEST_CONTEXT_BINARY_NAME);
                 injectMethod.visitMethodInsn(Opcodes.INVOKESTATIC, MULTIPART_SUPPORT_BINARY_NAME, singleOperationName + "s",
                         "(" + STRING_DESCRIPTOR + RESTEASY_REACTIVE_REQUEST_CONTEXT_DESCRIPTOR + ")" + LIST_DESCRIPTOR,
@@ -872,8 +1019,8 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
             } else if (param.getElementType().equals(InputStream.class.getName())) {
                 return MultipartFormParamExtractor.Type.InputStream;
             } else if (param.getParamType().kind() == Kind.ARRAY
-                    && param.getParamType().asArrayType().component().kind() == Kind.PRIMITIVE
-                    && param.getParamType().asArrayType().component().asPrimitiveType().primitive() == Primitive.BYTE) {
+                    && param.getParamType().asArrayType().constituent().kind() == Kind.PRIMITIVE
+                    && param.getParamType().asArrayType().constituent().asPrimitiveType().primitive() == Primitive.BYTE) {
                 return MultipartFormParamExtractor.Type.ByteArray;
             } else if (mimeType != null && !mimeType.equals(MediaType.TEXT_PLAIN)) {
                 return MultipartFormParamExtractor.Type.PartType;
@@ -899,13 +1046,23 @@ public class ClassInjectorTransformer implements BiFunction<String, ClassVisitor
         }
 
         private void loadParameter(MethodVisitor injectMethod, String methodName, IndexedParameter extractor,
-                boolean extraSingleParameter, boolean extraEncodedParam, boolean encoded) {
+                boolean extraSingleParameter, boolean extraEncodedParam, boolean encoded, boolean extraSeparatorParam,
+                int ctxParamIndex) {
             // ctx param
-            injectMethod.visitIntInsn(Opcodes.ALOAD, 1);
+            injectMethod.visitVarInsn(Opcodes.ALOAD, ctxParamIndex);
             // name param
             injectMethod.visitLdcInsn(extractor.getName());
             String methodSignature;
-            if (extraEncodedParam && extraSingleParameter) {
+            if (extraEncodedParam && extraSingleParameter && extraSeparatorParam) {
+                injectMethod.visitLdcInsn(extractor.isSingle());
+                injectMethod.visitLdcInsn(encoded);
+                if (extractor.getSeparator() != null) {
+                    injectMethod.visitLdcInsn(extractor.getSeparator());
+                } else {
+                    injectMethod.visitInsn(Opcodes.ACONST_NULL);
+                }
+                methodSignature = "(Ljava/lang/String;ZZLjava/lang/String;)Ljava/lang/Object;";
+            } else if (extraEncodedParam && extraSingleParameter) {
                 injectMethod.visitLdcInsn(extractor.isSingle());
                 injectMethod.visitLdcInsn(encoded);
                 methodSignature = "(Ljava/lang/String;ZZ)Ljava/lang/Object;";

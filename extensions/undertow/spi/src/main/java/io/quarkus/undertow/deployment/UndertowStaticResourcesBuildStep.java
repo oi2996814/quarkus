@@ -12,6 +12,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import io.quarkus.bootstrap.classloading.ClassPathElement;
+import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.deployment.ApplicationArchive;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
@@ -22,7 +24,7 @@ import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.runtime.LaunchMode;
-import io.quarkus.runtime.util.ClassPathUtils;
+import io.smallrye.common.os.OS;
 
 /**
  * NOTE: Shared with Resteasy standalone!
@@ -56,8 +58,8 @@ public class UndertowStaticResourcesBuildStep {
         }
         //we need to check for web resources in order to get welcome files to work
         //this kinda sucks
-        Set<String> knownFiles = new HashSet<>();
-        Set<String> knownDirectories = new HashSet<>();
+        final Set<String> knownFiles = new HashSet<>();
+        final Set<String> knownDirectories = new HashSet<>();
         for (ApplicationArchive i : applicationArchivesBuildItem.getAllApplicationArchives()) {
             i.accept(tree -> {
                 Path resource = tree.getPath(META_INF_RESOURCES);
@@ -67,9 +69,14 @@ public class UndertowStaticResourcesBuildStep {
             });
         }
 
-        ClassPathUtils.consumeAsPaths(META_INF_RESOURCES, resource -> {
-            collectKnownPaths(resource, knownFiles, knownDirectories);
-        });
+        for (ClassPathElement e : QuarkusClassLoader.getElements(META_INF_RESOURCES, false)) {
+            if (e.isRuntime()) {
+                e.apply(tree -> {
+                    collectKnownPaths(tree.getPath(META_INF_RESOURCES), knownFiles, knownDirectories);
+                    return null;
+                });
+            }
+        }
 
         for (GeneratedWebResourceBuildItem genResource : generatedWebResources) {
             String sub = genResource.getName();
@@ -97,18 +104,26 @@ public class UndertowStaticResourcesBuildStep {
     private void collectKnownPaths(Path resource, Set<String> knownFiles, Set<String> knownDirectories) {
         try {
             Files.walkFileTree(resource, new SimpleFileVisitor<Path>() {
+
                 @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                public FileVisitResult visitFile(Path path, BasicFileAttributes attrs)
                         throws IOException {
-                    knownFiles.add(resource.relativize(file).toString());
+                    knownFiles.add(normalizePath(resource.relativize(path).toString()));
                     return FileVisitResult.CONTINUE;
                 }
 
                 @Override
-                public FileVisitResult preVisitDirectory(Path file, BasicFileAttributes attrs)
+                public FileVisitResult preVisitDirectory(Path path, BasicFileAttributes attrs)
                         throws IOException {
-                    knownDirectories.add(resource.relativize(file).toString());
+                    knownDirectories.add(normalizePath(resource.relativize(path).toString()));
                     return FileVisitResult.CONTINUE;
+                }
+
+                private String normalizePath(String path) {
+                    if (OS.WINDOWS.isCurrent()) {
+                        path = path.replace('\\', '/');
+                    }
+                    return path;
                 }
             });
         } catch (IOException e) {

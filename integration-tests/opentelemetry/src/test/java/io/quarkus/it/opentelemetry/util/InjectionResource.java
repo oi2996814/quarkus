@@ -1,10 +1,10 @@
 package io.quarkus.it.opentelemetry.util;
 
-import javax.enterprise.context.RequestScoped;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.core.Response;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Response;
 
 import org.junit.jupiter.api.Assertions;
 
@@ -48,9 +48,12 @@ public class InjectionResource {
         Assertions.assertNotNull(openTelemetry, "OpenTelemetry cannot be injected");
         Assertions.assertNotNull(tracer, "Tracer cannot be injected");
         Assertions.assertNotNull(span, "Span cannot be injected");
-        Assertions.assertNotNull(openTelemetry, "Baggage cannot be injected");
+        Assertions.assertNotNull(baggage, "Baggage cannot be injected");
 
-        Assertions.assertEquals(GlobalOpenTelemetry.get(), openTelemetry);
+        // GlobalOpenTelemetry.get() returns an Obfuscated OpenTelemetry instance that
+        // is not equal to the injected one but contains the same objects.
+        Assertions.assertEquals(GlobalOpenTelemetry.get().getTracerProvider(), openTelemetry.getTracerProvider());
+        Assertions.assertEquals(GlobalOpenTelemetry.get().getPropagators(), openTelemetry.getPropagators());
         Assertions.assertEquals(Span.current().getSpanContext(), span.getSpanContext());
         Assertions.assertEquals(Baggage.current().size(), baggage.size());
         baggage.asMap().forEach((s, baggageEntry) -> Assertions.assertEquals(baggageEntry, baggage.asMap().get(s)));

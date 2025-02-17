@@ -2,33 +2,36 @@ package io.quarkus.it.mongodb.panache.book
 
 import io.quarkus.panache.common.Parameters
 import io.quarkus.panache.common.Sort
-import org.bson.types.ObjectId
-import org.jboss.logging.Logger
+import jakarta.annotation.PostConstruct
+import jakarta.inject.Inject
+import jakarta.ws.rs.DELETE
+import jakarta.ws.rs.GET
+import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.PATCH
+import jakarta.ws.rs.POST
+import jakarta.ws.rs.PUT
+import jakarta.ws.rs.Path
+import jakarta.ws.rs.PathParam
+import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.core.Response
 import java.net.URI
 import java.time.LocalDate
-import javax.annotation.PostConstruct
-import javax.inject.Inject
-import javax.ws.rs.DELETE
-import javax.ws.rs.GET
-import javax.ws.rs.NotFoundException
-import javax.ws.rs.PATCH
-import javax.ws.rs.POST
-import javax.ws.rs.PUT
-import javax.ws.rs.Path
-import javax.ws.rs.PathParam
-import javax.ws.rs.QueryParam
-import javax.ws.rs.core.Response
+import org.bson.types.ObjectId
+import org.jboss.logging.Logger
 
 @Path("/books/repository")
 class BookRepositoryResource {
-    @Inject
-    lateinit var bookRepository: BookRepository
+    @Inject lateinit var bookRepository: BookRepository
 
     @PostConstruct
     fun init() {
         val databaseName: String = bookRepository.mongoDatabase().name
         val collectionName: String = bookRepository.mongoCollection().namespace.collectionName
-        LOGGER.infov("Using BookRepository[database={0}, collection={1}]", databaseName, collectionName)
+        LOGGER.infov(
+            "Using BookRepository[database={0}, collection={1}]",
+            databaseName,
+            collectionName
+        )
     }
 
     @GET
@@ -85,13 +88,15 @@ class BookRepositoryResource {
     ): Book? {
         return if (author != null) {
             bookRepository.find("{'author': ?1,'bookTitle': ?2}", author, title!!).firstResult()
-        } else bookRepository
-            .find(
-                "{'creationDate': {\$gte: ?1}, 'creationDate': {\$lte: ?2}}",
-                LocalDate.parse(dateFrom),
-                LocalDate.parse(dateTo)
-            )
-            .firstResult() ?: throw NotFoundException()
+        } else
+            bookRepository
+                .find(
+                    "{'creationDate': {\$gte: ?1}, 'creationDate': {\$lte: ?2}}",
+                    LocalDate.parse(dateFrom),
+                    LocalDate.parse(dateTo)
+                )
+                .firstResult()
+                ?: throw NotFoundException()
     }
 
     @GET
@@ -103,14 +108,20 @@ class BookRepositoryResource {
         @QueryParam("dateTo") dateTo: String?
     ): Book? {
         return if (author != null) {
-            bookRepository.find(
-                "{'author': :author,'bookTitle': :title}",
-                Parameters.with("author", author).and("title", title)
-            ).firstResult()
-        } else bookRepository.find(
-            "{'creationDate': {\$gte: :dateFrom}, 'creationDate': {\$lte: :dateTo}}",
-            Parameters.with("dateFrom", LocalDate.parse(dateFrom)).and("dateTo", LocalDate.parse(dateTo))
-        ).firstResult()
+            bookRepository
+                .find(
+                    "{'author': :author,'bookTitle': :title}",
+                    Parameters.with("author", author).and("title", title)
+                )
+                .firstResult()
+        } else
+            bookRepository
+                .find(
+                    "{'creationDate': {\$gte: :dateFrom}, 'creationDate': {\$lte: :dateTo}}",
+                    Parameters.with("dateFrom", LocalDate.parse(dateFrom))
+                        .and("dateTo", LocalDate.parse(dateTo))
+                )
+                .firstResult()
     }
 
     @DELETE

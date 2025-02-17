@@ -74,22 +74,6 @@
             <artifactId>quarkus-panache-common-deployment</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.hibernate</groupId>
-            <artifactId>hibernate-jpamodelgen</artifactId>
-            <scope>provided</scope>
-            <!-- Exclude these dependencies, since they are banned -->
-            <exclusions>
-                <exclusion>
-                    <groupId>javax.xml.bind</groupId>
-                    <artifactId>jaxb-api</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>javax.activation</groupId>
-                    <artifactId>javax.activation-api</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
     </dependencies>
 
     <build>
@@ -122,6 +106,13 @@
                             <goal>kapt</goal>
                         </goals>
                         <configuration>
+                            <annotationProcessorPaths>
+                                <annotationProcessorPath>
+                                    <groupId>org.hibernate.orm</groupId>
+                                    <artifactId>hibernate-jpamodelgen</artifactId>
+                                    <version>${hibernate-orm.version}</version>
+                                </annotationProcessorPath>
+                            </annotationProcessorPaths>
                             <annotationProcessors>
                                 <annotationProcessor>org.hibernate.jpamodelgen.JPAMetaModelEntityProcessor</annotationProcessor>
                             </annotationProcessors>
@@ -185,28 +176,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openrewrite.maven</groupId>
-                        <artifactId>rewrite-maven-plugin</artifactId>
-                        <configuration>
-                            <activeRecipes>
-                                <recipe>io.quarkus.hibernate-orm-narayana-switch</recipe>
-                            </activeRecipes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

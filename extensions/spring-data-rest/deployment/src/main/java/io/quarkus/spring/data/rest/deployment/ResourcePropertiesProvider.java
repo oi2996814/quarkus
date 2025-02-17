@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
-import javax.annotation.security.RolesAllowed;
+import jakarta.annotation.security.RolesAllowed;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -82,7 +82,7 @@ public abstract class ResourcePropertiesProvider {
             return annotations;
         }
 
-        for (AnnotationInstance annotation : classInfo.classAnnotations()) {
+        for (AnnotationInstance annotation : classInfo.declaredAnnotations()) {
             if (ANNOTATIONS_TO_COPY.stream().anyMatch(annotation.name().toString()::startsWith)) {
                 annotations.add(annotation);
             }
@@ -100,11 +100,11 @@ public abstract class ResourcePropertiesProvider {
         if (classInfo == null) {
             return null;
         }
-        if (classInfo.classAnnotation(REPOSITORY_REST_RESOURCE_ANNOTATION) != null) {
-            return classInfo.classAnnotation(REPOSITORY_REST_RESOURCE_ANNOTATION);
+        if (classInfo.declaredAnnotation(REPOSITORY_REST_RESOURCE_ANNOTATION) != null) {
+            return classInfo.declaredAnnotation(REPOSITORY_REST_RESOURCE_ANNOTATION);
         }
-        if (classInfo.classAnnotation(REST_RESOURCE_ANNOTATION) != null) {
-            return classInfo.classAnnotation(REST_RESOURCE_ANNOTATION);
+        if (classInfo.declaredAnnotation(REST_RESOURCE_ANNOTATION) != null) {
+            return classInfo.declaredAnnotation(REST_RESOURCE_ANNOTATION);
         }
         if (classInfo.superName() != null) {
             return findClassAnnotation(classInfo.superName());
@@ -119,17 +119,15 @@ public abstract class ResourcePropertiesProvider {
         }
         for (MethodInfo method : classInfo.methods()) {
             if (methodPredicate.test(method)) {
+                MethodWithAnnotation found = new MethodWithAnnotation();
+                found.method = method;
                 if (method.hasAnnotation(REPOSITORY_REST_RESOURCE_ANNOTATION)) {
-                    MethodWithAnnotation found = new MethodWithAnnotation();
-                    found.method = method;
                     found.annotation = method.annotation(REPOSITORY_REST_RESOURCE_ANNOTATION);
-                    return found;
                 } else if (method.hasAnnotation(REST_RESOURCE_ANNOTATION)) {
-                    MethodWithAnnotation found = new MethodWithAnnotation();
-                    found.method = method;
                     found.annotation = method.annotation(REST_RESOURCE_ANNOTATION);
-                    return found;
                 }
+
+                return found;
             }
         }
         if (classInfo.superName() != null) {

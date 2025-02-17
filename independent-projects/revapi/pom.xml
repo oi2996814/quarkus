@@ -3,16 +3,16 @@
          child.project.url.inherit.append.path="false">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.jboss</groupId>
-        <artifactId>jboss-parent</artifactId>
-        <version>39</version>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-parent</artifactId>
+        <version>999-SNAPSHOT</version>
+        <relativePath>../parent/pom.xml</relativePath>
     </parent>
-    
-    <groupId>io.quarkus</groupId>
+
     <artifactId>quarkus-revapi-config</artifactId>
     <name>Quarkus - Revapi Configuration</name>
-    <version>999-SNAPSHOT</version>    
-    <description>Contains the configuration of the Revapi API checker and the list of the API changes 
+    <version>999-SNAPSHOT</version>
+    <description>Contains the configuration of the Revapi API checker and the list of the API changes
         in the Quarkus APIs.
     </description>
     <url>https://github.com/quarkusio/quarkus</url>
@@ -28,15 +28,12 @@
     </scm>
 
     <properties>
-        <maven.compiler.target>11</maven.compiler.target>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.release>11</maven.compiler.release>
         <format.skip>true</format.skip>
     </properties>
 
     <build>
         <plugins>
-            <!-- 
+            <!--
             This is not deployed into a Maven repository. It is merely installed into the local Maven repository
             during a local build.
             -->
@@ -97,31 +94,6 @@
                 <enforcer.skip>true</enforcer.skip>
                 <format.skip>true</format.skip>
             </properties>
-        </profile>
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <pluginManagement>
-                    <plugins>
-                        <plugin>
-                            <groupId>org.openrewrite.maven</groupId>
-                            <artifactId>rewrite-maven-plugin</artifactId>
-                            <version>4.21.0-SNAPSHOT</version>
-                            <configuration>
-                                <configLocation>${maven.multiModuleProjectDirectory}/jakarta/rewrite.yml</configLocation>
-                                <activeStyles>
-                                    <style>io.quarkus.style.maven</style>
-                                </activeStyles>
-                            </configuration>
-                        </plugin>
-                    </plugins>
-                </pluginManagement>
-            </build>
         </profile>
     </profiles>
 </project>

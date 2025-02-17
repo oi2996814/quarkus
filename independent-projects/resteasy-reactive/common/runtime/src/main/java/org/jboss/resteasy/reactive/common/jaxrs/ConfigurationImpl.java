@@ -11,25 +11,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.Priority;
-import javax.ws.rs.ConstrainedTo;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.Priorities;
-import javax.ws.rs.Produces;
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.client.ClientRequestFilter;
-import javax.ws.rs.client.ClientResponseFilter;
-import javax.ws.rs.client.RxInvokerProvider;
-import javax.ws.rs.core.Configuration;
-import javax.ws.rs.core.Feature;
-import javax.ws.rs.core.FeatureContext;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.ext.ContextResolver;
-import javax.ws.rs.ext.MessageBodyReader;
-import javax.ws.rs.ext.MessageBodyWriter;
-import javax.ws.rs.ext.ReaderInterceptor;
-import javax.ws.rs.ext.WriterInterceptor;
+import jakarta.annotation.Priority;
+import jakarta.ws.rs.ConstrainedTo;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.client.ClientRequestFilter;
+import jakarta.ws.rs.client.ClientResponseFilter;
+import jakarta.ws.rs.client.RxInvokerProvider;
+import jakarta.ws.rs.core.Configuration;
+import jakarta.ws.rs.core.Feature;
+import jakarta.ws.rs.core.FeatureContext;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.ext.ContextResolver;
+import jakarta.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.ext.MessageBodyWriter;
+import jakarta.ws.rs.ext.ReaderInterceptor;
+import jakarta.ws.rs.ext.WriterInterceptor;
 
 import org.jboss.resteasy.reactive.common.core.UnmanagedBeanFactory;
 import org.jboss.resteasy.reactive.common.model.ResourceReader;
@@ -54,7 +54,7 @@ public class ConfigurationImpl implements Configuration {
     private final MultivaluedMap<Class<?>, ResourceWriter> resourceWriters;
     private final MultivaluedMap<Class<?>, ResourceReader> resourceReaders;
     private final MultivaluedMap<Class<?>, RxInvokerProvider<?>> rxInvokerProviders;
-    private final MultivaluedMap<Class<?>, ContextResolver<?>> contextResolvers;
+    private final Map<Class<?>, MultivaluedMap<Integer, ContextResolver<?>>> contextResolvers;
 
     public ConfigurationImpl(RuntimeType runtimeType) {
         this.runtimeType = runtimeType;
@@ -69,7 +69,7 @@ public class ConfigurationImpl implements Configuration {
         this.resourceReaders = new QuarkusMultivaluedHashMap<>();
         this.resourceWriters = new QuarkusMultivaluedHashMap<>();
         this.rxInvokerProviders = new QuarkusMultivaluedHashMap<>();
-        this.contextResolvers = new QuarkusMultivaluedHashMap<>();
+        this.contextResolvers = new HashMap<>();
     }
 
     public ConfigurationImpl(Configuration configuration) {
@@ -96,7 +96,7 @@ public class ConfigurationImpl implements Configuration {
             this.resourceWriters.putAll(configurationImpl.resourceWriters);
             this.rxInvokerProviders = new QuarkusMultivaluedHashMap<>();
             this.rxInvokerProviders.putAll(configurationImpl.rxInvokerProviders);
-            this.contextResolvers = new QuarkusMultivaluedHashMap<>();
+            this.contextResolvers = new HashMap<>();
             this.contextResolvers.putAll(configurationImpl.contextResolvers);
         } else {
             this.allInstances = new HashMap<>();
@@ -111,7 +111,7 @@ public class ConfigurationImpl implements Configuration {
             this.resourceReaders = new QuarkusMultivaluedHashMap<>();
             this.resourceWriters = new QuarkusMultivaluedHashMap<>();
             this.rxInvokerProviders = new QuarkusMultivaluedHashMap<>();
-            this.contextResolvers = new QuarkusMultivaluedHashMap<>();
+            this.contextResolvers = new HashMap<>();
             // this is the best we can do - we don't have any of the metadata associated with the registration
             for (Object i : configuration.getInstances()) {
                 register(i);
@@ -280,6 +280,9 @@ public class ConfigurationImpl implements Configuration {
                 resourceReader
                         .setMediaTypeStrings(
                                 consumes != null ? Arrays.asList(consumes.value()) : WILDCARD_STRING_LIST);
+                if (priority != null) {
+                    resourceReader.setPriority(priority);
+                }
                 Type[] args = Types.findParameterizedTypes(componentClass, MessageBodyReader.class);
                 resourceReaders.add(args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class,
                         resourceReader);
@@ -298,6 +301,9 @@ public class ConfigurationImpl implements Configuration {
                 resourceWriter
                         .setMediaTypeStrings(
                                 produces != null ? Arrays.asList(produces.value()) : WILDCARD_STRING_LIST);
+                if (priority != null) {
+                    resourceWriter.setPriority(priority);
+                }
                 Type[] args = Types.findParameterizedTypes(componentClass, MessageBodyWriter.class);
                 resourceWriters.add(args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class,
                         resourceWriter);
@@ -314,8 +320,10 @@ public class ConfigurationImpl implements Configuration {
             added = true;
             Class<?> componentClass = component.getClass();
             Type[] args = Types.findParameterizedTypes(componentClass, ContextResolver.class);
-            contextResolvers.add(args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class,
-                    (ContextResolver<?>) component);
+            Class<?> key = args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class;
+            int effectivePriority = priority != null ? priority : determinePriority(component);
+            contextResolvers.computeIfAbsent(key, k -> new MultivaluedTreeMap<>())
+                    .add(effectivePriority, (ContextResolver<?>) component);
         }
         if (added) {
             allInstances.put(component.getClass(), component);
@@ -419,14 +427,51 @@ public class ConfigurationImpl implements Configuration {
         if (component instanceof ContextResolver) {
             added = true;
             Type[] args = Types.findParameterizedTypes(componentClass, ContextResolver.class);
-            contextResolvers.add(args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class,
-                    (ContextResolver<?>) component);
+            Class<?> key = args != null && args.length == 1 ? Types.getRawType(args[0]) : Object.class;
+            int effectivePriority = priority != null ? priority : determinePriority(component);
+            contextResolvers.computeIfAbsent(key, k -> new MultivaluedTreeMap<>())
+                    .add(effectivePriority, (ContextResolver<?>) component);
         }
         if (added) {
             allInstances.put(componentClass, component);
             contracts.put(componentClass, componentContracts);
         }
 
+    }
+
+    /*
+     * Add some custom methods that allow registering MessageBodyReader and MessageBodyWriter classes with all the necessary
+     * information
+     */
+
+    public void registerMessageBodyReader(MessageBodyReader<?> reader, Class<?> handledType, List<String> consumes,
+            RuntimeType runtimeType, boolean builtin, Integer priority) {
+        if (isRegistered(reader)) {
+            return;
+        }
+        ResourceReader resourceReader = new ResourceReader();
+        resourceReader.setFactory(new UnmanagedBeanFactory<>(reader));
+        resourceReader.setMediaTypeStrings(consumes);
+        resourceReader.setBuiltin(builtin);
+        resourceReader.setPriority(priority);
+        resourceReader.setConstraint(runtimeType);
+        resourceReaders.add(handledType, resourceReader);
+        allInstances.put(reader.getClass(), reader);
+    }
+
+    public void registerMessageBodyWriter(MessageBodyWriter<?> messageBodyWriter, Class<?> handledType, List<String> consumes,
+            RuntimeType runtimeType, boolean builtin, Integer priority) {
+        if (isRegistered(messageBodyWriter)) {
+            return;
+        }
+        ResourceWriter resourceWriter = new ResourceWriter();
+        resourceWriter.setFactory(new UnmanagedBeanFactory<>(messageBodyWriter));
+        resourceWriter.setMediaTypeStrings(consumes);
+        resourceWriter.setBuiltin(builtin);
+        resourceWriter.setPriority(priority);
+        resourceWriter.setConstraint(runtimeType);
+        resourceWriters.add(handledType, resourceWriter);
+        allInstances.put(messageBodyWriter.getClass(), messageBodyWriter);
     }
 
     public void register(Object component, int priority) {
@@ -489,15 +534,31 @@ public class ConfigurationImpl implements Configuration {
         return null;
     }
 
-    public <T> T getFromContext(Class<T> wantedClass) {
-        List<ContextResolver<?>> candidates = contextResolvers.get(wantedClass);
+    public <T> ContextResolver<T> getContextResolver(Class<T> wantedClass) {
+        MultivaluedMap<Integer, ContextResolver<?>> candidates = contextResolvers.get(wantedClass);
         if (candidates == null) {
             return null;
         }
-        for (ContextResolver<?> contextResolver : candidates) {
-            Object instance = contextResolver.getContext(wantedClass);
-            if (instance != null) {
-                return (T) instance;
+        for (List<ContextResolver<?>> contextResolvers : candidates.values()) {
+            if (!contextResolvers.isEmpty()) {
+                return (ContextResolver<T>) contextResolvers.get(0);
+            }
+        }
+
+        return null;
+    }
+
+    public <T> T getFromContext(Class<T> wantedClass) {
+        MultivaluedMap<Integer, ContextResolver<?>> candidates = contextResolvers.get(wantedClass);
+        if (candidates == null) {
+            return null;
+        }
+        for (List<ContextResolver<?>> contextResolvers : candidates.values()) {
+            for (ContextResolver<?> contextResolver : contextResolvers) {
+                Object instance = contextResolver.getContext(wantedClass);
+                if (instance != null) {
+                    return (T) instance;
+                }
             }
         }
 

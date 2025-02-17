@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.common.collect.ImmutableMap;
 
-@org.junit.jupiter.api.Tag("failsOnJDK19")
+@org.junit.jupiter.api.Tag("failsOnJDK20")
 public class MultiSourceProjectDevModeTest extends QuarkusDevGradleTestBase {
 
     @Override
@@ -14,7 +14,7 @@ public class MultiSourceProjectDevModeTest extends QuarkusDevGradleTestBase {
 
     @Override
     protected String[] buildArguments() {
-        return new String[] { "clean", "quarkusDev", "-s" };
+        return new String[] { "clean", "quarkusDev" };
     }
 
     protected void testDevMode() throws Exception {

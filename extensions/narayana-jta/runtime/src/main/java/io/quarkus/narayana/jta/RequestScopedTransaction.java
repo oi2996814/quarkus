@@ -2,15 +2,15 @@ package io.quarkus.narayana.jta;
 
 import java.util.function.Function;
 
-import javax.annotation.PreDestroy;
-import javax.enterprise.context.RequestScoped;
-import javax.inject.Inject;
-import javax.transaction.NotSupportedException;
-import javax.transaction.Status;
-import javax.transaction.SystemException;
-import javax.transaction.Transaction;
-import javax.transaction.TransactionManager;
-import javax.transaction.UserTransaction;
+import jakarta.annotation.PreDestroy;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.inject.Inject;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.Status;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.Transaction;
+import jakarta.transaction.TransactionManager;
+import jakarta.transaction.UserTransaction;
 
 import org.jboss.logging.Logger;
 
@@ -69,7 +69,7 @@ class RequestScopedTransaction {
             if (timeout > 0) {
                 try {
                     userTransaction.setTransactionTimeout(
-                            (int) transactionManagerConfiguration.defaultTransactionTimeout.toSeconds());
+                            (int) transactionManagerConfiguration.defaultTransactionTimeout().toSeconds());
                 } catch (SystemException e) {
                     throw new QuarkusTransactionException(e);
                 }

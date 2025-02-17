@@ -4,19 +4,23 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
 
-import javax.ws.rs.ProcessingException;
-import javax.ws.rs.RuntimeType;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.ext.MessageBodyReader;
-import javax.ws.rs.ext.ReaderInterceptor;
-import javax.ws.rs.ext.ReaderInterceptorContext;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.ext.MessageBodyReader;
+import jakarta.ws.rs.ext.ReaderInterceptor;
+import jakarta.ws.rs.ext.ReaderInterceptorContext;
 
-import org.jboss.resteasy.reactive.client.spi.ClientRestHandler;
+import org.jboss.resteasy.reactive.client.spi.ClientMessageBodyReader;
+import org.jboss.resteasy.reactive.client.spi.MissingMessageBodyReaderErrorMessageContextualizer;
 import org.jboss.resteasy.reactive.common.core.Serialisers;
 import org.jboss.resteasy.reactive.common.jaxrs.ConfigurationImpl;
 import org.jboss.resteasy.reactive.common.util.CaseInsensitiveMap;
@@ -24,11 +28,26 @@ import org.jboss.resteasy.reactive.common.util.CaseInsensitiveMap;
 public class ClientReaderInterceptorContextImpl extends AbstractClientInterceptorContextImpl
         implements ReaderInterceptorContext {
 
+    private static final List<MissingMessageBodyReaderErrorMessageContextualizer> contextualizers;
+
+    static {
+        var loader = ServiceLoader.load(MissingMessageBodyReaderErrorMessageContextualizer.class, Thread.currentThread()
+                .getContextClassLoader());
+        if (!loader.iterator().hasNext()) {
+            contextualizers = Collections.emptyList();
+        } else {
+            contextualizers = new ArrayList<>(1);
+            for (var entry : loader) {
+                contextualizers.add(entry);
+            }
+        }
+
+    }
+
     final RestClientRequestContext clientRequestContext;
     final ConfigurationImpl configuration;
     final Serialisers serialisers;
     InputStream inputStream;
-    boolean done = false;
     private int index = 0;
     private final ReaderInterceptor[] interceptors;
     private final MultivaluedMap<String, String> headers = new CaseInsensitiveMap<>();
@@ -57,23 +76,61 @@ public class ClientReaderInterceptorContextImpl extends AbstractClientIntercepto
             for (MessageBodyReader<?> reader : readers) {
                 if (reader.isReadable(entityClass, entityType, annotations, mediaType)) {
                     try {
-                        if (reader instanceof ClientRestHandler) {
-                            try {
-                                ((ClientRestHandler) reader).handle(clientRequestContext);
-                            } catch (Exception e) {
-                                throw new WebApplicationException("Can't inject the client request context", e);
-                            }
+                        if (reader instanceof ClientMessageBodyReader) {
+                            return ((ClientMessageBodyReader) reader).readFrom(entityClass, entityType, annotations, mediaType,
+                                    headers,
+                                    inputStream, clientRequestContext);
+                        } else {
+                            return ((MessageBodyReader) reader).readFrom(entityClass, entityType, annotations, mediaType,
+                                    headers,
+                                    inputStream);
                         }
-                        return ((MessageBodyReader) reader).readFrom(entityClass, entityType, annotations, mediaType, headers,
-                                inputStream);
+
                     } catch (IOException e) {
                         throw new ProcessingException(e);
                     }
                 }
             }
+
+            StringBuilder errorMessage = new StringBuilder(
+                    "Response could not be mapped to type " + entityType + " for response with media type " + mediaType);
+            if (!contextualizers.isEmpty()) {
+                var input = new MissingMessageBodyReaderErrorMessageContextualizer.Input() {
+                    @Override
+                    public Class<?> type() {
+                        return entityClass;
+                    }
+
+                    @Override
+                    public Type genericType() {
+                        return entityType;
+                    }
+
+                    @Override
+                    public Annotation[] annotations() {
+                        return annotations;
+                    }
+
+                    @Override
+                    public MediaType mediaType() {
+                        return mediaType;
+                    }
+                };
+                List<String> contextMessages = new ArrayList<>(contextualizers.size());
+                for (var contextualizer : contextualizers) {
+                    String contextMessage = contextualizer.provideContextMessage(input);
+                    if (contextMessage != null) {
+                        contextMessages.add(contextMessage);
+                    }
+                }
+                if (!contextMessages.isEmpty()) {
+                    errorMessage.append(". Hints: ");
+                    errorMessage.append(String.join(",", contextMessages));
+                }
+            }
+
             // Spec says to throw this
-            throw new ProcessingException(
-                    "Response could not be mapped to type " + entityType);
+            throw new ProcessingException(errorMessage.toString());
         } else {
             return interceptors[index++].aroundReadFrom(this);
         }

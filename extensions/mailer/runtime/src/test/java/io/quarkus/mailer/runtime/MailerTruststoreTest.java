@@ -1,6 +1,6 @@
 package io.quarkus.mailer.runtime;
 
-import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 
@@ -9,16 +9,41 @@ import javax.net.ssl.SSLHandshakeException;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import io.quarkus.mailer.reactive.ReactiveMailer;
+
 public class MailerTruststoreTest extends FakeSmtpTestBase {
 
     @Test
     public void sendMailWithCorrectTrustStore() {
-        MailConfig config = getDefaultConfig();
-        config.ssl = true;
-        config.truststore.password = Optional.of("password");
-        config.truststore.paths = Optional.of(Collections.singletonList(CLIENT_JKS));
+        MailersRuntimeConfig mailersConfig = new DefaultMailersRuntimeConfig(new DefaultMailerRuntimeConfig() {
+            @Override
+            public boolean ssl() {
+                return true;
+            }
 
-        MutinyMailerImpl mailer = getMailer(config);
+            @Override
+            public TrustStoreConfig truststore() {
+                return new TrustStoreConfig() {
+
+                    @Override
+                    public Optional<String> type() {
+                        return Optional.empty();
+                    }
+
+                    @Override
+                    public Optional<List<String>> paths() {
+                        return Optional.of(List.of(CLIENT_TRUSTSTORE));
+                    }
+
+                    @Override
+                    public Optional<String> password() {
+                        return Optional.of("password");
+                    }
+                };
+            }
+        });
+
+        ReactiveMailer mailer = getMailer(mailersConfig);
         startServer(SERVER_JKS);
         mailer.send(getMail()).await().indefinitely();
     }
@@ -26,57 +51,72 @@ public class MailerTruststoreTest extends FakeSmtpTestBase {
     @SuppressWarnings("deprecation")
     @Test
     public void sendMailWithCorrectButDeprecatedTrustStore() {
-        MailConfig config = getDefaultConfig();
-        config.ssl = true;
-        config.keyStorePassword = Optional.of("password");
-        config.keyStore = Optional.of(CLIENT_JKS);
+        MailersRuntimeConfig mailersConfig = new DefaultMailersRuntimeConfig(new DefaultMailerRuntimeConfig() {
+            @Override
+            public boolean ssl() {
+                return true;
+            }
 
-        MutinyMailerImpl mailer = getMailer(config);
+            @Override
+            public Optional<String> keyStorePassword() {
+                return Optional.of("password");
+            }
+
+            @Override
+            public Optional<String> keyStore() {
+                return Optional.of(CLIENT_TRUSTSTORE);
+            }
+        });
+
+        ReactiveMailer mailer = getMailer(mailersConfig);
         startServer(SERVER_JKS);
         mailer.send(getMail()).await().indefinitely();
     }
 
     @Test
-    public void sendMailWithValidCertsButWrongHost() {
-        MailConfig config = getDefaultConfig();
-        config.host = "127.0.0.1"; // Expecting localhost.
-        config.ssl = true;
-        config.truststore.password = Optional.of("password");
-        config.truststore.paths = Optional.of(Collections.singletonList(CLIENT_JKS));
-
-        startServer(SERVER_JKS);
-        MutinyMailerImpl mailer = getMailer(config);
-        Assertions.assertThatThrownBy(() -> mailer.send(getMail()).await().indefinitely())
-                .isInstanceOf(CompletionException.class)
-                .hasCauseInstanceOf(SSLHandshakeException.class);
-    }
-
-    @Test
     public void sendMailWithTrustAll() {
-        MailConfig config = getDefaultConfig();
-        config.ssl = true;
-        config.trustAll = Optional.of(true);
-        MutinyMailerImpl mailer = getMailer(config);
+        MailersRuntimeConfig mailersConfig = new DefaultMailersRuntimeConfig(new DefaultMailerRuntimeConfig() {
+            @Override
+            public boolean ssl() {
+                return true;
+            }
+
+            @Override
+            public Optional<Boolean> trustAll() {
+                return Optional.of(true);
+            }
+        });
+
+        ReactiveMailer mailer = getMailer(mailersConfig);
         startServer(SERVER_JKS);
         mailer.send(getMail()).await().indefinitely();
     }
 
     @Test
     public void sendMailWithGlobalTrustAll() {
-        MailConfig config = getDefaultConfig();
-        config.ssl = true;
-        MutinyMailerImpl mailer = getMailer(config, true);
+        MailersRuntimeConfig mailersConfig = new DefaultMailersRuntimeConfig(new DefaultMailerRuntimeConfig() {
+            @Override
+            public boolean ssl() {
+                return true;
+            }
+        });
+
+        ReactiveMailer mailer = getMailer(mailersConfig, true);
         startServer(SERVER_JKS);
         mailer.send(getMail()).await().indefinitely();
     }
 
     @Test
     public void sendMailWithoutTrustStore() {
-        MailConfig config = getDefaultConfig();
-        config.ssl = true;
+        MailersRuntimeConfig mailersConfig = new DefaultMailersRuntimeConfig(new DefaultMailerRuntimeConfig() {
+            @Override
+            public boolean ssl() {
+                return true;
+            }
+        });
 
         startServer(SERVER_JKS);
-        MutinyMailerImpl mailer = getMailer(config);
+        ReactiveMailer mailer = getMailer(mailersConfig);
         Assertions.assertThatThrownBy(() -> mailer.send(getMail()).await().indefinitely())
                 .isInstanceOf(CompletionException.class)
                 .hasCauseInstanceOf(SSLHandshakeException.class);

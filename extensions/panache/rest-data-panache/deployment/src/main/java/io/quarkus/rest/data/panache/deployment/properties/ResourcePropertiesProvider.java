@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.security.RolesAllowed;
+import jakarta.annotation.security.RolesAllowed;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -25,7 +25,9 @@ public class ResourcePropertiesProvider {
     private static final DotName METHOD_PROPERTIES_ANNOTATION = DotName.createSimple(
             io.quarkus.rest.data.panache.MethodProperties.class.getName());
 
-    private static final List<String> ANNOTATIONS_TO_COPY = List.of(RolesAllowed.class.getPackageName());
+    private static final List<String> ANNOTATIONS_TO_COPY = List.of(RolesAllowed.class.getPackageName(),
+            // To also support `@EndpointDisabled` if used
+            "io.quarkus.resteasy.reactive.server");
 
     private final IndexView index;
 
@@ -58,7 +60,7 @@ public class ResourcePropertiesProvider {
             return annotations;
         }
 
-        for (AnnotationInstance annotation : classInfo.classAnnotations()) {
+        for (AnnotationInstance annotation : classInfo.declaredAnnotations()) {
             if (ANNOTATIONS_TO_COPY.stream().anyMatch(annotation.name().toString()::startsWith)) {
                 annotations.add(annotation);
             }
@@ -76,8 +78,8 @@ public class ResourcePropertiesProvider {
         if (classInfo == null) {
             return null;
         }
-        if (classInfo.classAnnotation(RESOURCE_PROPERTIES_ANNOTATION) != null) {
-            return classInfo.classAnnotation(RESOURCE_PROPERTIES_ANNOTATION);
+        if (classInfo.declaredAnnotation(RESOURCE_PROPERTIES_ANNOTATION) != null) {
+            return classInfo.declaredAnnotation(RESOURCE_PROPERTIES_ANNOTATION);
         }
         if (classInfo.superName() != null) {
             return findResourcePropertiesAnnotation(classInfo.superName());

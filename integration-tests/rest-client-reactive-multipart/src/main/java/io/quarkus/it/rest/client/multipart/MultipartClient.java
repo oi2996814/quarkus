@@ -1,13 +1,14 @@
 package io.quarkus.it.rest.client.multipart;
 
 import java.io.File;
+import java.util.UUID;
 
-import javax.ws.rs.Consumes;
-import javax.ws.rs.FormParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.FormParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.jboss.resteasy.reactive.MultipartForm;
@@ -179,6 +180,10 @@ public interface MultipartClient {
         @PartType(MediaType.APPLICATION_JSON)
         private Pojo pojo;
 
+        @FormParam("uuid")
+        @PartType(MediaType.TEXT_PLAIN)
+        private UUID uuid;
+
         public String getFileName() {
             return fileName;
         }
@@ -193,6 +198,14 @@ public interface MultipartClient {
 
         public void setPojo(Pojo pojo) {
             this.pojo = pojo;
+        }
+
+        public UUID getUuid() {
+            return uuid;
+        }
+
+        public void setUuid(UUID uuid) {
+            this.uuid = uuid;
         }
     }
 

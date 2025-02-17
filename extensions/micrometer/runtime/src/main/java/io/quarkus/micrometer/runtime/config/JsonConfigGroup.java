@@ -4,49 +4,41 @@ import java.time.Duration;
 import java.util.Optional;
 
 import io.quarkus.runtime.annotations.ConfigGroup;
-import io.quarkus.runtime.annotations.ConfigItem;
+import io.smallrye.config.WithDefault;
 
 @ConfigGroup
-public class JsonConfigGroup implements MicrometerConfig.CapabilityEnabled {
+public interface JsonConfigGroup extends MicrometerConfig.CapabilityEnabled {
     /**
      * Support for export to JSON format. Off by default.
      */
-    @ConfigItem(defaultValue = "false")
-    public Optional<Boolean> enabled;
+    @WithDefault("false")
+    @Override
+    Optional<Boolean> enabled();
 
     /**
      * The path for the JSON metrics endpoint.
      * The default value is {@code metrics}.
+     *
+     * By default, this value will be resolved as a path relative to `${quarkus.http.non-application-root-path}`.
+     * If the management interface is enabled, the value will be resolved as a path relative to
+     * `${quarkus.management.root-path}`.
      */
-    @ConfigItem(defaultValue = "metrics")
-    public String path;
+    @WithDefault("metrics")
+    String path();
 
     /**
      * Statistics like max, percentiles, and histogram counts decay over time to give greater weight to recent
      * samples. Samples are accumulated to such statistics in ring buffers which rotate after
      * the expiry, with this buffer length.
      */
-    @ConfigItem(defaultValue = "3")
-    public Integer bufferLength;
+    @WithDefault("3")
+    Integer bufferLength();
 
     /**
      * Statistics like max, percentiles, and histogram counts decay over time to give greater weight to recent
      * samples. Samples are accumulated to such statistics in ring buffers which rotate after
      * this expiry, with a particular buffer length.
      */
-    @ConfigItem(defaultValue = "P3D")
-    public Duration expiry;
-
-    @Override
-    public Optional<Boolean> getEnabled() {
-        return enabled;
-    }
-
-    @Override
-    public String toString() {
-        return this.getClass().getSimpleName()
-                + "{path='" + path
-                + ",enabled=" + enabled
-                + '}';
-    }
+    @WithDefault("P3D")
+    Duration expiry();
 }

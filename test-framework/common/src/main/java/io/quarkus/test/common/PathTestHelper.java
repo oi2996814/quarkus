@@ -1,5 +1,7 @@
 package io.quarkus.test.common;
 
+import static io.quarkus.commons.classloading.ClassLoaderHelper.fromClassNameToResourceName;
+
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -133,7 +135,7 @@ public final class PathTestHelper {
      */
     public static Path getTestClassesLocation(Class<?> testClass) {
         String classFileName = testClass.getName().replace('.', File.separatorChar) + ".class";
-        URL resource = testClass.getClassLoader().getResource(testClass.getName().replace('.', '/') + ".class");
+        URL resource = testClass.getClassLoader().getResource(fromClassNameToResourceName(testClass.getName()));
 
         if (resource.getProtocol().equals("jar")) {
             try {
@@ -254,7 +256,7 @@ public final class PathTestHelper {
     }
 
     public static boolean isTestClass(String className, ClassLoader classLoader, Path testLocation) {
-        URL resource = classLoader.getResource(className.replace('.', '/') + ".class");
+        URL resource = classLoader.getResource(fromClassNameToResourceName(className));
         if (resource == null) {
             return false;
         }
@@ -292,14 +294,10 @@ public final class PathTestHelper {
      * @return project build dir
      */
     public static Path getProjectBuildDir(Path projectRoot, Path testClassLocation) {
-        Path outputDir;
-        try {
-            // this should work for both maven and gradle
-            outputDir = projectRoot.resolve(projectRoot.relativize(testClassLocation).getName(0));
-        } catch (Exception e) {
-            // this shouldn't happen since testClassLocation is usually found under the project dir
-            outputDir = projectRoot;
+        if (!testClassLocation.startsWith(projectRoot)) {
+            // this typically happens in the platform testsuite where test classes are loaded from jars
+            return projectRoot.resolve("target");
         }
-        return outputDir;
+        return projectRoot.resolve(projectRoot.relativize(testClassLocation).getName(0));
     }
 }

@@ -8,8 +8,8 @@ import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
-import javax.json.Json;
-import javax.json.JsonObject;
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
 
 import org.junit.jupiter.api.Test;
 
@@ -268,7 +268,7 @@ class HibernateOrmRestDataPanacheTest {
         Response response = given().accept("application/json")
                 .and().contentType("application/json")
                 .and().body(book.toString())
-                .when().put("/books/100")
+                .when().post("/books/")
                 .thenReturn();
         assertThat(response.statusCode()).isEqualTo(201);
         assertThat(response.header("Location")).isNotEmpty();

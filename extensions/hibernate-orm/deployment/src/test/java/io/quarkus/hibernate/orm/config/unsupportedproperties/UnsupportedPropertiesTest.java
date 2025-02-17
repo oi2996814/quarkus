@@ -9,15 +9,15 @@ import java.util.Map;
 import java.util.logging.Formatter;
 import java.util.logging.Level;
 
-import javax.inject.Inject;
-import javax.persistence.CascadeType;
-import javax.persistence.Entity;
-import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
-import javax.persistence.ManyToOne;
-import javax.persistence.OneToMany;
+import jakarta.inject.Inject;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 
 import org.hibernate.BaseSessionEventListener;
 import org.hibernate.Session;
@@ -27,6 +27,7 @@ import org.jboss.logmanager.formatters.PatternFormatter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import io.quarkus.hibernate.orm.config.SettingsSpyingIdentifierGenerator;
 import io.quarkus.hibernate.orm.runtime.FastBootHibernatePersistenceProvider;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.QuarkusUnitTest;
@@ -57,7 +58,8 @@ public class UnsupportedPropertiesTest {
                     "some-value-2")
             // This should be ignored with a warning
             .overrideConfigKey(
-                    "quarkus.hibernate-orm.unsupported-properties.\"" + AvailableSettings.HBM2DDL_DATABASE_ACTION + "\"",
+                    "quarkus.hibernate-orm.unsupported-properties.\"" + AvailableSettings.JAKARTA_HBM2DDL_DATABASE_ACTION
+                            + "\"",
                     "drop-and-create")
             // Expect warnings on startup
             .setLogRecordPredicate(record -> FastBootHibernatePersistenceProvider.class.getName().equals(record.getLoggerName())
@@ -72,15 +74,16 @@ public class UnsupportedPropertiesTest {
                                 "may change when upgrading to a newer version of Quarkus (even just a micro/patch version)",
                                 "Consider using a supported configuration property",
                                 "make sure to file a feature request so that a supported configuration property can be added to Quarkus")
-                        .contains(AvailableSettings.ORDER_INSERTS, AvailableSettings.HBM2DDL_DATABASE_ACTION,
+                        .contains(AvailableSettings.ORDER_INSERTS, AvailableSettings.JAKARTA_HBM2DDL_DATABASE_ACTION,
                                 "hibernate.some.unknown.key.static-and-runtime", "hibernate.some.unknown.key.runtime-only")
                         // We should not log property values, that could be a security breach for some properties.
                         .doesNotContain("some-value"));
                 assertion.element(1).satisfies(record -> assertThat(LOG_FORMATTER.formatMessage(record))
                         .contains(
-                                "Persistence-unit [<default>] sets property '" + AvailableSettings.HBM2DDL_DATABASE_ACTION
+                                "Persistence-unit [<default>] sets property '"
+                                        + AvailableSettings.JAKARTA_HBM2DDL_DATABASE_ACTION
                                         + "' to a custom value through 'quarkus.hibernate-orm.unsupported-properties.\""
-                                        + AvailableSettings.HBM2DDL_DATABASE_ACTION + "\"'",
+                                        + AvailableSettings.JAKARTA_HBM2DDL_DATABASE_ACTION + "\"'",
                                 "Quarkus already set that property independently",
                                 "The custom value will be ignored"));
             });
@@ -209,7 +212,7 @@ public class UnsupportedPropertiesTest {
     public static class SpyingIdentifierGeneratorEntity {
         @Id
         @GeneratedValue(generator = "spying-generator")
-        @GenericGenerator(name = "spying-generator", strategy = "io.quarkus.hibernate.orm.config.unsupportedproperties.SettingsSpyingIdentifierGenerator")
+        @GenericGenerator(name = "spying-generator", strategy = "io.quarkus.hibernate.orm.config.SettingsSpyingIdentifierGenerator")
         private Long id;
 
         public SpyingIdentifierGeneratorEntity() {

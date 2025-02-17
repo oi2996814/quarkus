@@ -54,12 +54,44 @@ final class Types {
         }
     }
 
+    /**
+     * Determines whether the given type is an actual type. A type is considered actual if it is a raw type,
+     * a parameterized type or an array type.
+     *
+     * @param type the given type
+     * @return true if and only if the given type is an actual type
+     */
     static boolean isActualType(Type type) {
         return (type instanceof Class<?>) || (type instanceof ParameterizedType) || (type instanceof GenericArrayType);
     }
 
+    /**
+     * Determines whether the given type is an array type.
+     *
+     * @param type the given type
+     * @return true if the given type is a subclass of java.lang.Class or implements GenericArrayType
+     */
     static boolean isArray(Type type) {
         return (type instanceof GenericArrayType) || (type instanceof Class<?> && ((Class<?>) type).isArray());
+    }
+
+    /**
+     * Determines the component type for a given array type.
+     *
+     * @param type the given array type
+     * @return the component type of a given array type
+     */
+    public static Type getArrayComponentType(Type type) {
+        if (type instanceof GenericArrayType) {
+            return GenericArrayType.class.cast(type).getGenericComponentType();
+        }
+        if (type instanceof Class<?>) {
+            Class<?> clazz = (Class<?>) type;
+            if (clazz.isArray()) {
+                return clazz.getComponentType();
+            }
+        }
+        throw new IllegalArgumentException("Not an array type " + type);
     }
 
     /**
@@ -179,6 +211,28 @@ final class Types {
         if (type instanceof GenericArrayType) {
             GenericArrayType genericArrayType = (GenericArrayType) type;
             return containsTypeVariable(genericArrayType.getGenericComponentType());
+        }
+        return false;
+    }
+
+    static boolean isIllegalBeanType(Type type) {
+        if (type instanceof TypeVariable<?>) {
+            return true;
+        } else if (isParameterizedType(type)) {
+            ParameterizedType parameterizedType = asParameterizedType(type);
+            for (Type typeArgument : parameterizedType.getActualTypeArguments()) {
+                if (typeArgument instanceof TypeVariable<?>) {
+                    // Parameterized type with type variable is legal
+                    continue;
+                } else if (typeArgument instanceof WildcardType || isIllegalBeanType(typeArgument)) {
+                    // the 2nd condition is a bit weird, because the spec doesn't say
+                    // anything about illegal type arguments, but Weld has it...
+                    return true;
+                }
+            }
+        } else if (type instanceof GenericArrayType) {
+            GenericArrayType arrayType = (GenericArrayType) type;
+            return isIllegalBeanType(arrayType.getGenericComponentType());
         }
         return false;
     }

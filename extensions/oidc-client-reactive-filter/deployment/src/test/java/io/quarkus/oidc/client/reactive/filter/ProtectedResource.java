@@ -2,15 +2,12 @@ package io.quarkus.oidc.client.reactive.filter;
 
 import java.security.Principal;
 
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-
-import io.quarkus.security.Authenticated;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 @Path("/protected")
-@Authenticated
 public class ProtectedResource {
 
     @Inject
@@ -19,6 +16,12 @@ public class ProtectedResource {
     @GET
     @RolesAllowed("user")
     public String principalName() {
+        return principal.getName();
+    }
+
+    @GET
+    @Path("/anonymous")
+    public String anonymousPrincipalName() {
         return principal.getName();
     }
 }

@@ -38,6 +38,8 @@ nbactions.xml
 nb-configuration.xml
 .cache
 /lsp/
-.sdkmanrc
 .envrc
 .jekyll-cache
+.mvn/.develocity
+.mvn/.gradle-enterprise/
+.quarkus

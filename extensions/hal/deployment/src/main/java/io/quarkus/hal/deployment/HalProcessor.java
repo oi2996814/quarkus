@@ -20,7 +20,7 @@ public class HalProcessor {
 
     @BuildStep
     ReflectiveClassBuildItem registerReflection() {
-        return new ReflectiveClassBuildItem(true, true, HalLink.class);
+        return ReflectiveClassBuildItem.builder(HalLink.class).reason(getClass().getName()).methods().fields().build();
     }
 
     @BuildStep

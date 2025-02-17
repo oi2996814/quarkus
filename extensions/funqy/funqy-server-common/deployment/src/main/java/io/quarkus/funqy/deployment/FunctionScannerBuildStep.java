@@ -76,15 +76,15 @@ public class FunctionScannerBuildStep {
             }
             if (functionName != null && functionName.isEmpty())
                 functionName = null;
-            functions.produce(new FunctionBuildItem(className, methodName, functionName));
+            functions.produce(new FunctionBuildItem(className, methodName, method.descriptor(), functionName));
 
             String source = FunctionScannerBuildStep.class.getSimpleName() + " > " + method.declaringClass() + "[" + method
                     + "]";
 
             Type returnType = method.returnType();
             if (returnType.kind() != Type.Kind.VOID) {
-                reflectiveHierarchy.produce(new ReflectiveHierarchyBuildItem.Builder()
-                        .type(returnType)
+                reflectiveHierarchy.produce(ReflectiveHierarchyBuildItem
+                        .builder(returnType)
                         .index(index)
                         .ignoreTypePredicate(IGNORE_TYPE_FOR_REFLECTION_PREDICATE)
                         .ignoreFieldPredicate(IGNORE_FIELD_FOR_REFLECTION_PREDICATE)
@@ -95,8 +95,8 @@ public class FunctionScannerBuildStep {
             for (short i = 0; i < method.parametersCount(); i++) {
                 Type parameterType = method.parameterType(i);
                 if (!hasAnnotation(method, i, CONTEXT)) {
-                    reflectiveHierarchy.produce(new ReflectiveHierarchyBuildItem.Builder()
-                            .type(parameterType)
+                    reflectiveHierarchy.produce(ReflectiveHierarchyBuildItem
+                            .builder(parameterType)
                             .index(index)
                             .ignoreTypePredicate(IGNORE_TYPE_FOR_REFLECTION_PREDICATE)
                             .ignoreFieldPredicate(IGNORE_FIELD_FOR_REFLECTION_PREDICATE)
@@ -108,7 +108,9 @@ public class FunctionScannerBuildStep {
         }
         Set<ClassInfo> withoutDefaultCtor = new HashSet<>();
         for (ClassInfo clazz : classes) {
-            reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, true, clazz.name().toString()));
+            reflectiveClass.produce(ReflectiveClassBuildItem.builder(clazz.name().toString())
+                    .reason(getClass().getName())
+                    .methods().fields().build());
             if (!clazz.hasNoArgsConstructor()) {
                 withoutDefaultCtor.add(clazz);
             }
@@ -136,7 +138,7 @@ public class FunctionScannerBuildStep {
                 }
                 Transformation transformation = transformationContext.transform();
                 transformation.add(BuiltinScope.DEPENDENT.getName());
-                if (clazz.classAnnotation(DotNames.TYPED) == null) {
+                if (clazz.declaredAnnotation(DotNames.TYPED) == null) {
                     // Add @Typed(MySubresource.class)
                     transformation.add(createTypedAnnotationInstance(clazz));
                 }
@@ -166,10 +168,11 @@ public class FunctionScannerBuildStep {
         recorder.init();
         for (FunctionBuildItem function : functions) {
             if (function.getFunctionName() == null) {
-                recorder.register(context.classProxy(function.getClassName()), function.getMethodName());
+                recorder.register(context.classProxy(function.getClassName()), function.getMethodName(),
+                        function.getDescriptor());
             } else {
                 recorder.register(context.classProxy(function.getClassName()), function.getMethodName(),
-                        function.getFunctionName());
+                        function.getDescriptor(), function.getFunctionName());
             }
         }
         return FunctionInitializedBuildItem.SINGLETON;
@@ -201,7 +204,8 @@ public class FunctionScannerBuildStep {
                                 public void visit(int version, int access, String name, String signature, String superName,
                                         String[] interfaces) {
                                     super.visit(version, access, name, signature, superName, interfaces);
-                                    MethodVisitor ctor = visitMethod(Modifier.PUBLIC, "<init>", "()V", null,
+                                    MethodVisitor ctor = visitMethod(Modifier.PUBLIC | Opcodes.ACC_SYNTHETIC, "<init>", "()V",
+                                            null,
                                             null);
                                     ctor.visitCode();
                                     ctor.visitVarInsn(Opcodes.ALOAD, 0);

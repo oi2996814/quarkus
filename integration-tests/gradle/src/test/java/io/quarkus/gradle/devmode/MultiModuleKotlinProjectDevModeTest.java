@@ -2,12 +2,9 @@ package io.quarkus.gradle.devmode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.junit.jupiter.api.Disabled;
-
 import com.google.common.collect.ImmutableMap;
 
-@Disabled
-@org.junit.jupiter.api.Tag("failsOnJDK19")
+@org.junit.jupiter.api.Tag("failsOnJDK20")
 public class MultiModuleKotlinProjectDevModeTest extends QuarkusDevGradleTestBase {
 
     @Override
@@ -17,7 +14,7 @@ public class MultiModuleKotlinProjectDevModeTest extends QuarkusDevGradleTestBas
 
     @Override
     protected String[] buildArguments() {
-        return new String[] { "clean", ":web:quarkusDev", "-s" };
+        return new String[] { "clean", ":web:quarkusDev" };
     }
 
     protected void testDevMode() throws Exception {

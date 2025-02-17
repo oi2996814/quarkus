@@ -3,12 +3,13 @@ This guide is maintained in the main Quarkus repository
 and pull requests should be submitted there:
 https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 ////
-
 = SmallRye Metrics
 :extension-status: deprecated
 include::_attributes.adoc[]
 :categories: observability
 :summary: This guide demonstrates how your Quarkus application can utilize the SmallRye Metrics extension.
+:topics: metrics,observability
+:extensions: io.quarkus:quarkus-smallrye-metrics
 
 The following guide demonstrates how a Quarkus application can use link:https://github.com/smallrye/smallrye-metrics/[SmallRye Metrics],
 an implementation of the link:https://github.com/eclipse/microprofile-metrics/[MicroProfile Metrics] specification.
@@ -19,7 +20,7 @@ Apart from application-specific metrics described in this guide, you may also us
 
 [IMPORTANT]
 ====
-xref:micrometer.adoc[Micrometer] is the recommended approach to metrics for Quarkus. Use the SmallRye Metrics extension when it is required to retain MicroProfile specification compatibility.
+xref:telemetry-micrometer.adoc[Micrometer] is the recommended approach to metrics for Quarkus. Use the SmallRye Metrics extension when it is required to retain MicroProfile specification compatibility.
 
 When Quarkus will upgrade to Eclipse MicroProfile 6, the SmallRye Metrics support will be discontinued.
 ====
@@ -45,7 +46,7 @@ We recommend that you follow the instructions in the next sections and create th
 git clone {quickstarts-clone-url}
 ----
 
-* Alternatively, download a {quickstarts-archive-url}[Quickstarts archive]. The solution is located in the `microprofile-metrics-quickstart` {quickstarts-tree-url}/microprofile-metrics-quickstart[directory] and follow with the xref:running-and-using-the-application_{context}[] section.
+* Alternatively, download a {quickstarts-archive-url}[Quickstarts archive]. The solution is located in the `microprofile-metrics-quickstart` link:{quickstarts-tree-url}/microprofile-metrics-quickstart[directory] and follow with the xref:running-and-using-the-application_{context}[] section.
 
 [id="creating-a-maven-project_{context}"]
 == Creating a Maven project
@@ -53,7 +54,7 @@ git clone {quickstarts-clone-url}
 To create a new project:
 
 :create-app-artifact-id: microprofile-metrics-quickstart
-:create-app-extensions: resteasy-reactive,smallrye-metrics
+:create-app-extensions: rest,smallrye-metrics
 include::{includes}/devtools/create-app.adoc[]
 
 This command generates a Quarkus project that uses the `smallrye-metrics` extension.
@@ -101,10 +102,10 @@ import org.eclipse.microprofile.metrics.annotation.Counted;
 import org.eclipse.microprofile.metrics.annotation.Gauge;
 import org.eclipse.microprofile.metrics.annotation.Timed;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 @Path("/")
 public class PrimeNumberChecker {
@@ -177,7 +178,7 @@ The application will respond that 350 is not a prime number because it can be di
 curl localhost:8080/629521085409773
 ----
 +
-The application will respond that 629521085409773 is a prime number. 
+The application will respond that 629521085409773 is a prime number.
 
 .. Perform additional calls with numbers of your choice.
 
@@ -227,6 +228,15 @@ You will receive a response such as:
 <10> `highestPrimeNumberSoFar`: A gauge that stores the highest number that was asked about by the user and which was determined to be prime.
 
 NOTE: If you prefer an OpenMetrics export rather than the JSON format, remove the `-H"Accept: application/json"` argument from your command line.
+
+[NOTE]
+.Management interface
+====
+By default, the metrics are exposed on the main HTTP server.
+You can expose them on a separate network interface and port by enabling the management interface with the
+`quarkus.management.enabled=true` property.
+Refer to the xref:./management-interface-reference.adoc[management interface reference] for more information.
+====
 
 .Configuration Reference
 

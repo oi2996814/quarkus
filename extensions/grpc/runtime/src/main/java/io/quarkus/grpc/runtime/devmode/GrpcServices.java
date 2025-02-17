@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import grpc.health.v1.HealthOuterClass.HealthCheckResponse.ServingStatus;
 import io.grpc.MethodDescriptor.MethodType;
@@ -114,7 +114,7 @@ public class GrpcServices extends AbstractMap<String, ServiceDefinitionAndStatus
         }
 
         public boolean hasTestableMethod() {
-            if (configuration.server.ssl.certificate.isPresent() || configuration.server.ssl.keyStore.isPresent()) {
+            if (configuration.server().ssl().certificate().isPresent() || configuration.server().ssl().keyStore().isPresent()) {
                 return false;
             }
             Map<String, String> prototypes = DevConsoleManager.getGlobal("io.quarkus.grpc.messagePrototypes");
@@ -156,8 +156,8 @@ public class GrpcServices extends AbstractMap<String, ServiceDefinitionAndStatus
         }
 
         public boolean isTestable() {
-            return configuration.server.ssl.certificate.isEmpty()
-                    && configuration.server.ssl.keyStore.isEmpty();
+            return configuration.server().ssl().certificate().isEmpty()
+                    && configuration.server().ssl().keyStore().isEmpty();
         }
 
         public String getPrototype() {

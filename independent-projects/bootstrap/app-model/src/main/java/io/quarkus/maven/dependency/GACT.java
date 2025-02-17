@@ -11,6 +11,15 @@ public class GACT implements ArtifactKey, Serializable {
         return new GACT(split(str, new String[4], str.length()));
     }
 
+    /**
+     * Parse method for configuration.
+     *
+     * @see #fromString(String)
+     */
+    public static GACT parse(String str) {
+        return fromString(str);
+    }
+
     protected final String groupId;
     protected final String artifactId;
     protected final String classifier;
@@ -66,8 +75,9 @@ public class GACT implements ArtifactKey, Serializable {
     public static String[] split(String str, String[] parts, int fromIndex) {
         int i = str.lastIndexOf(':', fromIndex - 1);
         if (i <= 0) {
-            throw new IllegalArgumentException("GroupId and artifactId separating ':' is absent or not in the right place in '"
-                    + str.substring(0, fromIndex) + "'");
+            throw new IllegalArgumentException("Invalid coordinates '" + str
+                    + "': groupId and artifactId separating character ':' is absent or not in the right place in the substring ending at index "
+                    + fromIndex + ": '" + str.substring(0, fromIndex));
         }
         parts[3] = str.substring(i + 1, fromIndex);
         fromIndex = i;

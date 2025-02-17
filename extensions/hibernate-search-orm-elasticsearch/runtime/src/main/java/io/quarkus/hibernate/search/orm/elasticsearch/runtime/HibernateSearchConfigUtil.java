@@ -8,6 +8,10 @@ import java.util.function.Function;
 import org.hibernate.search.engine.cfg.BackendSettings;
 import org.hibernate.search.engine.cfg.IndexSettings;
 
+/**
+ * @deprecated Use {@link io.quarkus.hibernate.search.backend.elasticsearch.common.runtime.HibernateSearchConfigUtil} instead.
+ */
+@Deprecated
 public class HibernateSearchConfigUtil {
 
     public static <T> void addConfig(BiConsumer<String, Object> propertyCollector, String configPath, T value) {
@@ -39,7 +43,7 @@ public class HibernateSearchConfigUtil {
             T value,
             Function<T, Boolean> shouldBeAdded, Function<T, ?> getValue) {
         if (shouldBeAdded.apply(value)) {
-            propertyCollector.accept(BackendSettings.backendKey(backendName, configPath), getValue.apply(value));
+            addBackendConfig(propertyCollector, backendName, configPath, getValue.apply(value));
         }
     }
 
@@ -62,8 +66,7 @@ public class HibernateSearchConfigUtil {
                 propertyCollector.accept(
                         IndexSettings.indexKey(backendName, indexName, configPath), getValue.apply(value));
             } else {
-                propertyCollector.accept(
-                        BackendSettings.backendKey(backendName, configPath), getValue.apply(value));
+                addBackendConfig(propertyCollector, backendName, configPath, getValue.apply(value));
             }
         }
     }

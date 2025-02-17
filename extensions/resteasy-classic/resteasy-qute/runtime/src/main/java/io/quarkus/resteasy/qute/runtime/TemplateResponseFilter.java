@@ -7,16 +7,17 @@ import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
-import javax.ws.rs.container.ContainerRequestContext;
-import javax.ws.rs.container.ContainerResponseContext;
-import javax.ws.rs.container.ContainerResponseFilter;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.ext.Provider;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.ext.Provider;
 
 import org.jboss.resteasy.core.interception.jaxrs.SuspendableContainerResponseContext;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.qute.Engine;
+import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import io.quarkus.qute.Variant;
 
@@ -34,14 +35,26 @@ public class TemplateResponseFilter implements ContainerResponseFilter {
 
             MediaType mediaType;
             TemplateInstance instance = (TemplateInstance) entity;
+
+            List<Variant> quteVariants = List.of();
             Object variantsAttr = instance.getAttribute(TemplateInstance.VARIANTS);
             if (variantsAttr != null) {
-                List<javax.ws.rs.core.Variant> variants = new ArrayList<>();
-                for (Variant variant : (List<Variant>) variantsAttr) {
-                    variants.add(new javax.ws.rs.core.Variant(MediaType.valueOf(variant.getMediaType()), variant.getLocale(),
+                quteVariants = (List<Variant>) variantsAttr;
+            } else {
+                // If no variants are available then try to use the template variant
+                Template template = instance.getTemplate();
+                if (template.getVariant().isPresent()) {
+                    quteVariants = List.of(template.getVariant().get());
+                }
+            }
+
+            if (!quteVariants.isEmpty()) {
+                List<jakarta.ws.rs.core.Variant> variants = new ArrayList<>();
+                for (Variant variant : quteVariants) {
+                    variants.add(new jakarta.ws.rs.core.Variant(MediaType.valueOf(variant.getMediaType()), variant.getLocale(),
                             variant.getEncoding()));
                 }
-                javax.ws.rs.core.Variant selected = requestContext.getRequest()
+                jakarta.ws.rs.core.Variant selected = requestContext.getRequest()
                         .selectVariant(variants);
 
                 if (selected != null) {

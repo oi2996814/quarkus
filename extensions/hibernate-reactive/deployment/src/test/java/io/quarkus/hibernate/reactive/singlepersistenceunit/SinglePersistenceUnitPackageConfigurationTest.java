@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.logging.Formatter;
 import java.util.logging.Level;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.hibernate.reactive.mutiny.Mutiny;
 import org.jboss.logmanager.formatters.PatternFormatter;
@@ -60,7 +60,7 @@ public class SinglePersistenceUnitPackageConfigurationTest {
     public void testExcluded(UniAsserter asserter) {
         ExcludedEntity entity = new ExcludedEntity("gsmet");
         asserter.assertFailedWith(() -> persist(entity), t -> {
-            assertThat(t).hasMessageContaining("Unknown entity");
+            assertThat(t).hasMessageContaining("Unable to locate persister:");
         });
     }
 

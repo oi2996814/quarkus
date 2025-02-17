@@ -1,17 +1,22 @@
 package io.quarkus.maven.dependency;
 
 import java.nio.file.Path;
+import java.util.Collection;
 
 import io.quarkus.bootstrap.workspace.ArtifactSources;
 import io.quarkus.bootstrap.workspace.WorkspaceModule;
 import io.quarkus.paths.EmptyPathTree;
+import io.quarkus.paths.FilteredPathTree;
 import io.quarkus.paths.MultiRootPathTree;
 import io.quarkus.paths.PathCollection;
+import io.quarkus.paths.PathFilter;
 import io.quarkus.paths.PathTree;
 
 public interface ResolvedDependency extends Dependency {
 
     PathCollection getResolvedPaths();
+
+    Collection<ArtifactCoords> getDependencies();
 
     default boolean isResolved() {
         final PathCollection paths = getResolvedPaths();
@@ -28,10 +33,14 @@ public interface ResolvedDependency extends Dependency {
     }
 
     default PathTree getContentTree() {
+        return getContentTree(null);
+    }
+
+    default PathTree getContentTree(PathFilter pathFilter) {
         final WorkspaceModule module = getWorkspaceModule();
         final PathTree workspaceTree = module == null ? EmptyPathTree.getInstance() : module.getContentTree(getClassifier());
         if (!workspaceTree.isEmpty()) {
-            return workspaceTree;
+            return pathFilter == null ? workspaceTree : new FilteredPathTree(workspaceTree, pathFilter);
         }
         final PathCollection paths = getResolvedPaths();
         if (paths == null || paths.isEmpty()) {
@@ -39,12 +48,12 @@ public interface ResolvedDependency extends Dependency {
         }
         if (paths.isSinglePath()) {
             final Path p = paths.getSinglePath();
-            return isJar() ? PathTree.ofDirectoryOrArchive(p) : PathTree.ofDirectoryOrFile(p);
+            return isJar() ? PathTree.ofDirectoryOrArchive(p, pathFilter) : PathTree.ofDirectoryOrFile(p, pathFilter);
         }
         final PathTree[] trees = new PathTree[paths.size()];
         int i = 0;
         for (Path p : paths) {
-            trees[i++] = PathTree.ofDirectoryOrArchive(p);
+            trees[i++] = PathTree.ofDirectoryOrArchive(p, pathFilter);
         }
         return new MultiRootPathTree(trees);
     }

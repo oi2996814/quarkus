@@ -22,16 +22,17 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.Configuration;
-import javax.ws.rs.core.Cookie;
-import javax.ws.rs.core.GenericEntity;
-import javax.ws.rs.core.GenericType;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Configuration;
+import jakarta.ws.rs.core.Cookie;
+import jakarta.ws.rs.core.GenericEntity;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.Providers;
 
 import org.jboss.resteasy.reactive.client.spi.ResteasyReactiveClientRequestContext;
 import org.jboss.resteasy.reactive.common.NotImplementedYet;
@@ -43,7 +44,6 @@ import org.jboss.resteasy.reactive.common.util.CaseInsensitiveMap;
 import io.smallrye.common.vertx.VertxContext;
 import io.smallrye.stork.api.ServiceInstance;
 import io.vertx.core.Context;
-import io.vertx.core.Vertx;
 
 public class ClientRequestContextImpl implements ResteasyReactiveClientRequestContext {
 
@@ -52,6 +52,7 @@ public class ClientRequestContextImpl implements ResteasyReactiveClientRequestCo
     private final RestClientRequestContext restClientRequestContext;
     private final ClientRequestHeadersMap headersMap;
     private final Context context;
+    private final Providers providers;
 
     public ClientRequestContextImpl(RestClientRequestContext restClientRequestContext, ClientImpl client,
             ConfigurationImpl configuration) {
@@ -59,18 +60,18 @@ public class ClientRequestContextImpl implements ResteasyReactiveClientRequestCo
         this.client = client;
         this.configuration = configuration;
         this.headersMap = new ClientRequestHeadersMap(); //restClientRequestContext.requestHeaders.getHeaders()
+        this.providers = new ProvidersImpl(restClientRequestContext);
 
-        // TODO This needs to be challenged:
         // Always create a duplicated context because each REST Client invocation must have its own context
         // A separate context allows integrations like OTel to create a separate Span for each invocation (expected)
-        Context ctxt = Vertx.currentContext();
-        if (ctxt != null && VertxContext.isDuplicatedContext(ctxt)) {
-            this.context = ctxt;
-        } else {
-            Context current = client.vertx.getOrCreateContext();
-            this.context = VertxContext.createNewDuplicatedContext(current);
-        }
+        Context current = client.vertx.getOrCreateContext();
+        this.context = VertxContext.createNewDuplicatedContext(current);
         restClientRequestContext.properties.put(VERTX_CONTEXT_PROPERTY, context);
+    }
+
+    @Override
+    public Providers getProviders() {
+        return providers;
     }
 
     @Override
@@ -163,8 +164,12 @@ public class ClientRequestContextImpl implements ResteasyReactiveClientRequestCo
 
     @Override
     public MediaType getMediaType() {
+        if (restClientRequestContext.entity == null) {
+            return null;
+        }
         // those come from the entity
-        return restClientRequestContext.entity != null ? restClientRequestContext.entity.getMediaType() : null;
+        return restClientRequestContext.entity.getMediaType() == RestClientRequestContext.IGNORED_MEDIA_TYPE ? null
+                : restClientRequestContext.entity.getMediaType();
     }
 
     @Override
@@ -507,12 +512,8 @@ public class ClientRequestContextImpl implements ResteasyReactiveClientRequestCo
         }
 
         private String mediaType() {
-            Entity<?> entity = restClientRequestContext.entity;
-            return entity == null
-                    ? null
-                    : entity.getMediaType() == null
-                            ? null
-                            : entity.getMediaType().toString();
+            MediaType mediaType = getMediaType();
+            return mediaType == null ? null : mediaType.toString();
         }
     }
 }

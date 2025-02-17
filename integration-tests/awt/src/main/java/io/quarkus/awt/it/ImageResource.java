@@ -35,15 +35,16 @@ import javax.imageio.plugins.tiff.TIFFDirectory;
 import javax.imageio.plugins.tiff.TIFFField;
 import javax.imageio.plugins.tiff.TIFFTag;
 import javax.imageio.stream.ImageOutputStream;
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import org.jboss.resteasy.plugins.providers.multipart.MultipartFormDataInput;
 
@@ -271,7 +272,7 @@ public class ImageResource {
      */
     public static void writePNG(ImageWriter writer, IIOMetadata iioMetadata, ImageWriteParam params, String[] desc,
             BufferedImage img) throws IOException {
-        // https://docs.oracle.com/en/java/javase/11/docs/api/java.desktop/javax/imageio/metadata/doc-files/png_metadata.html
+        // https://docs.oracle.com/en/java/javase/17/docs/api/java.desktop/javax/imageio/metadata/doc-files/png_metadata.html
         // Metadata is mutable, we can just add to the tree:
         final IIOMetadataNode textEntry = new IIOMetadataNode("tEXtEntry");
         textEntry.setAttribute("keyword", "ImageDescription");
@@ -318,7 +319,7 @@ public class ImageResource {
      */
     public static void writeGIF(ImageWriter writer, IIOMetadata iioMetadata, ImageWriteParam params, String[] desc,
             BufferedImage img) throws IOException {
-        // https://docs.oracle.com/en/java/javase/11/docs/api/java.desktop/javax/imageio/metadata/doc-files/gif_metadata.html
+        // https://docs.oracle.com/en/java/javase/17/docs/api/java.desktop/javax/imageio/metadata/doc-files/gif_metadata.html
         final IIOMetadataNode root = (IIOMetadataNode) iioMetadata.getAsTree("javax_imageio_gif_image_1.0");
         final IIOMetadataNode commentsNode = new IIOMetadataNode("CommentExtensions");
         root.appendChild(commentsNode);

@@ -3,7 +3,9 @@ package io.quarkus.maven;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import org.codehaus.plexus.component.annotations.Component;
+import javax.inject.Named;
+import javax.inject.Singleton;
+
 import org.jboss.logging.Logger;
 
 import io.quarkus.bootstrap.resolver.maven.BootstrapMavenException;
@@ -11,16 +13,29 @@ import io.quarkus.bootstrap.resolver.maven.options.BootstrapMavenOptions;
 import io.quarkus.bootstrap.resolver.maven.workspace.LocalProject;
 import io.quarkus.bootstrap.resolver.maven.workspace.LocalWorkspace;
 
-@Component(role = BootstrapWorkspaceProvider.class, instantiationStrategy = "singleton")
+@Singleton
+@Named
 public class BootstrapWorkspaceProvider {
+
+    // Mostly for use by tests
+    static BootstrapWorkspaceProvider newInstance(String dirName) {
+        // If we get passed in a directory explicitly, don't try and tack the "-f" value onto it
+        return new BootstrapWorkspaceProvider(dirName, false);
+    }
 
     private final Path base;
     private boolean initialized;
     private LocalProject origin;
+    private final boolean honourAlternatePomFile;
 
     public BootstrapWorkspaceProvider() {
+        this("", true);
+    }
+
+    private BootstrapWorkspaceProvider(String dirName, boolean honourAlternatePomFile) {
+        this.honourAlternatePomFile = honourAlternatePomFile;
         // load the workspace lazily on request, in case the component is injected but the logic using it is skipped
-        base = Paths.get("").normalize().toAbsolutePath();
+        base = Paths.get(dirName).normalize().toAbsolutePath();
     }
 
     public LocalProject origin() {
@@ -28,7 +43,7 @@ public class BootstrapWorkspaceProvider {
             Path modulePath = base;
             final String alternatePomParam = BootstrapMavenOptions.newInstance()
                     .getOptionValue(BootstrapMavenOptions.ALTERNATE_POM_FILE);
-            if (alternatePomParam != null) {
+            if (alternatePomParam != null && honourAlternatePomFile) {
                 final Path path = Paths.get(alternatePomParam);
                 if (path.isAbsolute()) {
                     modulePath = path;

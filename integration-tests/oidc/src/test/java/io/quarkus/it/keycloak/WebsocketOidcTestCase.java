@@ -1,16 +1,14 @@
 package io.quarkus.it.keycloak;
 
-import static io.quarkus.it.keycloak.KeycloakXTestResourceLifecycleManager.getAccessToken;
-
 import java.net.URI;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 
-import javax.websocket.ContainerProvider;
-import javax.websocket.Endpoint;
-import javax.websocket.EndpointConfig;
-import javax.websocket.MessageHandler;
-import javax.websocket.Session;
+import jakarta.websocket.ContainerProvider;
+import jakarta.websocket.Endpoint;
+import jakarta.websocket.EndpointConfig;
+import jakarta.websocket.MessageHandler;
+import jakarta.websocket.Session;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -18,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.keycloak.client.KeycloakTestClient;
+import io.quarkus.test.keycloak.client.KeycloakTestClient.Tls;
 import io.quarkus.websockets.BearerTokenClientEndpointConfigurator;
 
 @QuarkusTest
@@ -26,6 +26,10 @@ public class WebsocketOidcTestCase {
 
     @TestHTTPResource("secured-hello")
     URI wsUri;
+
+    KeycloakTestClient client = new KeycloakTestClient(
+            new Tls("target/certificates/oidc-client-keystore.p12",
+                    "target/certificates/oidc-client-truststore.p12"));
 
     @Test
     public void websocketTest() throws Exception {
@@ -42,7 +46,7 @@ public class WebsocketOidcTestCase {
                 });
                 session.getAsyncRemote().sendText("hello");
             }
-        }, new BearerTokenClientEndpointConfigurator(getAccessToken("alice")), wsUri);
+        }, new BearerTokenClientEndpointConfigurator(client.getAccessToken("alice")), wsUri);
 
         try {
             Assertions.assertEquals("hello alice@gmail.com", message.poll(20, TimeUnit.SECONDS));

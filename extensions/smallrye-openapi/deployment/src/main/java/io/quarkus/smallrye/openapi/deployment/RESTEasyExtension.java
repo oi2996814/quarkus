@@ -12,11 +12,10 @@ import org.jboss.jandex.ParameterizedType;
 import org.jboss.jandex.Type;
 
 import io.quarkus.deployment.util.ServiceUtil;
-import io.smallrye.openapi.runtime.scanner.AnnotationScannerExtension;
 
-public class RESTEasyExtension implements AnnotationScannerExtension {
+public class RESTEasyExtension {
 
-    private static final DotName DOTNAME_PROVIDER = DotName.createSimple("javax.ws.rs.ext.Provider");
+    private static final DotName DOTNAME_PROVIDER = DotName.createSimple("jakarta.ws.rs.ext.Provider");
     private static final DotName DOTNAME_ASYNC_RESPONSE_PROVIDER = DotName
             .createSimple("org.jboss.resteasy.spi.AsyncResponseProvider");
 
@@ -35,7 +34,7 @@ public class RESTEasyExtension implements AnnotationScannerExtension {
                     Thread.currentThread().getContextClassLoader());
             // can't use the ServiceLoader API because Providers is not an interface
             for (String provider : ServiceUtil.classNamesNamedIn(getClass().getClassLoader(),
-                    "META-INF/services/javax.ws.rs.ext.Providers")) {
+                    "META-INF/services/jakarta.ws.rs.ext.Providers")) {
                 scanAsyncResponseProvidersFromClassName(asyncResponseProvider, provider);
             }
         } catch (IOException e) {
@@ -73,7 +72,7 @@ public class RESTEasyExtension implements AnnotationScannerExtension {
 
     private void scanAsyncResponseProviders(IndexView index) {
         for (ClassInfo providerClass : index.getAllKnownImplementors(DOTNAME_ASYNC_RESPONSE_PROVIDER)) {
-            for (AnnotationInstance annotation : providerClass.classAnnotations()) {
+            for (AnnotationInstance annotation : providerClass.declaredAnnotations()) {
                 if (annotation.name().equals(DOTNAME_PROVIDER)) {
                     for (Type interf : providerClass.interfaceTypes()) {
                         if (interf.kind() == Type.Kind.PARAMETERIZED_TYPE
@@ -90,7 +89,6 @@ public class RESTEasyExtension implements AnnotationScannerExtension {
         }
     }
 
-    @Override
     public Type resolveAsyncType(Type type) {
         if (type.kind() == Type.Kind.PARAMETERIZED_TYPE
                 && asyncTypes.contains(type.name())) {

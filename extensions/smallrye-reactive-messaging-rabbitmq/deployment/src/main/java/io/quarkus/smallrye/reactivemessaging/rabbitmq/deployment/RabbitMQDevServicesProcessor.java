@@ -30,7 +30,7 @@ import io.quarkus.deployment.builditem.DockerStatusBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.console.ConsoleInstalledBuildItem;
 import io.quarkus.deployment.console.StartupLogCompressor;
-import io.quarkus.deployment.dev.devservices.GlobalDevServicesConfig;
+import io.quarkus.deployment.dev.devservices.DevServicesConfig;
 import io.quarkus.deployment.logging.LoggingSetupBuildItem;
 import io.quarkus.devservices.common.ContainerLocator;
 import io.quarkus.runtime.LaunchMode;
@@ -39,7 +39,7 @@ import io.quarkus.runtime.configuration.ConfigUtils;
 /**
  * Starts a RabbitMQ broker as dev service if needed.
  */
-@BuildSteps(onlyIfNot = IsNormal.class, onlyIf = GlobalDevServicesConfig.Enabled.class)
+@BuildSteps(onlyIfNot = IsNormal.class, onlyIf = DevServicesConfig.Enabled.class)
 public class RabbitMQDevServicesProcessor {
 
     private static final Logger log = Logger.getLogger(RabbitMQDevServicesProcessor.class);
@@ -71,7 +71,7 @@ public class RabbitMQDevServicesProcessor {
             RabbitMQBuildTimeConfig rabbitmqClientBuildTimeConfig,
             Optional<ConsoleInstalledBuildItem> consoleInstalledBuildItem,
             LoggingSetupBuildItem loggingSetupBuildItem,
-            GlobalDevServicesConfig devServicesConfig) {
+            DevServicesConfig devServicesConfig) {
 
         RabbitMQDevServiceCfg configuration = getConfiguration(rabbitmqClientBuildTimeConfig);
 
@@ -89,7 +89,7 @@ public class RabbitMQDevServicesProcessor {
                 loggingSetupBuildItem);
         try {
             RunningDevService newDevService = startRabbitMQBroker(dockerStatusBuildItem, configuration, launchMode,
-                    devServicesConfig.timeout);
+                    devServicesConfig.timeout());
             if (newDevService != null) {
                 devService = newDevService;
 
@@ -159,7 +159,7 @@ public class RabbitMQDevServicesProcessor {
         }
 
         // Check if rabbitmq-port or rabbitmq-host are set
-        if (ConfigUtils.isPropertyPresent(RABBITMQ_HOST_PROP) || ConfigUtils.isPropertyPresent(RABBITMQ_PORT_PROP)) {
+        if (ConfigUtils.isPropertyNonEmpty(RABBITMQ_HOST_PROP) || ConfigUtils.isPropertyNonEmpty(RABBITMQ_PORT_PROP)) {
             log.debug("Not starting Dev Services for RabbitMQ, the rabbitmq-host and/or rabbitmq-port are configured.");
             return null;
         }
@@ -170,7 +170,7 @@ public class RabbitMQDevServicesProcessor {
             return null;
         }
 
-        if (!dockerStatusBuildItem.isDockerAvailable()) {
+        if (!dockerStatusBuildItem.isContainerRuntimeAvailable()) {
             log.warn("Docker isn't working, please configure the RabbitMQ broker location.");
             return null;
         }
@@ -181,15 +181,19 @@ public class RabbitMQDevServicesProcessor {
                 config.fixedExposedHttpPort,
                 launchMode.getLaunchMode() == LaunchMode.DEVELOPMENT ? config.serviceName : null);
 
-        config.exchanges.forEach(x -> container.withExchange(x.name, x.type, x.autoDelete, false, x.durable, x.arguments));
-        config.queues.forEach(x -> container.withQueue(x.name, x.autoDelete, x.durable, x.arguments));
+        config.vhosts.forEach(container::withVhost);
+        config.exchanges
+                .forEach(x -> container.withExchange(x.vhost, x.name, x.type, x.autoDelete, false, x.durable, x.arguments));
+        config.queues.forEach(x -> container.withQueue(x.vhost, x.name, x.autoDelete, x.durable, x.arguments));
         config.bindings
-                .forEach(b -> container.withBinding(b.source, b.destination, b.arguments, b.routingKey, b.destinationType));
+                .forEach(b -> container.withBinding(b.vhost, b.source, b.destination, b.arguments, b.routingKey,
+                        b.destinationType));
 
         final Supplier<RunningDevService> defaultRabbitMQBrokerSupplier = () -> {
 
             // Starting the broker
             timeout.ifPresent(container::withStartupTimeout);
+            container.withEnv(config.containerEnv);
             container.start();
             return getRunningDevService(container.getContainerId(), container::close, container.getHost(),
                     container.getPort(), container.getHttpPort(), container.getAdminUsername(), container.getAdminPassword());
@@ -214,7 +218,7 @@ public class RabbitMQDevServicesProcessor {
         configMap.put(RABBITMQ_HTTP_PORT_PROP, String.valueOf(httpPort));
         configMap.put(RABBITMQ_USERNAME_PROP, username);
         configMap.put(RABBITMQ_PASSWORD_PROP, password);
-        return new RunningDevService(Feature.SMALLRYE_REACTIVE_MESSAGING_RABBITMQ.getName(),
+        return new RunningDevService(Feature.MESSAGING_RABBITMQ.getName(),
                 containerId, closeable, configMap);
     }
 
@@ -228,8 +232,8 @@ public class RabbitMQDevServicesProcessor {
             if ((isIncoming || isOutgoing) && isConnector) {
                 String connectorValue = config.getValue(name, String.class);
                 boolean isRabbitMQ = connectorValue.equalsIgnoreCase("smallrye-rabbitmq");
-                boolean hasHost = ConfigUtils.isPropertyPresent(name.replace(".connector", ".host"));
-                boolean hasPort = ConfigUtils.isPropertyPresent(name.replace(".connector", ".port"));
+                boolean hasHost = ConfigUtils.isPropertyNonEmpty(name.replace(".connector", ".host"));
+                boolean hasPort = ConfigUtils.isPropertyNonEmpty(name.replace(".connector", ".port"));
                 isConfigured = isRabbitMQ && (hasHost || hasPort);
             }
 
@@ -241,7 +245,7 @@ public class RabbitMQDevServicesProcessor {
     }
 
     private RabbitMQDevServiceCfg getConfiguration(RabbitMQBuildTimeConfig cfg) {
-        RabbitMQDevServicesBuildTimeConfig devServicesConfig = cfg.devservices;
+        RabbitMQDevServicesBuildTimeConfig devServicesConfig = cfg.devservices();
         return new RabbitMQDevServiceCfg(devServicesConfig);
     }
 
@@ -252,6 +256,7 @@ public class RabbitMQDevServicesProcessor {
             String type;
             Boolean autoDelete;
             Boolean durable;
+            String vhost;
             Map<String, Object> arguments;
 
             Exchange(Map.Entry<String, RabbitMQDevServicesBuildTimeConfig.Exchange> entry) {
@@ -260,11 +265,12 @@ public class RabbitMQDevServicesProcessor {
 
             Exchange(String name, RabbitMQDevServicesBuildTimeConfig.Exchange source) {
                 this.name = name;
-                this.type = source.type;
-                this.autoDelete = source.autoDelete;
-                this.durable = source.durable;
-                this.arguments = source.arguments != null
-                        ? source.arguments.entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
+                this.type = source.type();
+                this.autoDelete = source.autoDelete();
+                this.durable = source.durable();
+                this.vhost = source.vhost();
+                this.arguments = source.arguments() != null
+                        ? source.arguments().entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
                         : Map.of();
             }
         }
@@ -273,6 +279,7 @@ public class RabbitMQDevServicesProcessor {
             String name;
             Boolean autoDelete;
             Boolean durable;
+            String vhost;
             Map<String, Object> arguments;
 
             Queue(Map.Entry<String, RabbitMQDevServicesBuildTimeConfig.Queue> entry) {
@@ -281,10 +288,11 @@ public class RabbitMQDevServicesProcessor {
 
             Queue(String name, RabbitMQDevServicesBuildTimeConfig.Queue source) {
                 this.name = name;
-                this.autoDelete = source.autoDelete;
-                this.durable = source.durable;
-                this.arguments = source.arguments != null
-                        ? source.arguments.entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
+                this.autoDelete = source.autoDelete();
+                this.durable = source.durable();
+                this.vhost = source.vhost();
+                this.arguments = source.arguments() != null
+                        ? source.arguments().entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
                         : Map.of();
             }
         }
@@ -294,6 +302,7 @@ public class RabbitMQDevServicesProcessor {
             String destination;
             String routingKey;
             String destinationType;
+            String vhost;
             Map<String, Object> arguments;
 
             Binding(Map.Entry<String, RabbitMQDevServicesBuildTimeConfig.Binding> entry) {
@@ -301,12 +310,13 @@ public class RabbitMQDevServicesProcessor {
             }
 
             Binding(String name, RabbitMQDevServicesBuildTimeConfig.Binding source) {
-                this.source = source.source.orElse(name);
-                this.routingKey = source.routingKey;
-                this.destination = source.destination.orElse(name);
-                this.destinationType = source.destinationType;
-                this.arguments = source.arguments != null
-                        ? source.arguments.entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
+                this.source = source.source().orElse(name);
+                this.routingKey = source.routingKey();
+                this.destination = source.destination().orElse(name);
+                this.destinationType = source.destinationType();
+                this.vhost = source.vhost();
+                this.arguments = source.arguments() != null
+                        ? source.arguments().entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue))
                         : Map.of();
             }
         }
@@ -320,23 +330,27 @@ public class RabbitMQDevServicesProcessor {
         private final List<Exchange> exchanges;
         private final List<Queue> queues;
         private final List<Binding> bindings;
+        private final List<String> vhosts;
+        private final Map<String, String> containerEnv;
 
         public RabbitMQDevServiceCfg(RabbitMQDevServicesBuildTimeConfig devServicesConfig) {
-            this.devServicesEnabled = devServicesConfig.enabled.orElse(true);
-            this.imageName = devServicesConfig.imageName;
-            this.fixedExposedPort = devServicesConfig.port.orElse(0);
-            this.fixedExposedHttpPort = devServicesConfig.httpPort.orElse(0);
-            this.shared = devServicesConfig.shared;
-            this.serviceName = devServicesConfig.serviceName;
-            this.exchanges = devServicesConfig.exchanges != null
-                    ? devServicesConfig.exchanges.entrySet().stream().map(Exchange::new).collect(Collectors.toList())
+            this.devServicesEnabled = devServicesConfig.enabled().orElse(true);
+            this.imageName = devServicesConfig.imageName();
+            this.fixedExposedPort = devServicesConfig.port().orElse(0);
+            this.fixedExposedHttpPort = devServicesConfig.httpPort().orElse(0);
+            this.shared = devServicesConfig.shared();
+            this.serviceName = devServicesConfig.serviceName();
+            this.exchanges = devServicesConfig.exchanges() != null
+                    ? devServicesConfig.exchanges().entrySet().stream().map(Exchange::new).collect(Collectors.toList())
                     : Collections.emptyList();
-            this.queues = devServicesConfig.queues != null
-                    ? devServicesConfig.queues.entrySet().stream().map(Queue::new).collect(Collectors.toList())
+            this.queues = devServicesConfig.queues() != null
+                    ? devServicesConfig.queues().entrySet().stream().map(Queue::new).collect(Collectors.toList())
                     : Collections.emptyList();
-            this.bindings = devServicesConfig.bindings != null
-                    ? devServicesConfig.bindings.entrySet().stream().map(Binding::new).collect(Collectors.toList())
+            this.bindings = devServicesConfig.bindings() != null
+                    ? devServicesConfig.bindings().entrySet().stream().map(Binding::new).collect(Collectors.toList())
                     : Collections.emptyList();
+            this.vhosts = devServicesConfig.vhosts().orElse(Collections.emptyList());
+            this.containerEnv = devServicesConfig.containerEnv();
         }
 
         @Override
@@ -349,12 +363,13 @@ public class RabbitMQDevServicesProcessor {
             }
             RabbitMQDevServiceCfg that = (RabbitMQDevServiceCfg) o;
             return devServicesEnabled == that.devServicesEnabled && Objects.equals(imageName, that.imageName)
-                    && Objects.equals(fixedExposedPort, that.fixedExposedPort);
+                    && Objects.equals(fixedExposedPort, that.fixedExposedPort)
+                    && Objects.equals(containerEnv, that.containerEnv);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(devServicesEnabled, imageName, fixedExposedPort);
+            return Objects.hash(devServicesEnabled, imageName, fixedExposedPort, containerEnv);
         }
     }
 

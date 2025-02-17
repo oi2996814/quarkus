@@ -14,14 +14,10 @@
     <description>Module that contains JPA related tests running with the MariaDB database</description>
 
     <properties>
-        <mariadb.url>jdbc:mariadb://localhost:3306/hibernate_orm_test</mariadb.url>
+        <mariadb.url>jdbc:mariadb://localhost:3308/hibernate_orm_test</mariadb.url>
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-undertow</artifactId>
-        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-orm</artifactId>
@@ -29,6 +25,10 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jdbc-mariadb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
         </dependency>
 
         <!-- test dependencies -->
@@ -38,8 +38,18 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5-internal</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -72,7 +82,7 @@
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-undertow-deployment</artifactId>
+            <artifactId>quarkus-rest-deployment</artifactId>
             <version>${project.version}</version>
             <type>pom</type>
             <scope>test</scope>
@@ -152,9 +162,6 @@
                     <name>start-containers</name>
                 </property>
             </activation>
-            <properties>
-                <mariadb.url>jdbc:mariadb://localhost:3308/hibernate_orm_test</mariadb.url>
-            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -168,7 +175,6 @@
                                     <build>
                                         <from>${mariadb.image}</from>
                                         <healthCheck>
-                                            <!-- The exact values for these aren't very important, but it is important they are there -->
                                             <!-- The exact values for these aren't very important, but it is important they are there -->
                                             <interval>5s</interval>
                                             <timeout>3s</timeout>

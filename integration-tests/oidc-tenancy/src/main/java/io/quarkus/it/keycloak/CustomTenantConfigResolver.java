@@ -1,9 +1,10 @@
 package io.quarkus.it.keycloak;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.function.Supplier;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 
@@ -12,7 +13,8 @@ import io.quarkus.oidc.OidcTenantConfig;
 import io.quarkus.oidc.OidcTenantConfig.ApplicationType;
 import io.quarkus.oidc.OidcTenantConfig.Roles.Source;
 import io.quarkus.oidc.TenantConfigResolver;
-import io.quarkus.oidc.common.runtime.OidcCommonConfig.Credentials;
+import io.quarkus.oidc.common.runtime.OidcClientCommonConfig.Credentials;
+import io.quarkus.oidc.common.runtime.OidcClientCommonConfig.Credentials.Secret.Method;
 import io.smallrye.jwt.algorithm.SignatureAlgorithm;
 import io.smallrye.mutiny.Uni;
 import io.vertx.ext.web.RoutingContext;
@@ -34,6 +36,7 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
 
                 String path = context.request().path();
                 String tenantId = path.split("/")[2];
+
                 if ("tenant-d".equals(tenantId)) {
                     OidcTenantConfig config = new OidcTenantConfig();
                     config.setTenantId("tenant-c");
@@ -49,9 +52,18 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
                     config.setTenantId("tenant-oidc");
                     String uri = context.request().absoluteURI();
                     // authServerUri points to the JAX-RS `OidcResource`, root path is `/oidc`
-                    String authServerUri = path.contains("tenant-opaque")
-                            ? uri.replace("/tenant-opaque/tenant-oidc/api/user", "/oidc")
-                            : uri.replace("/tenant/tenant-oidc/api/user", "/oidc");
+                    final String authServerUri;
+                    if (path.contains("tenant-opaque")) {
+                        if (path.endsWith("/tenant-opaque/tenant-oidc/api/user")) {
+                            authServerUri = uri.replace("/tenant-opaque/tenant-oidc/api/user", "/oidc");
+                        } else if (path.endsWith("/tenant-opaque/tenant-oidc/api/user-permission")) {
+                            authServerUri = uri.replace("/tenant-opaque/tenant-oidc/api/user-permission", "/oidc");
+                        } else {
+                            authServerUri = uri.replace("/tenant-opaque/tenant-oidc/api/admin-permission", "/oidc");
+                        }
+                    } else {
+                        authServerUri = uri.replace("/tenant/tenant-oidc/api/user", "/oidc");
+                    }
                     config.setAuthServerUrl(authServerUri);
                     config.setClientId("client");
                     config.setAllowTokenIntrospectionCache(false);
@@ -60,7 +72,20 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
                     config.setJwksPath("jwks");
                     // try the absolute URI
                     config.setIntrospectionPath(authServerUri + "/introspect");
+                    return config;
+                } else if ("tenant-introspection-required-claims".equals(tenantId)) {
 
+                    OidcTenantConfig config = new OidcTenantConfig();
+                    config.setTenantId("tenant-introspection-required-claims");
+                    config.token.setRequiredClaims(Map.of("required_claim", "1"));
+                    String uri = context.request().absoluteURI();
+                    String authServerUri = uri.replace("/tenant-introspection/tenant-introspection-required-claims",
+                            "/oidc");
+                    config.setAuthServerUrl(authServerUri);
+                    config.setDiscoveryEnabled(false);
+                    config.setClientId("client");
+                    config.setIntrospectionPath(authServerUri + "/introspect");
+                    config.setAllowTokenIntrospectionCache(false);
                     return config;
                 } else if ("tenant-oidc-no-discovery".equals(tenantId)) {
                     OidcTenantConfig config = new OidcTenantConfig();
@@ -89,6 +114,7 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
                     config.setAuthServerUrl(authServerUri);
                     config.setDiscoveryEnabled(false);
                     config.authentication.setUserInfoRequired(true);
+                    config.token.setSubjectRequired(true);
                     config.setIntrospectionPath("introspect");
                     config.setUserInfoPath("userinfo");
                     config.setClientId("client-introspection-only");
@@ -126,10 +152,12 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
                     config.setTenantId("tenant-web-app-refresh");
                     config.setApplicationType(ApplicationType.WEB_APP);
                     config.getToken().setRefreshExpired(true);
+                    config.getToken().setRefreshTokenTimeSkew(Duration.ofSeconds(3));
                     config.setAuthServerUrl(getIssuerUrl() + "/realms/quarkus-webapp");
                     config.setClientId("quarkus-app-webapp");
-                    config.getCredentials().setSecret(
+                    config.getCredentials().getClientSecret().setValue(
                             "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow");
+                    config.getCredentials().getClientSecret().setMethod(Method.POST);
 
                     // Let Keycloak issue a login challenge but use the test token endpoint
                     String uri = context.request().absoluteURI();
@@ -137,8 +165,11 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
                     config.setTokenPath(tokenUri);
                     String jwksUri = uri.replace("/tenant-refresh/tenant-web-app-refresh/api/user", "/oidc/jwks");
                     config.setJwksPath(jwksUri);
+                    String userInfoPath = uri.replace("/tenant-refresh/tenant-web-app-refresh/api/user", "/oidc/userinfo");
+                    config.setUserInfoPath(userInfoPath);
                     config.getToken().setIssuer("any");
                     config.tokenStateManager.setSplitTokens(true);
+                    config.tokenStateManager.setEncryptionRequired(false);
                     config.getAuthentication().setSessionAgeExtension(Duration.ofMinutes(1));
                     config.getAuthentication().setIdTokenRequired(false);
                     return config;

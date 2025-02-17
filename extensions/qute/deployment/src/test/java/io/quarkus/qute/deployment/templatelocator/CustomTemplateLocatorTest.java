@@ -7,8 +7,8 @@ import java.io.StringReader;
 import java.util.List;
 import java.util.Optional;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -89,7 +89,7 @@ public class CustomTemplateLocatorTest {
 
     @Test
     public void testLocatorsAreRegisteredAsSingletons() {
-        assertEquals(4, locatorList.size());
+        assertEquals(5, locatorList.size());
     }
 
     @Singleton

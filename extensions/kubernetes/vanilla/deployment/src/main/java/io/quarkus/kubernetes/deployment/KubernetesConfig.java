@@ -1,552 +1,141 @@
 package io.quarkus.kubernetes.deployment;
 
-import static io.quarkus.kubernetes.deployment.Constants.CRONJOB;
-import static io.quarkus.kubernetes.deployment.Constants.DEPLOYMENT;
-import static io.quarkus.kubernetes.deployment.Constants.JOB;
-import static io.quarkus.kubernetes.deployment.Constants.STATEFULSET;
+import static io.quarkus.kubernetes.deployment.Constants.KUBERNETES;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-import io.dekorate.kubernetes.annotation.ImagePullPolicy;
-import io.dekorate.kubernetes.annotation.ServiceType;
+import io.dekorate.kubernetes.config.DeploymentStrategy;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
-import io.quarkus.runtime.annotations.ConfigItem;
+import io.quarkus.kubernetes.spi.DeployStrategy;
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
+import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
+import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithDefault;
 
-@ConfigRoot
-public class KubernetesConfig implements PlatformConfiguration {
-
-    public enum DeploymentResourceKind {
-        Deployment(DEPLOYMENT),
-        StatefulSet(STATEFULSET),
-        Job(JOB),
-        CronJob(CRONJOB);
-
-        final String kind;
-
-        DeploymentResourceKind(String kind) {
-            this.kind = kind;
-        }
-    }
-
-    /**
-     * The name of the group this component belongs too
-     */
-    @ConfigItem
-    Optional<String> partOf;
-
-    /**
-     * The name of the application. This value will be used for naming Kubernetes
-     * resources like: - Deployment - Service and so on ...
-     */
-    @ConfigItem(defaultValue = "${quarkus.container-image.name}")
-    Optional<String> name;
-
-    /**
-     * The version of the application.
-     */
-    @ConfigItem(defaultValue = "${quarkus.container-image.tag}")
-    Optional<String> version;
-    /**
-     * The kind of the deployment resource to use.
-     * Supported values are 'StatefulSet', 'Job', 'CronJob' and 'Deployment' defaulting to the latter.
-     */
-    @ConfigItem
-    Optional<KubernetesConfig.DeploymentResourceKind> deploymentKind;
-
-    /**
-     * The namespace the generated resources should belong to.
-     * If not value is set, then the 'namespace' field will not be
-     * added to the 'metadata' section of the generated manifests.
-     * This in turn means that when the manifests are applied to a cluster,
-     * the namespace will be resolved from the current Kubernetes context
-     * (see https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/#context
-     * for more details).
-     */
-    @ConfigItem
-    Optional<String> namespace;
-
-    /**
-     * Custom labels to add to all resources
-     */
-    @ConfigItem
-    Map<String, String> labels;
-
-    /**
-     * Custom annotations to add to all resources
-     */
-    @ConfigItem
-    Map<String, String> annotations;
-
-    /**
-     * Whether to add the build timestamp to the Kubernetes annotations
-     * This is a very useful way to have manifests of successive builds of the same
-     * application differ - thus ensuring that Kubernetes will apply the updated resources
-     */
-    @ConfigItem(defaultValue = "true")
-    boolean addBuildTimestamp;
-
-    /**
-     * Working directory
-     */
-    @ConfigItem
-    Optional<String> workingDir;
-
-    /**
-     * The commands
-     */
-    @ConfigItem
-    Optional<List<String>> command;
-
-    /**
-     * The arguments
-     */
-    @ConfigItem
-    Optional<List<String>> arguments;
-
-    /**
-     * The service account
-     */
-    @ConfigItem
-    Optional<String> serviceAccount;
-
-    /**
-     * The host under which the application is going to be exposed
-     *
-     * @deprecated Use the {@code quarkus.kubernetes.ingress.host} instead
-     */
-    @ConfigItem
-    @Deprecated
-    Optional<String> host;
-
-    /**
-     * The application ports
-     */
-    @ConfigItem
-    Map<String, PortConfig> ports;
-
-    /**
-     * The number of desired pods
-     */
-    @ConfigItem(defaultValue = "1")
-    Integer replicas;
-
-    /**
-     * The type of service that will be generated for the application
-     */
-    @ConfigItem(defaultValue = "ClusterIP")
-    ServiceType serviceType;
-
-    /**
-     * The nodePort to set when serviceType is set to node-port.
-     */
-    @ConfigItem
-    OptionalInt nodePort;
-
-    /**
-     * Image pull policy
-     */
-    @ConfigItem(defaultValue = "Always")
-    ImagePullPolicy imagePullPolicy;
-
-    /**
-     * The image pull secret
-     */
-    @ConfigItem
-    Optional<List<String>> imagePullSecrets;
-
-    /**
-     * The liveness probe
-     */
-    @ConfigItem
-    ProbeConfig livenessProbe;
-
-    /**
-     * The readiness probe
-     */
-    @ConfigItem
-    ProbeConfig readinessProbe;
-
-    /**
-     * Prometheus configuration
-     */
-    @ConfigItem
-    PrometheusConfig prometheus;
-
-    /**
-     * Volume mounts
-     */
-    @ConfigItem
-    Map<String, MountConfig> mounts;
-
-    /**
-     * Secret volumes
-     */
-    @ConfigItem
-    Map<String, SecretVolumeConfig> secretVolumes;
-
-    /**
-     * ConfigMap volumes
-     */
-    @ConfigItem
-    Map<String, ConfigMapVolumeConfig> configMapVolumes;
-
-    /**
-     * EmptyDir volumes
-     */
-    @ConfigItem
-    Optional<List<String>> emptyDirVolumes;
-
-    /**
-     * Git Repository volumes
-     */
-    @ConfigItem
-    Map<String, GitRepoVolumeConfig> gitRepoVolumes;
-
-    /**
-     * Persistent Volume Claim volumes
-     */
-    @ConfigItem
-    Map<String, PvcVolumeConfig> pvcVolumes;
-
-    /**
-     * AWS Elastic BlockStore volumes
-     */
-    @ConfigItem
-    Map<String, AwsElasticBlockStoreVolumeConfig> awsElasticBlockStoreVolumes;
-
-    /**
-     * Azure file volumes
-     */
-    @ConfigItem
-    Map<String, AzureFileVolumeConfig> azureFileVolumes;
-
-    /**
-     * Azure disk volumes
-     */
-    @ConfigItem
-    Map<String, AzureDiskVolumeConfig> azureDiskVolumes;
-
-    /**
-     * Init containers
-     */
-    @ConfigItem
-    Map<String, ContainerConfig> initContainers;
-
-    /**
-     * Sidecar containers
-     */
-    @ConfigItem
-    Map<String, ContainerConfig> sidecars;
-
-    /**
-     * The target deployment platform.
-     * Defaults to kubernetes. Can be kubernetes, openshift, knative, minikube etc., or any combination of the above as comma
-     * separated list.
-     */
-    @ConfigItem
-    Optional<List<String>> deploymentTarget;
-
-    /**
-     * The host aliases
-     */
-    @ConfigItem(name = "hostaliases")
-    Map<String, HostAliasConfig> hostAliases;
-
-    /**
-     * Resources requirements
-     */
-    @ConfigItem
-    ResourcesConfig resources;
-
-    /**
-     * If true, a Kubernetes Ingress will be created
-     *
-     * @deprecated Use the {@code quarkus.kubernetes.ingress.expose} instead
-     */
-    @ConfigItem
-    @Deprecated
-    boolean expose;
-
-    /**
-     * Ingress configuration
-     */
-    IngressConfig ingress;
-
-    /**
-     * Job configuration. It's only used if and only if {@code quarkus.kubernetes.deployment-kind} is `Job`.
-     */
-    JobConfig job;
-
-    /**
-     * CronJob configuration. It's only used if and only if {@code quarkus.kubernetes.deployment-kind} is `CronJob`.
-     */
-    CronJobConfig cronJob;
-
-    /**
-     * If true, the 'app.kubernetes.io/version' label will be part of the selectors of Service and Deployment
-     */
-    @ConfigItem(defaultValue = "true")
-    boolean addVersionToLabelSelectors;
-
-    /**
-     * If true, the 'app.kubernetes.io/name' label will be part of the selectors of Service and Deployment
-     */
-    @ConfigItem(defaultValue = "true")
-    boolean addNameToLabelSelectors;
-
-    /**
-     * If set to true, Quarkus will attempt to deploy the application to the target Kubernetes cluster
-     */
-    @ConfigItem(defaultValue = "false")
-    boolean deploy;
-
-    /**
-     * If set, the secret will mounted to the application container and its contents will be used for application configuration.
-     */
-    @ConfigItem
-    Optional<String> appSecret;
-
-    /**
-     * If set, the config map will be mounted to the application container and its contents will be used for application
-     * configuration.
-     */
-    @ConfigItem
-    Optional<String> appConfigMap;
-
-    /**
-     * If set, it will copy the security context configuration provided into the generated pod settings.
-     */
-    @ConfigItem
-    SecurityContextConfig securityContext;
-
-    /**
-     * If set, it will change the name of the container according to the configuration
-     */
-    @ConfigItem
-    Optional<String> containerName;
-
-    /**
-     * Debug configuration to be set in pods.
-     */
-    DebugConfig remoteDebug;
-
-    public Optional<String> getPartOf() {
-        return partOf;
-    }
-
-    public Optional<String> getName() {
-        return name;
-    }
-
-    public Optional<String> getVersion() {
-        return version;
-    }
-
-    public Optional<String> getNamespace() {
-        return namespace;
-    }
-
-    public Map<String, String> getLabels() {
-        return labels;
-    }
-
-    public Map<String, String> getAnnotations() {
-        return annotations;
-    }
+/**
+ * Kubernetes
+ */
+@ConfigMapping(prefix = "quarkus.kubernetes")
+@ConfigRoot(phase = ConfigPhase.BUILD_TIME)
+public interface KubernetesConfig extends PlatformConfiguration {
 
     @Override
-    public boolean isAddBuildTimestamp() {
-        return addBuildTimestamp;
-    }
-
-    @Override
-    public boolean isAddNameToLabelSelectors() {
-        return addNameToLabelSelectors;
-    }
-
-    @Override
-    public boolean isAddVersionToLabelSelectors() {
-        return addVersionToLabelSelectors;
-    }
-
-    @Override
-    public String getTargetPlatformName() {
+    default String targetPlatformName() {
         return Constants.KUBERNETES;
     }
 
     /**
-     * Environment variables to add to all containers using the old syntax.
-     *
-     * @deprecated Use {@link #env} instead using the new syntax as follows:
-     *             <ul>
-     *             <li>{@code quarkus.kubernetes.env-vars.foo.field=fieldName} becomes
-     *             {@code quarkus.kubernetes.env.fields.foo=fieldName}</li>
-     *             <li>{@code quarkus.kubernetes.env-vars.foo.value=value} becomes
-     *             {@code quarkus.kubernetes.env.vars.foo=bar}</li>
-     *             <li>{@code quarkus.kubernetes.env-vars.bar.configmap=configName} becomes
-     *             {@code quarkus.kubernetes.env.configmaps=configName}</li>
-     *             <li>{@code quarkus.kubernetes.env-vars.baz.secret=secretName} becomes
-     *             {@code quarkus.kubernetes.env.secrets=secretName}</li>
-     *             </ul>
+     * The kind of the deployment resource to use.
+     * Supported values are 'StatefulSet', 'Job', 'CronJob' and 'Deployment' defaulting to the latter.
      */
-    @ConfigItem
-    @Deprecated
-    Map<String, EnvConfig> envVars;
+    Optional<DeploymentResourceKind> deploymentKind();
 
     /**
-     * Environment variables to add to all containers.
+     * The target deployment platform. Defaults to kubernetes. Can be kubernetes, openshift, knative, minikube etc.,
+     * or any combination of the above as comma separated list.
      */
-    @ConfigItem
-    EnvVarsConfig env;
+    Optional<List<String>> deploymentTarget();
 
-    @Deprecated
-    public Map<String, EnvConfig> getEnvVars() {
-        return envVars;
-    }
+    /**
+     * Specifies the deployment strategy.
+     */
+    @WithDefault("None")
+    DeploymentStrategy strategy();
 
-    public EnvVarsConfig getEnv() {
-        return env;
-    }
+    /**
+     * Specifies rolling update configuration. The configuration is applied when DeploymentStrategy == RollingUpdate, or
+     * when explicit configuration has been provided. In the later case RollingUpdate is assumed.
+     */
+    RollingUpdateConfig rollingUpdate();
 
-    public Optional<String> getWorkingDir() {
-        return workingDir;
-    }
+    /**
+     * The number of desired pods
+     */
+    @WithDefault("1")
+    Integer replicas();
 
-    public Optional<List<String>> getCommand() {
-        return command;
-    }
+    /**
+     * The nodePort to set when serviceType is set to node-port.
+     */
+    OptionalInt nodePort();
 
-    public Optional<List<String>> getArguments() {
-        return arguments;
-    }
+    /**
+     * Ingress configuration
+     */
+    IngressConfig ingress();
 
-    public Optional<String> getServiceAccount() {
-        return serviceAccount;
-    }
+    /**
+     * Job configuration. It's only used if and only if {@code quarkus.kubernetes.deployment-kind} is `Job`.
+     */
+    JobConfig job();
 
-    public Optional<String> getHost() {
-        return host;
-    }
+    /**
+     * CronJob configuration. It's only used if and only if {@code quarkus.kubernetes.deployment-kind} is `CronJob`.
+     */
+    CronJobConfig cronJob();
 
-    @Override
-    public Optional<String> getContainerName() {
-        return containerName;
-    }
+    /**
+     * Debug configuration to be set in pods.
+     */
+    DebugConfig remoteDebug();
 
-    public Map<String, PortConfig> getPorts() {
-        return ports;
-    }
+    /**
+     * Flag to enable init task externalization. When enabled (default), all initialization tasks created by
+     * extensions, will be externalized as Jobs. In addition, the deployment will wait for these jobs.
+     *
+     * @deprecated use {@link #initTasks} configuration instead
+     */
+    @Deprecated(since = "3.1", forRemoval = true)
+    @WithDefault("true")
+    boolean externalizeInit();
 
-    public Integer getReplicas() {
-        return replicas;
-    }
+    /**
+     * Init tasks configuration.
+     * <p>
+     * The init tasks are automatically generated by extensions like Flyway to perform the database migration before starting
+     * up the application.
+     * <p>
+     * This property is only taken into account if `quarkus.kubernetes.externalize-init` is true.
+     */
+    @ConfigDocMapKey("task-name")
+    Map<String, InitTaskConfig> initTasks();
 
-    public ServiceType getServiceType() {
-        return serviceType;
-    }
+    /**
+     * Default Init tasks configuration.
+     * <p>
+     * The init tasks are automatically generated by extensions like Flyway to perform the database migration before staring
+     * up the application.
+     */
+    InitTaskConfig initTaskDefaults();
 
-    public OptionalInt getNodePort() {
-        return this.nodePort;
-    }
+    /**
+     * Optionally set directory generated Kubernetes resources will be written to. Default is `target/kubernetes`.
+     */
+    Optional<String> outputDirectory();
 
-    public ImagePullPolicy getImagePullPolicy() {
-        return imagePullPolicy;
-    }
+    /**
+     * If set to true, Quarkus will attempt to deploy the application to the target Kubernetes cluster
+     */
+    @WithDefault("false")
+    boolean deploy();
 
-    public Optional<List<String>> getImagePullSecrets() {
-        return imagePullSecrets;
-    }
+    /**
+     * If deploy is enabled, it will follow this strategy to update the resources to the target Kubernetes cluster.
+     */
+    @WithDefault("CreateOrUpdate")
+    DeployStrategy deployStrategy();
 
-    public ProbeConfig getLivenessProbe() {
-        return livenessProbe;
-    }
-
-    public ProbeConfig getReadinessProbe() {
-        return readinessProbe;
-    }
-
-    public PrometheusConfig getPrometheusConfig() {
-        return prometheus;
-    }
-
-    public Map<String, MountConfig> getMounts() {
-        return mounts;
-    }
-
-    public Map<String, SecretVolumeConfig> getSecretVolumes() {
-        return secretVolumes;
-    }
-
-    public Map<String, ConfigMapVolumeConfig> getConfigMapVolumes() {
-        return configMapVolumes;
-    }
-
-    public List<String> getEmptyDirVolumes() {
-        return emptyDirVolumes.orElse(Collections.emptyList());
-    }
-
-    public Map<String, GitRepoVolumeConfig> getGitRepoVolumes() {
-        return gitRepoVolumes;
-    }
-
-    public Map<String, PvcVolumeConfig> getPvcVolumes() {
-        return pvcVolumes;
-    }
-
-    public Map<String, AwsElasticBlockStoreVolumeConfig> getAwsElasticBlockStoreVolumes() {
-        return awsElasticBlockStoreVolumes;
-    }
-
-    public Map<String, AzureFileVolumeConfig> getAzureFileVolumes() {
-        return azureFileVolumes;
-    }
-
-    public Map<String, AzureDiskVolumeConfig> getAzureDiskVolumes() {
-        return azureDiskVolumes;
-    }
-
-    public Map<String, ContainerConfig> getInitContainers() {
-        return initContainers;
-    }
-
-    public Map<String, ContainerConfig> getSidecars() {
-        return sidecars;
-    }
-
-    public Map<String, HostAliasConfig> getHostAliases() {
-        return hostAliases;
-    }
-
-    public ResourcesConfig getResources() {
-        return resources;
-    }
-
-    public Optional<String> getAppSecret() {
-        return appSecret;
-    }
-
-    public Optional<String> getAppConfigMap() {
-        return appConfigMap;
-    }
-
-    @Override
-    public SecurityContextConfig getSecurityContext() {
-        return securityContext;
-    }
-
-    public KubernetesConfig.DeploymentResourceKind getDeploymentResourceKind(Capabilities capabilities) {
-        if (deploymentKind.isPresent()) {
-            return deploymentKind.get();
+    default DeploymentResourceKind getDeploymentResourceKind(Capabilities capabilities) {
+        if (deploymentKind().isPresent()) {
+            return deploymentKind().filter(k -> k.isAvailalbleOn(KUBERNETES)).get();
         } else if (capabilities.isPresent(Capability.PICOCLI)) {
-            return KubernetesConfig.DeploymentResourceKind.Job;
+            return DeploymentResourceKind.Job;
         }
-
         return DeploymentResourceKind.Deployment;
     }
 }

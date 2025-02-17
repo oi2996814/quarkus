@@ -7,6 +7,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -19,16 +20,22 @@ import io.quarkus.cli.common.ListFormatOptions;
 import io.quarkus.cli.common.OutputOptionMixin;
 import io.quarkus.cli.common.PropertiesOptions;
 import io.quarkus.cli.common.RunModeOption;
+import io.quarkus.cli.common.TargetQuarkusVersionGroup;
 import io.quarkus.cli.registry.RegistryClientMixin;
+import io.quarkus.cli.update.RewriteGroup;
 import io.quarkus.devtools.commands.AddExtensions;
 import io.quarkus.devtools.commands.ListCategories;
 import io.quarkus.devtools.commands.ListExtensions;
 import io.quarkus.devtools.commands.RemoveExtensions;
 import io.quarkus.devtools.commands.data.QuarkusCommandOutcome;
+import io.quarkus.devtools.messagewriter.MessageWriter;
 import io.quarkus.devtools.project.BuildTool;
 import io.quarkus.devtools.project.QuarkusProject;
 import io.quarkus.devtools.project.QuarkusProjectHelper;
 import io.quarkus.devtools.project.buildfile.MavenProjectBuildFile;
+import io.quarkus.platform.tools.ToolsConstants;
+import io.quarkus.platform.tools.ToolsUtils;
+import io.quarkus.registry.catalog.ExtensionCatalog;
 import io.quarkus.registry.config.RegistriesConfigLocator;
 import picocli.CommandLine;
 
@@ -130,7 +137,7 @@ public class MavenRunner implements BuildSystemRunner {
     }
 
     @Override
-    public Integer info(boolean perModule) throws Exception {
+    public Integer projectInfo(boolean perModule) throws Exception {
         ArrayDeque<String> args = new ArrayDeque<>();
         setMavenProperties(args, true);
         args.add("quarkus:info");
@@ -142,15 +149,38 @@ public class MavenRunner implements BuildSystemRunner {
     }
 
     @Override
-    public Integer update(boolean rectify, boolean recommendedState, boolean perModule) {
+    public Integer updateProject(TargetQuarkusVersionGroup targetQuarkusVersion, RewriteGroup rewrite, boolean perModule)
+            throws Exception {
         ArrayDeque<String> args = new ArrayDeque<>();
         setMavenProperties(args, true);
-        args.add("quarkus:update");
-        if (rectify) {
-            args.add("-Drectify");
+        final ExtensionCatalog extensionCatalog = ToolsUtils.resolvePlatformDescriptorDirectly(
+                ToolsConstants.QUARKUS_CORE_GROUP_ID, null,
+                Version.clientVersion(),
+                QuarkusProjectHelper.artifactResolver(), MessageWriter.info());
+        final Properties props = ToolsUtils.readQuarkusProperties(extensionCatalog);
+        args.add(ToolsUtils.getPluginKey(props) + ":" + ToolsUtils.getMavenPluginVersion(props) + ":update");
+        args.add("-e");
+        args.add("-N");
+        if (targetQuarkusVersion.platformVersion != null) {
+            args.add("-DplatformVersion=" + targetQuarkusVersion.platformVersion);
         }
-        if (recommendedState) {
-            args.add("-DrecommendedState");
+        if (targetQuarkusVersion.streamId != null) {
+            args.add("-Dstream=" + targetQuarkusVersion.streamId);
+        }
+        if (rewrite.noRewrite) {
+            args.add("-DnoRewrite");
+        }
+        if (rewrite.pluginVersion != null) {
+            args.add("-DrewritePluginVersion=" + rewrite.pluginVersion);
+        }
+        if (rewrite.quarkusUpdateRecipes != null) {
+            args.add("-DquarkusUpdateRecipes=" + rewrite.quarkusUpdateRecipes);
+        }
+        if (rewrite.additionalUpdateRecipes != null) {
+            args.add("-DadditionalUpdateRecipes=" + rewrite.additionalUpdateRecipes);
+        }
+        if (rewrite.dryRun) {
+            args.add("-DrewriteDryRun");
         }
         if (perModule) {
             args.add("-DperModule");
@@ -194,6 +224,14 @@ public class MavenRunner implements BuildSystemRunner {
         args.addAll(params);
 
         return prependExecutable(args);
+    }
+
+    @Override
+    public BuildCommandArgs prepareTest(BuildOptions buildOptions, RunModeOption runMode, List<String> params, String filter) {
+        if (filter != null) {
+            params.add("-Dtest=" + filter);
+        }
+        return prepareAction("test", buildOptions, runMode, params);
     }
 
     @Override

@@ -2,8 +2,8 @@ package io.quarkus.micrometer.runtime.export;
 
 import java.util.Map;
 
-import javax.enterprise.inject.Produces;
-import javax.inject.Singleton;
+import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Singleton;
 
 import io.micrometer.prometheus.PrometheusConfig;
 import io.micrometer.prometheus.PrometheusDurationNamingConvention;
@@ -21,7 +21,7 @@ public class PrometheusMeterRegistryProvider {
     @Singleton
     @DefaultBean
     public PrometheusConfig configure(PrometheusRuntimeConfig config) {
-        final Map<String, String> properties = ConfigAdapter.captureProperties(config.prometheus, PREFIX);
+        final Map<String, String> properties = ConfigAdapter.captureProperties(config.prometheus(), PREFIX);
         return ConfigAdapter.validate(properties::get);
     }
 

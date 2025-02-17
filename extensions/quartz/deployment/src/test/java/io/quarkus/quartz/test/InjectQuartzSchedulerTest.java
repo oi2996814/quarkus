@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.event.Observes;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ public class InjectQuartzSchedulerTest {
     static final QuarkusUnitTest test = new QuarkusUnitTest()
             .withApplicationRoot((jar) -> jar
                     .addClasses(Starter.class)
-                    .addAsResource(new StringAsset("quarkus.quartz.start-mode=forced"),
+                    .addAsResource(new StringAsset("quarkus.scheduler.start-mode=forced"),
                             "application.properties"));
 
     @Test

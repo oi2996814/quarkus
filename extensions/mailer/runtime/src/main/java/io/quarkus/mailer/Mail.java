@@ -1,9 +1,13 @@
 package io.quarkus.mailer;
 
 import java.io.File;
-import java.util.*;
-
-import org.reactivestreams.Publisher;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Flow.Publisher;
 
 /**
  * Represents an e-mail.
@@ -17,7 +21,7 @@ public class Mail {
     private List<String> bcc = new ArrayList<>();
     private List<String> cc = new ArrayList<>();
     private String from;
-    private List<String> replyTo = new ArrayList<>();
+    private final List<String> replyTo = new ArrayList<>();
     private String bounceAddress;
     private String subject;
     private String text;

@@ -2,44 +2,43 @@ package io.quarkus.it.hibernate.reactive.postgresql;
 
 import java.util.Collection;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 
 import org.hibernate.reactive.mutiny.Mutiny;
 
 import io.quarkus.it.hibernate.reactive.postgresql.lazy.Author;
 import io.quarkus.it.hibernate.reactive.postgresql.lazy.Book;
 import io.smallrye.mutiny.Uni;
-import io.vertx.mutiny.pgclient.PgPool;
+import io.vertx.mutiny.sqlclient.Pool;
 import io.vertx.mutiny.sqlclient.Tuple;
 
 @Path("/hr-fetch")
 public class HibernateReactiveTestEndpointFetchLazy {
 
     @Inject
-    Mutiny.Session mutinySession;
+    Mutiny.SessionFactory sessionFactory;
 
     // Injecting a Vert.x Pool is not required, It's used to
     // independently validate the contents of the database for the test
     @Inject
-    PgPool pgPool;
+    Pool pgPool;
 
     @GET
     @Path("/findBooksWithMutiny/{authorId}")
     public Uni<Collection<Book>> findBooksWithMutiny(@PathParam("authorId") Integer authorId) {
-        return mutinySession.find(Author.class, authorId)
-                .chain(author -> Mutiny.fetch(author.getBooks()));
+        return sessionFactory.withSession(s -> s.find(Author.class, authorId)
+                .chain(author -> Mutiny.fetch(author.getBooks())));
     }
 
     @GET
     @Path("/getReferenceBooksWithMutiny/{authorId}")
     public Uni<Collection<Book>> getReferenceBooksWithMutiny(@PathParam("authorId") Integer authorId) {
-        return mutinySession
-                .fetch(mutinySession.getReference(Author.class, authorId))
-                .chain(author -> Mutiny.fetch(author.getBooks()));
+        return sessionFactory.withSession(s -> s.fetch(s.getReference(Author.class, authorId))
+                .chain(author -> Mutiny.fetch(author.getBooks())));
     }
 
     @POST
@@ -51,10 +50,10 @@ public class HibernateReactiveTestEndpointFetchLazy {
         author.getBooks().add(book1);
         author.getBooks().add(book2);
 
-        return mutinySession.createQuery(" delete from Book").executeUpdate()
-                .call(() -> mutinySession.createQuery("delete from Author").executeUpdate())
-                .call(() -> mutinySession.persist(author))
-                .chain(mutinySession::flush)
+        return sessionFactory.withTransaction(s -> s.createQuery(" delete from Book").executeUpdate()
+                .call(() -> s.createQuery("delete from Author").executeUpdate())
+                .call(() -> s.persist(author))
+                .chain(s::flush))
                 .chain(() -> selectNameFromId(author.getId()));
     }
 

@@ -1,81 +1,46 @@
 package io.quarkus.runtime.configuration;
 
+import static io.quarkus.runtime.ConfigConfig.BuildTimeMismatchAtRuntime;
+import static io.quarkus.runtime.ConfigConfig.BuildTimeMismatchAtRuntime.fail;
+import static io.quarkus.runtime.ConfigConfig.BuildTimeMismatchAtRuntime.warn;
+
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
-import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.config.ConfigValue;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.jboss.logging.Logger;
 
+import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
-import io.quarkus.runtime.configuration.ConfigurationRuntimeConfig.BuildTimeMismatchAtRuntime;
-import io.smallrye.config.ConfigSourceInterceptorContext;
-import io.smallrye.config.ExpressionConfigSourceInterceptor;
+import io.smallrye.config.ConfigValue;
 import io.smallrye.config.SmallRyeConfig;
-import io.smallrye.config.SmallRyeConfigBuilder;
 
 @Recorder
 public class ConfigRecorder {
-
     private static final Logger log = Logger.getLogger(ConfigRecorder.class);
 
-    final ConfigurationRuntimeConfig configurationConfig;
-
-    public ConfigRecorder(ConfigurationRuntimeConfig configurationConfig) {
-        this.configurationConfig = configurationConfig;
-    }
-
     public void handleConfigChange(Map<String, ConfigValue> buildTimeRuntimeValues) {
-        // Create a new Config without the "BuildTime RunTime Fixed" sources to check for different values
-        SmallRyeConfigBuilder configBuilder = ConfigUtils.emptyConfigBuilder();
-        // We need to disable the expression resolution, because we may be missing expressions from the "BuildTime RunTime Fixed" source
-        configBuilder.withDefaultValue(Config.PROPERTY_EXPRESSIONS_ENABLED, "false");
-        for (ConfigSource configSource : ConfigProvider.getConfig().getConfigSources()) {
-            if ("BuildTime RunTime Fixed".equals(configSource.getName())) {
-                continue;
+        SmallRyeConfig config = ConfigProvider.getConfig().unwrap(SmallRyeConfig.class);
+        // Disable the BuildTime RunTime Fixed (has the highest ordinal), because a lookup will get the expected value,
+        // and we have no idea if the user tried to override it in another source.
+        Optional<ConfigSource> builtTimeRunTimeFixedConfigSource = config.getConfigSource("BuildTime RunTime Fixed");
+        if (builtTimeRunTimeFixedConfigSource.isPresent()) {
+            ConfigSource configSource = builtTimeRunTimeFixedConfigSource.get();
+            if (configSource instanceof DisableableConfigSource) {
+                ((DisableableConfigSource) configSource).disable();
             }
-            configBuilder.withSources(configSource);
         }
-        // Add a new expression resolution to fall back to the current Config if we cannot expand the expression
-        configBuilder.withInterceptors(new ExpressionConfigSourceInterceptor() {
-            @Override
-            public io.smallrye.config.ConfigValue getValue(final ConfigSourceInterceptorContext context, final String name) {
-                return super.getValue(new ConfigSourceInterceptorContext() {
-                    @Override
-                    public io.smallrye.config.ConfigValue proceed(final String name) {
-                        io.smallrye.config.ConfigValue configValue = context.proceed(name);
-                        if (configValue == null) {
-                            configValue = (io.smallrye.config.ConfigValue) ConfigProvider.getConfig().getConfigValue(name);
-                            if (configValue.getValue() == null) {
-                                return null;
-                            }
-                        }
-                        return configValue;
-                    }
-
-                    @Override
-                    public Iterator<String> iterateNames() {
-                        return context.iterateNames();
-                    }
-
-                    @Override
-                    public Iterator<io.smallrye.config.ConfigValue> iterateValues() {
-                        return context.iterateValues();
-                    }
-                }, name);
-            }
-        });
-        SmallRyeConfig config = configBuilder.build();
 
         List<String> mismatches = new ArrayList<>();
         for (Map.Entry<String, ConfigValue> entry : buildTimeRuntimeValues.entrySet()) {
             ConfigValue currentValue = config.getConfigValue(entry.getKey());
             // Check for changes. Also, we only have a change if the source ordinal is higher
-            if (currentValue.getValue() != null && !entry.getValue().getValue().equals(currentValue.getValue())
+            // The config value can be null (for ex. if the property uses environment variables not available at build time)
+            if (currentValue.getValue() != null && !Objects.equals(entry.getValue().getValue(), currentValue.getValue())
                     && entry.getValue().getSourceOrdinal() < currentValue.getSourceOrdinal()) {
                 mismatches.add(
                         " - " + entry.getKey() + " is set to '" + currentValue.getValue()
@@ -84,19 +49,26 @@ public class ConfigRecorder {
                                 + " after building the application?");
             }
         }
-        if (!mismatches.isEmpty()) {
-            final String msg = "Build time property cannot be changed at runtime:\n" + String.join("\n", mismatches);
-            switch (configurationConfig.buildTimeMismatchAtRuntime) {
-                case fail:
-                    throw new IllegalStateException(msg);
-                case warn:
-                    log.warn(msg);
-                    break;
-                default:
-                    throw new IllegalStateException("Unexpected " + BuildTimeMismatchAtRuntime.class.getName() + ": "
-                            + configurationConfig.buildTimeMismatchAtRuntime);
-            }
 
+        // Enable the BuildTime RunTime Fixed. It should be fine doing these operations, because this is on startup
+        if (builtTimeRunTimeFixedConfigSource.isPresent()) {
+            ConfigSource configSource = builtTimeRunTimeFixedConfigSource.get();
+            if (configSource instanceof DisableableConfigSource) {
+                ((DisableableConfigSource) configSource).enable();
+            }
+        }
+
+        if (!mismatches.isEmpty()) {
+            String msg = "Build time property cannot be changed at runtime:\n" + String.join("\n", mismatches);
+            // TODO - This should use ConfigConfig, but for some reason, the test fails sometimes with mapping not found when looking ConfigConfig
+            BuildTimeMismatchAtRuntime buildTimeMismatchAtRuntime = config
+                    .getOptionalValue("quarkus.config.build-time-mismatch-at-runtime", BuildTimeMismatchAtRuntime.class)
+                    .orElse(warn);
+            if (fail.equals(buildTimeMismatchAtRuntime)) {
+                throw new IllegalStateException(msg);
+            } else if (warn.equals(buildTimeMismatchAtRuntime)) {
+                log.warn(msg);
+            }
         }
     }
 
@@ -121,5 +93,17 @@ public class ConfigRecorder {
                         + "'. This may lead to unexpected results.");
             }
         }
+    }
+
+    public void unknownConfigFiles() throws Exception {
+        ConfigDiagnostic.unknownConfigFiles(ConfigDiagnostic.configFilesFromLocations());
+    }
+
+    public void releaseConfig(ShutdownContext shutdownContext) {
+        // This is mostly useful to handle restarts in Dev/Test mode.
+        // While this may seem to duplicate code in IsolatedDevModeMain,
+        // it actually does not because it operates on a different instance
+        // of QuarkusConfigFactory from a different classloader.
+        shutdownContext.addLastShutdownTask(QuarkusConfigFactory::releaseTCCLConfig);
     }
 }

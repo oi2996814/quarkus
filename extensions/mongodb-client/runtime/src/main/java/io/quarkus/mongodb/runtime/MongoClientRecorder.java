@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.enterprise.inject.Default;
-import javax.enterprise.inject.literal.NamedLiteral;
-import javax.enterprise.util.AnnotationLiteral;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.literal.NamedLiteral;
+import jakarta.enterprise.util.AnnotationLiteral;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.client.MongoClient;
@@ -115,17 +115,17 @@ public class MongoClientRecorder {
      */
     public void performInitialization(MongodbConfig config, RuntimeValue<Vertx> vertx) {
         MongoDnsClientProvider.vertx = vertx.getValue();
-        initializeDNSLookup(config.defaultMongoClientConfig);
-        for (MongoClientConfig mongoClientConfig : config.mongoClientConfigs.values()) {
+        initializeDNSLookup(config.defaultMongoClientConfig());
+        for (MongoClientConfig mongoClientConfig : config.mongoClientConfigs().values()) {
             initializeDNSLookup(mongoClientConfig);
         }
     }
 
     private void initializeDNSLookup(MongoClientConfig mongoClientConfig) {
-        if (mongoClientConfig.connectionString.isEmpty()) {
+        if (mongoClientConfig.connectionString().isEmpty()) {
             return;
         }
         // this ensures that DNS resolution will take place if necessary
-        new ConnectionString(mongoClientConfig.connectionString.get());
+        new ConnectionString(mongoClientConfig.connectionString().get());
     }
 }

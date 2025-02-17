@@ -1,5 +1,6 @@
 package io.quarkus.test.junit.mockito.internal;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,14 +26,19 @@ import io.quarkus.builder.BuildContext;
 import io.quarkus.builder.BuildStep;
 import io.quarkus.test.junit.buildchain.TestBuildChainCustomizerProducer;
 import io.quarkus.test.junit.mockito.InjectMock;
+import io.quarkus.test.junit.mockito.InjectSpy;
+import io.quarkus.test.junit.mockito.MockitoConfig;
 
 public class SingletonToApplicationScopedTestBuildChainCustomizerProducer implements TestBuildChainCustomizerProducer {
 
-    private static final DotName INJECT_MOCK = DotName.createSimple(InjectMock.class.getName());
+    static final DotName INJECT_MOCK = DotName.createSimple(io.quarkus.test.InjectMock.class.getName());
+    static final DotName DEPRECATED_INJECT_MOCK = DotName.createSimple(InjectMock.class.getName());
+    static final DotName INJECT_SPY = DotName.createSimple(InjectSpy.class.getName());
+    static final DotName MOCKITO_CONFIG = DotName.createSimple(MockitoConfig.class.getName());
 
     @Override
     public Consumer<BuildChainBuilder> produce(Index testClassesIndex) {
-        return new Consumer<BuildChainBuilder>() {
+        return new Consumer<>() {
 
             @Override
             public void accept(BuildChainBuilder buildChainBuilder) {
@@ -40,13 +46,20 @@ public class SingletonToApplicationScopedTestBuildChainCustomizerProducer implem
                     @Override
                     public void execute(BuildContext context) {
                         Set<DotName> mockTypes = new HashSet<>();
-                        List<AnnotationInstance> instances = testClassesIndex.getAnnotations(INJECT_MOCK);
+                        List<AnnotationInstance> instances = new ArrayList<>();
+                        instances.addAll(testClassesIndex.getAnnotations(DEPRECATED_INJECT_MOCK));
+                        instances.addAll(testClassesIndex.getAnnotations(INJECT_SPY));
+                        instances.addAll(testClassesIndex.getAnnotations(MOCKITO_CONFIG));
                         for (AnnotationInstance instance : instances) {
                             if (instance.target().kind() != AnnotationTarget.Kind.FIELD) {
                                 continue;
                             }
+                            if (instance.name().equals(MOCKITO_CONFIG)
+                                    && !instance.target().asField().hasAnnotation(INJECT_MOCK)) {
+                                continue;
+                            }
                             AnnotationValue allowScopeConversionValue = instance.value("convertScopes");
-                            if ((allowScopeConversionValue != null) && allowScopeConversionValue.asBoolean()) {
+                            if (allowScopeConversionValue != null && allowScopeConversionValue.asBoolean()) {
                                 // we need to fetch the type of the bean, so we need to look at the type of the field
                                 mockTypes.add(instance.target().asField().type().name());
                             }
@@ -71,7 +84,15 @@ public class SingletonToApplicationScopedTestBuildChainCustomizerProducer implem
                         context.produce(new AnnotationsTransformerBuildItem(new AnnotationsTransformer() {
                             @Override
                             public boolean appliesTo(AnnotationTarget.Kind kind) {
-                                return (kind == AnnotationTarget.Kind.CLASS) || (kind == AnnotationTarget.Kind.METHOD);
+                                return kind == AnnotationTarget.Kind.CLASS || kind == AnnotationTarget.Kind.METHOD;
+                            }
+
+                            @Override
+                            public int getPriority() {
+                                // annotation transformer registered in `AutoProducerMethodsProcessor` has priority
+                                // of `DEFAULT_PRIORITY - 1` and we need to run _after_ it, otherwise we wouldn't
+                                // recognize an auto-producer (producer without `@Produces`)
+                                return DEFAULT_PRIORITY - 10;
                             }
 
                             @Override
@@ -87,9 +108,8 @@ public class SingletonToApplicationScopedTestBuildChainCustomizerProducer implem
                                     }
                                 } else if (target.kind() == AnnotationTarget.Kind.METHOD) { // CDI producer case
                                     MethodInfo methodInfo = target.asMethod();
-                                    if ((methodInfo.annotation(DotNames.PRODUCES) != null)
-                                            && (Annotations.contains(transformationContext.getAnnotations(),
-                                                    DotNames.SINGLETON)
+                                    if (Annotations.contains(transformationContext.getAnnotations(), DotNames.PRODUCES)
+                                            && (Annotations.contains(transformationContext.getAnnotations(), DotNames.SINGLETON)
                                                     || hasSingletonBeanDefiningAnnotation(transformationContext))) {
                                         DotName returnType = methodInfo.returnType().name();
                                         if (mockTypes.contains(returnType)) {

@@ -13,6 +13,8 @@ import static io.quarkus.deployment.util.ReflectUtil.rawTypeOfParameter;
 import static java.util.Arrays.asList;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -23,6 +25,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.UndeclaredThrowableException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -43,11 +46,10 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
 import org.jboss.logging.Logger;
 import org.wildfly.common.function.Functions;
 
@@ -73,7 +75,6 @@ import io.quarkus.deployment.annotations.Produce;
 import io.quarkus.deployment.annotations.ProduceWeak;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.annotations.Weak;
-import io.quarkus.deployment.builditem.BootstrapConfigSetupCompleteBuildItem;
 import io.quarkus.deployment.builditem.BytecodeRecorderObjectLoaderBuildItem;
 import io.quarkus.deployment.builditem.ConfigurationBuildItem;
 import io.quarkus.deployment.builditem.MainBytecodeRecorderBuildItem;
@@ -82,7 +83,6 @@ import io.quarkus.deployment.builditem.RuntimeConfigSetupCompleteBuildItem;
 import io.quarkus.deployment.builditem.StaticBytecodeRecorderBuildItem;
 import io.quarkus.deployment.configuration.BuildTimeConfigurationReader;
 import io.quarkus.deployment.configuration.ConfigMappingUtils;
-import io.quarkus.deployment.configuration.DefaultValuesConfigurationSource;
 import io.quarkus.deployment.configuration.definition.RootDefinition;
 import io.quarkus.deployment.recording.BytecodeRecorderImpl;
 import io.quarkus.deployment.recording.ObjectLoader;
@@ -99,16 +99,10 @@ import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.quarkus.runtime.annotations.Recorder;
-import io.quarkus.runtime.configuration.ConfigUtils;
 import io.quarkus.runtime.configuration.QuarkusConfigFactory;
 import io.quarkus.runtime.util.HashUtil;
-import io.smallrye.config.ConfigMappings.ConfigClassWithPrefix;
-import io.smallrye.config.KeyMap;
-import io.smallrye.config.KeyMapBackedConfigSource;
-import io.smallrye.config.NameIterator;
-import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.ConfigMappings.ConfigClass;
 import io.smallrye.config.SmallRyeConfig;
-import io.smallrye.config.SmallRyeConfigBuilder;
 
 /**
  * Utility class to load build steps, runtime recorders, and configuration roots from a given extension class.
@@ -120,7 +114,6 @@ public final class ExtensionLoader {
 
     private static final Logger loadLog = Logger.getLogger("io.quarkus.deployment");
     private static final Logger cfgLog = Logger.getLogger("io.quarkus.configuration");
-    private static final String CONFIG_ROOTS_LIST = "META-INF/quarkus-config-roots.list";
     @SuppressWarnings("unchecked")
     private static final Class<? extends BooleanSupplier>[] EMPTY_BOOLEAN_SUPPLIER_CLASS_ARRAY = new Class[0];
 
@@ -139,59 +132,16 @@ public final class ExtensionLoader {
      * @throws IOException if the class loader could not load a resource
      * @throws ClassNotFoundException if a build step class is not found
      */
-    public static Consumer<BuildChainBuilder> loadStepsFrom(ClassLoader classLoader, Properties buildSystemProps,
+    public static Consumer<BuildChainBuilder> loadStepsFrom(ClassLoader classLoader,
+            Properties buildSystemProps, Properties runtimeProperties,
             ApplicationModel appModel, LaunchMode launchMode, DevModeType devModeType)
             throws IOException, ClassNotFoundException {
-        // populate with all known types
-        List<Class<?>> roots = new ArrayList<>();
-        for (Class<?> clazz : ServiceUtil.classesNamedIn(classLoader, CONFIG_ROOTS_LIST)) {
-            final ConfigRoot annotation = clazz.getAnnotation(ConfigRoot.class);
-            if (annotation == null) {
-                cfgLog.warnf("Ignoring configuration root %s because it has no annotation", clazz);
-            } else {
-                roots.add(clazz);
-            }
-        }
 
-        final BuildTimeConfigurationReader reader = new BuildTimeConfigurationReader(roots);
-
-        // now prepare & load the build configuration
-        final SmallRyeConfigBuilder builder = ConfigUtils.configBuilder(false, launchMode);
-
-        final DefaultValuesConfigurationSource ds1 = new DefaultValuesConfigurationSource(
-                reader.getBuildTimePatternMap());
-        final DefaultValuesConfigurationSource ds2 = new DefaultValuesConfigurationSource(
-                reader.getBuildTimeRunTimePatternMap());
-        final PropertiesConfigSource pcs = new PropertiesConfigSource(buildSystemProps, "Build system");
-        final Map<String, String> platformProperties = appModel.getPlatformProperties();
-        if (platformProperties.isEmpty()) {
-            builder.withSources(ds1, ds2, pcs);
-        } else {
-            final KeyMap<String> props = new KeyMap<>(platformProperties.size());
-            for (Map.Entry<String, String> prop : platformProperties.entrySet()) {
-                props.findOrAdd(new NameIterator(prop.getKey())).putRootValue(prop.getValue());
-            }
-            final KeyMapBackedConfigSource platformConfigSource = new KeyMapBackedConfigSource("Quarkus platform",
-                    // Our default value configuration source is using an ordinal of Integer.MIN_VALUE
-                    // (see io.quarkus.deployment.configuration.DefaultValuesConfigurationSource)
-                    Integer.MIN_VALUE + 1000, props);
-            builder.withSources(ds1, ds2, platformConfigSource, pcs);
-        }
-
-        for (ConfigClassWithPrefix mapping : reader.getBuildTimeVisibleMappings()) {
-            builder.withMapping(mapping.getKlass(), mapping.getPrefix());
-        }
-        final SmallRyeConfig src = builder.build();
-
+        final BuildTimeConfigurationReader reader = new BuildTimeConfigurationReader(classLoader);
+        final SmallRyeConfig src = reader.initConfiguration(launchMode, buildSystemProps, runtimeProperties,
+                appModel.getPlatformProperties());
         // install globally
         QuarkusConfigFactory.setConfig(src);
-        final ConfigProviderResolver cpr = ConfigProviderResolver.instance();
-        try {
-            cpr.releaseConfig(cpr.getConfig());
-        } catch (IllegalStateException ignored) {
-            // just means no config was installed, which is fine
-        }
-
         final BuildTimeConfigurationReader.ReadResult readResult = reader.readConfiguration(src);
         final BooleanSupplierFactoryBuildItem bsf = new BooleanSupplierFactoryBuildItem(readResult, launchMode, devModeType);
 
@@ -222,7 +172,7 @@ public final class ExtensionLoader {
 
         // this has to be an identity hash map else the recorder will get angry
         Map<Object, FieldDescriptor> rootFields = new IdentityHashMap<>();
-        Map<Object, ConfigClassWithPrefix> mappingClasses = new IdentityHashMap<>();
+        Map<Object, ConfigClass> mappingClasses = new IdentityHashMap<>();
         for (Map.Entry<Class<?>, Object> entry : proxies.entrySet()) {
             // ConfigRoot
             RootDefinition root = readResult.getAllRootsByClass().get(entry.getKey());
@@ -232,7 +182,7 @@ public final class ExtensionLoader {
             }
 
             // ConfigMapping
-            ConfigClassWithPrefix mapping = readResult.getAllMappings().get(entry.getKey());
+            ConfigClass mapping = readResult.getAllMappingsByClass().get(entry.getKey());
             if (mapping != null) {
                 mappingClasses.put(entry.getValue(), mapping);
                 continue;
@@ -260,7 +210,7 @@ public final class ExtensionLoader {
                 ObjectLoader mappingLoader = new ObjectLoader() {
                     @Override
                     public ResultHandle load(final BytecodeCreator body, final Object obj, final boolean staticInit) {
-                        ConfigClassWithPrefix mapping = mappingClasses.get(obj);
+                        ConfigClass mapping = mappingClasses.get(obj);
                         MethodDescriptor getConfig = MethodDescriptor.ofMethod(ConfigProvider.class, "getConfig", Config.class);
                         ResultHandle config = body.invokeStaticMethod(getConfig);
                         MethodDescriptor getMapping = MethodDescriptor.ofMethod(SmallRyeConfig.class, "getConfigMapping",
@@ -487,6 +437,7 @@ public final class ExtensionLoader {
         final List<Method> methods = getMethods(clazz);
         final Map<String, List<Method>> nameToMethods = methods.stream().collect(Collectors.groupingBy(m -> m.getName()));
 
+        MethodHandles.Lookup lookup = MethodHandles.publicLookup();
         for (Method method : methods) {
             final BuildStep buildStep = method.getAnnotation(BuildStep.class);
             if (buildStep == null) {
@@ -780,8 +731,7 @@ public final class ExtensionLoader {
                 throw reportError(method, "Unsupported method return type " + returnType);
             }
 
-            if (methodConsumingConfigPhases.contains(ConfigPhase.BOOTSTRAP)
-                    || methodConsumingConfigPhases.contains(ConfigPhase.RUN_TIME)) {
+            if (methodConsumingConfigPhases.contains(ConfigPhase.RUN_TIME)) {
                 if (isRecorder && recordAnnotation.value() == ExecutionTime.STATIC_INIT) {
                     throw reportError(method,
                             "Bytecode recorder is static but an injected config object is declared as run time");
@@ -790,10 +740,6 @@ public final class ExtensionLoader {
                 methodStepConfig = methodStepConfig
                         .andThen(bsb -> bsb.consumes(RunTimeConfigurationProxyBuildItem.class));
 
-                if (methodConsumingConfigPhases.contains(ConfigPhase.BOOTSTRAP)) {
-                    methodStepConfig = methodStepConfig
-                            .andThen(bsb -> bsb.afterProduce(BootstrapConfigSetupCompleteBuildItem.class));
-                }
                 if (methodConsumingConfigPhases.contains(ConfigPhase.RUN_TIME)) {
                     methodStepConfig = methodStepConfig
                             .andThen(bsb -> bsb.afterProduce(RuntimeConfigSetupCompleteBuildItem.class));
@@ -845,6 +791,7 @@ public final class ExtensionLoader {
                 stepId = name;
             }
 
+            MethodHandle methodHandle = unreflect(method, lookup);
             chainConfig = chainConfig
                     .andThen(bcb -> {
                         BuildStepBuilder bsb = bcb.addBuildStep(new io.quarkus.builder.BuildStep() {
@@ -906,17 +853,13 @@ public final class ExtensionLoader {
                                 }
                                 Object result;
                                 try {
-                                    result = method.invoke(instance, methodArgs);
+                                    result = methodHandle.bindTo(instance).invokeWithArguments(methodArgs);
                                 } catch (IllegalAccessException e) {
                                     throw ReflectUtil.toError(e);
-                                } catch (InvocationTargetException e) {
-                                    try {
-                                        throw e.getCause();
-                                    } catch (RuntimeException | Error e2) {
-                                        throw e2;
-                                    } catch (Throwable t) {
-                                        throw new IllegalStateException(t);
-                                    }
+                                } catch (RuntimeException | Error e2) {
+                                    throw e2;
+                                } catch (Throwable t) {
+                                    throw new UndeclaredThrowableException(t);
                                 }
                                 resultConsumer.accept(bc, result);
                                 if (isRecorder) {
@@ -943,6 +886,15 @@ public final class ExtensionLoader {
                     });
         }
         return chainConfig;
+    }
+
+    private static MethodHandle unreflect(Method method, MethodHandles.Lookup lookup) {
+        try {
+            return lookup.unreflect(method);
+        } catch (IllegalAccessException e) {
+            throw ReflectUtil.toError(e);
+        }
+
     }
 
     private static BooleanSupplier and(BooleanSupplier addStep, BooleanSupplierFactoryBuildItem supplierFactory,

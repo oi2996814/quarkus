@@ -3,9 +3,9 @@ package io.quarkus.resteasy.test.security;
 import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
 
-import javax.annotation.security.RolesAllowed;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 import org.hamcrest.Matchers;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -22,8 +22,8 @@ public class DefaultRolesAllowedJaxRsTest {
     static QuarkusUnitTest runner = new QuarkusUnitTest()
             .withApplicationRoot((jar) -> jar
                     .addClasses(PermitAllResource.class, UnsecuredResource.class,
-                            TestIdentityProvider.class,
-                            TestIdentityController.class,
+                            TestIdentityProvider.class, UnsecuredResourceInterface.class,
+                            TestIdentityController.class, UnsecuredParentResource.class,
                             UnsecuredSubResource.class, HelloResource.class)
                     .addAsResource(new StringAsset("quarkus.security.jaxrs.default-roles-allowed = admin\n"),
                             "application.properties"));
@@ -38,6 +38,18 @@ public class DefaultRolesAllowedJaxRsTest {
     @Test
     public void shouldDenyUnannotated() {
         String path = "/unsecured/defaultSecurity";
+        assertStatus(path, 200, 403, 401);
+    }
+
+    @Test
+    public void shouldDenyUnannotatedOnParentClass() {
+        String path = "/unsecured/defaultSecurityParent";
+        assertStatus(path, 200, 403, 401);
+    }
+
+    @Test
+    public void shouldDenyUnannotatedOnInterface() {
+        String path = "/unsecured/defaultSecurityInterface";
         assertStatus(path, 200, 403, 401);
     }
 

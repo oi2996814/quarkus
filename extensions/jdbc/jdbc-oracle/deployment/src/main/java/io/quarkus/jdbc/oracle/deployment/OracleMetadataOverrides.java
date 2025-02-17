@@ -4,11 +4,15 @@ import java.util.Collections;
 
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.annotations.BuildSteps;
 import io.quarkus.deployment.builditem.RemovedResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ExcludeConfigBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageAllowIncompleteClasspathBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBundleBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.RuntimeReinitializedClassBuildItem;
+import io.quarkus.deployment.pkg.steps.NativeOrNativeSourcesBuild;
 import io.quarkus.maven.dependency.ArtifactKey;
 
 /**
@@ -32,6 +36,7 @@ import io.quarkus.maven.dependency.ArtifactKey;
  * require it, so this would facilitate the option to revert to the older version in
  * case of problems.
  */
+@BuildSteps(onlyIf = NativeOrNativeSourcesBuild.class)
 public final class OracleMetadataOverrides {
 
     static final String DRIVER_JAR_MATCH_REGEX = "com\\.oracle\\.database\\.jdbc";
@@ -46,27 +51,38 @@ public final class OracleMetadataOverrides {
     @BuildStep
     void build(BuildProducer<ReflectiveClassBuildItem> reflectiveClass) {
         //This is to match the Oracle metadata (which we excluded so that we can apply fixes):
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, false, "oracle.jdbc.internal.ACProxyable"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.jdbc.driver.T4CDriverExtension"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.jdbc.driver.T2CDriverExtension"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.jdbc.driver.ShardingDriverExtension"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.net.ano.Ano"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.net.ano.AuthenticationService"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.net.ano.DataIntegrityService"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.net.ano.EncryptionService"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.net.ano.SupervisorService"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.jdbc.driver.Message11"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, true, "oracle.sql.TypeDescriptor"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.sql.TypeDescriptorFactory"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, false, false, "oracle.sql.AnyDataFactory"));
-        reflectiveClass
-                .produce(new ReflectiveClassBuildItem(true, false, false, "com.sun.rowset.providers.RIOptimisticProvider"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, false, "oracle.jdbc.logging.annotations.Supports"));
-        reflectiveClass.produce(new ReflectiveClassBuildItem(true, true, false, "oracle.jdbc.logging.annotations.Feature"));
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.jdbc.internal.ACProxyable")
+                .constructors().methods().build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.jdbc.driver.T4CDriverExtension")
+                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.jdbc.driver.T2CDriverExtension")
+                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.jdbc.driver.ShardingDriverExtension")
+                .build());
+        reflectiveClass.produce(
+                ReflectiveClassBuildItem.builder("oracle.net.ano.Ano").build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.net.ano.AuthenticationService")
+                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.net.ano.DataIntegrityService")
+                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.net.ano.EncryptionService")
+                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.net.ano.SupervisorService")
+                .build());
+        //This is listed in the original metadata, but it doesn't actually exist:
+        //        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.jdbc.driver.Message11")
+        //                .build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.sql.TypeDescriptor")
+                .constructors().fields().build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.sql.TypeDescriptorFactory")
+                .constructors().build());
+        reflectiveClass.produce(ReflectiveClassBuildItem.builder("oracle.sql.AnyDataFactory")
+                .constructors().build());
     }
 
     @BuildStep
-    void runtimeInitializeDriver(BuildProducer<RuntimeInitializedClassBuildItem> runtimeInitialized) {
+    void runtimeInitializeDriver(BuildProducer<RuntimeInitializedClassBuildItem> runtimeInitialized,
+            BuildProducer<RuntimeReinitializedClassBuildItem> runtimeReinitialized) {
         //These re-implement all the "--initialize-at-build-time" arguments found in the native-image.properties :
 
         // Override: the original metadata marks the drivers as "runtime initialized" but this makes it incompatible with
@@ -93,10 +109,14 @@ public final class OracleMetadataOverrides {
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.net.nt.TcpMultiplexer"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.net.nt.TcpMultiplexer"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.net.nt.TcpMultiplexer$LazyHolder"));
-        runtimeInitialized
-                .produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.driver.BlockSource$ThreadedCachingBlockSource"));
-        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem(
+
+        // Needs to be REinitialized to avoid problems when also using the Elasticsearch Java client
+        // See https://github.com/quarkusio/quarkus/issues/31624#issuecomment-1457706253
+        runtimeReinitialized.produce(new RuntimeReinitializedClassBuildItem(
+                "oracle.jdbc.driver.BlockSource$ThreadedCachingBlockSource"));
+        runtimeReinitialized.produce(new RuntimeReinitializedClassBuildItem(
                 "oracle.jdbc.driver.BlockSource$ThreadedCachingBlockSource$BlockReleaser"));
+
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.xa.client.OracleXADataSource"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.replay.OracleXADataSourceImpl"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.datasource.OracleXAConnection"));
@@ -104,6 +124,17 @@ public final class OracleMetadataOverrides {
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.xa.client.OracleXAHeteroConnection"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.driver.T4CXAConnection"));
         runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.security.o5logon.O5Logon"));
+
+        //These were missing in the original driver, and apparently in its automatic feature definitions as well;
+        //the need was spotted by running the native build: GraalVM will complain about these types having initialized fields
+        //referring to various other types which aren't allowed in a captured heap.
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.diagnostics.Diagnostic"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.replay.driver.FailoverManagerImpl"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.diagnostics.AbstractDiagnosable"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.driver.AbstractTrueCacheConnectionPools"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.diagnostics.CommonDiagnosable"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.replay.driver.TxnFailoverManagerImpl"));
+        runtimeInitialized.produce(new RuntimeInitializedClassBuildItem("oracle.jdbc.diagnostics.OracleDiagnosticsMXBean"));
     }
 
     @BuildStep
@@ -122,15 +153,14 @@ public final class OracleMetadataOverrides {
     }
 
     @BuildStep
-    RemovedResourceBuildItem overrideSubstitutions() {
-        return new RemovedResourceBuildItem(ArtifactKey.fromString("com.oracle.database.jdbc:ojdbc11"),
-                Collections.singleton("oracle/nativeimage/Target_java_io_ObjectStreamClass.class"));
+    RemovedResourceBuildItem enhancedCharsetSubstitutions() {
+        return new RemovedResourceBuildItem(ArtifactKey.fromString("com.oracle.database.jdbc:ojdbc17"),
+                Collections.singleton("oracle/nativeimage/CharacterSetFeature.class"));
     }
 
     @BuildStep
-    RemovedResourceBuildItem enhancedCharsetSubstitutions() {
-        return new RemovedResourceBuildItem(ArtifactKey.fromString("com.oracle.database.jdbc:ojdbc11"),
-                Collections.singleton("oracle/nativeimage/CharacterSetFeature.class"));
+    NativeImageResourceBundleBuildItem additionalResourceBundles() {
+        return new NativeImageResourceBundleBuildItem("oracle.net.mesg.NetErrorMessages");
     }
 
 }

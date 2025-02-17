@@ -3,7 +3,7 @@ package io.quarkus.scheduler.common.runtime;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.event.Event;
+import jakarta.enterprise.event.Event;
 
 import org.jboss.logging.Logger;
 
@@ -36,11 +36,15 @@ public final class SkipPredicateInvoker extends DelegateInvoker {
             LOG.debugf("Skipped scheduled invoker execution: %s", delegate.getClass().getName());
             SkippedExecution payload = new SkippedExecution(execution,
                     predicate.getClass().getName());
-            event.fire(payload);
-            event.fireAsync(payload);
+            try {
+                event.fire(payload);
+                event.fireAsync(payload);
+            } catch (Exception e) {
+                LOG.errorf("Error while firing SkippedExecution event", e);
+            }
             return CompletableFuture.completedStage(null);
         } else {
-            return delegate.invoke(execution);
+            return invokeDelegate(execution);
         }
     }
 

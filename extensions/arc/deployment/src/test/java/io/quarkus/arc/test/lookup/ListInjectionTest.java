@@ -8,13 +8,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.annotation.PreDestroy;
-import javax.enterprise.context.Dependent;
-import javax.enterprise.inject.Alternative;
-import javax.enterprise.inject.Default;
-import javax.enterprise.inject.spi.InjectionPoint;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.spi.InjectionPoint;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -22,7 +23,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import io.quarkus.arc.All;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InstanceHandle;
-import io.quarkus.arc.Priority;
+import io.quarkus.arc.Unremovable;
 import io.quarkus.test.QuarkusUnitTest;
 
 public class ListInjectionTest {
@@ -31,7 +32,9 @@ public class ListInjectionTest {
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .withApplicationRoot((jar) -> jar
                     .addClasses(Foo.class, ServiceAlpha.class, ServiceBravo.class, ServiceCharlie.class, Service.class,
-                            Counter.class, Converter.class, ConverterAlpha.class, ConverterBravo.class, MyQualifier.class));
+                            Counter.class, Converter.class, ConverterAlpha.class, ConverterBravo.class, MyQualifier.class,
+                            Some.class, SomeInt.class, SomeString.class, SomeNumber.class, SomeObject.class, BeanA.class,
+                            BeanB.class));
 
     @Inject
     Foo foo;
@@ -87,6 +90,18 @@ public class ListInjectionTest {
         assertTrue(bravo.getInjectionPoint().isPresent());
         // Empty injection point
         assertEquals(Object.class, bravo.getInjectionPoint().get().getType());
+    }
+
+    @Test
+    public void testWildcardInBeanType() {
+        BeanA beanA = Arc.container().instance(BeanA.class).get();
+        assertEquals(4, beanA.somes.size());
+        assertEquals(2, beanA.extendsNumber.size());
+        assertEquals(3, beanA.superInteger.size());
+        BeanB beanB = Arc.container().instance(BeanB.class).get();
+        assertEquals(4, beanB.somes.size());
+        assertEquals(2, beanB.extendsNumber.size());
+        assertEquals(3, beanB.superInteger.size());
     }
 
     @Singleton
@@ -215,6 +230,69 @@ public class ListInjectionTest {
             DESTROYED.set(true);
         }
 
+    }
+
+    @Singleton
+    @Unremovable
+    public static class BeanA {
+
+        final List<Some<?>> somes;
+
+        @Inject
+        @All
+        List<Some<? extends Number>> extendsNumber;
+
+        @Inject
+        @All
+        List<Some<? super Integer>> superInteger;
+
+        @Inject
+        public BeanA(@All List<Some<?>> somes) {
+            this.somes = somes;
+        }
+
+    }
+
+    @Singleton
+    @Unremovable
+    // this bean is, in its functionality, copy of BeanA but it was required to reproduce the problem
+    // see https://github.com/quarkusio/quarkus/issues/32080 for details
+    public static class BeanB {
+
+        final List<Some<?>> somes;
+
+        @Inject
+        @All
+        List<Some<? extends Number>> extendsNumber;
+
+        @Inject
+        @All
+        List<Some<? super Integer>> superInteger;
+
+        @Inject
+        public BeanB(@All List<Some<?>> somes) {
+            this.somes = somes;
+        }
+
+    }
+
+    public interface Some<K> {
+    }
+
+    @Singleton
+    public static class SomeString implements Some<String> {
+    }
+
+    @Singleton
+    public static class SomeInt implements Some<Integer> {
+    }
+
+    @Singleton
+    public static class SomeNumber implements Some<Number> {
+    }
+
+    @Singleton
+    public static class SomeObject implements Some<Object> {
     }
 
 }

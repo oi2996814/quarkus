@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 
@@ -14,9 +15,9 @@ import org.codehaus.plexus.util.FileUtils;
 import org.jacoco.core.instr.Instrumenter;
 import org.jacoco.core.runtime.OfflineInstrumentationAccessGenerator;
 import org.jboss.jandex.ClassInfo;
+import org.jboss.logging.Logger;
 
 import io.quarkus.bootstrap.model.ApplicationModel;
-import io.quarkus.bootstrap.utils.BuildToolHelper;
 import io.quarkus.bootstrap.workspace.SourceDir;
 import io.quarkus.deployment.ApplicationArchive;
 import io.quarkus.deployment.IsTest;
@@ -36,6 +37,8 @@ import io.quarkus.maven.dependency.ResolvedDependency;
 
 public class JacocoProcessor {
 
+    private static final Logger log = Logger.getLogger(JacocoProcessor.class);
+
     @BuildStep(onlyIf = IsTest.class)
     FeatureBuildItem feature() {
         return new FeatureBuildItem("jacoco");
@@ -53,12 +56,15 @@ public class JacocoProcessor {
             //no code coverage for continuous testing, it does not really make sense
             return;
         }
+        if (!config.enabled()) {
+            log.debug("quarkus-jacoco is disabled via config");
+            return;
+        }
 
-        String dataFile = outputTargetBuildItem.getOutputDirectory().toAbsolutePath().toString() + File.separator
-                + config.dataFile;
-        System.setProperty("jacoco-agent.destfile",
-                dataFile);
-        if (!config.reuseDataFile) {
+        String dataFile = getFilePath(config.dataFile(), outputTargetBuildItem.getOutputDirectory(),
+                JacocoConfig.JACOCO_QUARKUS_EXEC);
+        System.setProperty("jacoco-agent.destfile", dataFile);
+        if (!config.reuseDataFile()) {
             Files.deleteIfExists(Paths.get(dataFile));
         }
 
@@ -91,31 +97,21 @@ public class JacocoProcessor {
                                 }).build());
             }
         }
-        if (config.report) {
+        if (config.report()) {
             ReportInfo info = new ReportInfo();
             info.dataFile = dataFile;
 
             File targetdir = new File(
-                    outputTargetBuildItem.getOutputDirectory().toAbsolutePath().toString() + File.separator
-                            + config.reportLocation);
+                    getFilePath(config.reportLocation(), outputTargetBuildItem.getOutputDirectory(),
+                            JacocoConfig.JACOCO_REPORT));
             info.reportDir = targetdir.getAbsolutePath();
-            String includes = String.join(",", config.includes);
-            String excludes = String.join(",", config.excludes.orElse(Collections.emptyList()));
+            String includes = String.join(",", config.includes());
+            String excludes = String.join(",", config.excludes().orElse(Collections.emptyList()));
             Set<String> classes = new HashSet<>();
             info.classFiles = classes;
 
             Set<String> sources = new HashSet<>();
-            ApplicationModel model;
-            if (BuildToolHelper.isMavenProject(targetdir.toPath())) {
-                model = curateOutcomeBuildItem.getApplicationModel();
-            } else if (BuildToolHelper.isGradleProject(targetdir.toPath())) {
-                //this seems counter productive, but we want the dev mode model and not the test model
-                //as the test model will include the test classes that we don't want in the report
-                model = BuildToolHelper.enableGradleAppModelForDevMode(targetdir.toPath());
-            } else {
-                throw new RuntimeException("Cannot determine project type generating Jacoco report");
-            }
-
+            final ApplicationModel model = curateOutcomeBuildItem.getApplicationModel();
             if (model.getApplicationModule() != null) {
                 addProjectModule(model.getAppArtifact(), config, info, includes, excludes, classes, sources);
             }
@@ -133,7 +129,12 @@ public class JacocoProcessor {
 
     private void addProjectModule(ResolvedDependency module, JacocoConfig config, ReportInfo info, String includes,
             String excludes, Set<String> classes, Set<String> sources) throws Exception {
-        info.savedData.add(new File(module.getWorkspaceModule().getBuildDir(), config.dataFile).getAbsolutePath());
+        String dataFile = getFilePath(config.dataFile(), module.getWorkspaceModule().getBuildDir().toPath(),
+                JacocoConfig.JACOCO_QUARKUS_EXEC);
+        info.savedData.add(new File(dataFile).getAbsolutePath());
+        if (module.getSources() == null) {
+            return;
+        }
         for (SourceDir src : module.getSources().getSourceDirs()) {
             for (Path p : src.getSourceTree().getRoots()) {
                 sources.add(p.toAbsolutePath().toString());
@@ -147,5 +148,9 @@ public class JacocoProcessor {
                 }
             }
         }
+    }
+
+    private String getFilePath(Optional<String> path, Path outputDirectory, String defaultRelativePath) {
+        return path.orElse(outputDirectory.toAbsolutePath() + File.separator + defaultRelativePath);
     }
 }

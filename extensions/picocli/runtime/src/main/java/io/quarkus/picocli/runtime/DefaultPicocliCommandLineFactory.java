@@ -1,8 +1,8 @@
 package io.quarkus.picocli.runtime;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.literal.NamedLiteral;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.literal.NamedLiteral;
 
 import io.quarkus.picocli.runtime.annotations.TopCommand;
 import picocli.CommandLine;
@@ -32,8 +32,9 @@ public class DefaultPicocliCommandLineFactory implements PicocliCommandLineFacto
 
     @Override
     public CommandLine create() {
-        String topCommandName = picocliConfiguration.topCommand.orElse(null);
-        if (topCommandName != null) {
+        if (picocliConfiguration.topCommand().isPresent()) {
+            String topCommandName = picocliConfiguration.topCommand().get();
+
             Instance<Object> namedTopCommand = topCommand.select(NamedLiteral.of(topCommandName));
             if (namedTopCommand.isResolvable()) {
                 return new CommandLine(namedTopCommand.get(), picocliFactory);

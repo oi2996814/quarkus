@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
-import javax.enterprise.util.AnnotationLiteral;
+import jakarta.enterprise.util.AnnotationLiteral;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -142,7 +142,7 @@ public class AnnotationProxyProvider {
 
                 String name = annotationInstance.name().toString();
 
-                // Ljavax/enterprise/util/AnnotationLiteral<Lcom/foo/MyAnnotation;>;Lcom/foo/MyAnnotation;
+                // Ljakarta/enterprise/util/AnnotationLiteral<Lcom/foo/MyAnnotation;>;Lcom/foo/MyAnnotation;
                 String signature = String.format("L%1$s<L%2$s;>;L%2$s;",
                         AnnotationLiteral.class.getName().replace('.', '/'),
                         name.replace('.', '/'));
@@ -186,21 +186,33 @@ public class AnnotationProxyProvider {
                     new InvocationHandler() {
                         @Override
                         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                            switch (method.getName()) {
-                                case "getAnnotationLiteralType":
-                                    return annotationLiteral;
-                                case "getAnnotationClass":
-                                    return annotationClass;
-                                case "getAnnotationInstance":
-                                    return annotationInstance;
-                                case "getDefaultValues":
-                                    return defaultValues;
-                                case "getValues":
-                                    return values;
-                                default:
-                                    break;
-                            }
-                            throw new UnsupportedOperationException("Method " + method + " not implemented");
+                            String name = method.getName();
+                            return switch (name) {
+                                case "getAnnotationLiteralType" -> annotationLiteral;
+                                case "getAnnotationClass" -> annotationClass;
+                                case "getAnnotationInstance" -> annotationInstance;
+                                case "getDefaultValues" -> defaultValues;
+                                case "getValues" -> values;
+                                default -> {
+                                    MethodInfo member = annotationClass.firstMethod(name);
+                                    if (member != null) {
+                                        if (values.containsKey(name)) {
+                                            yield values.get(name);
+                                        }
+                                        if (annotationInstance.value(name) != null) {
+                                            yield annotationInstance.value(name).value();
+                                        }
+                                        if (defaultValues.containsKey(name)) {
+                                            yield defaultValues.get(name);
+                                        }
+                                        if (member.defaultValue() != null) {
+                                            yield member.defaultValue().value();
+                                        }
+                                        throw new UnsupportedOperationException("Unknown value of annotation member " + name);
+                                    }
+                                    throw new UnsupportedOperationException("Method " + method + " not implemented");
+                                }
+                            };
                         }
                     });
         }

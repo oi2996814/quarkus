@@ -3,24 +3,27 @@ package io.quarkus.mongodb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 
-import javax.enterprise.inject.Any;
-import javax.enterprise.inject.Default;
-import javax.enterprise.inject.literal.NamedLiteral;
-import javax.inject.Inject;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.literal.NamedLiteral;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.internal.MongoClientImpl;
 
 import io.quarkus.arc.Arc;
-import io.quarkus.arc.runtime.ClientProxyUnwrapper;
+import io.quarkus.arc.ClientProxy;
 import io.quarkus.mongodb.health.MongoHealthCheck;
 import io.quarkus.test.QuarkusUnitTest;
 
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "Flapdoodle doesn't work very well on Windows with replicas")
 public class DefaultAndNamedMongoClientConfigTest extends MongoWithReplicasTestBase {
 
     @RegisterExtension
@@ -38,8 +41,6 @@ public class DefaultAndNamedMongoClientConfigTest extends MongoWithReplicasTestB
     @Inject
     @Any
     MongoHealthCheck health;
-
-    private final ClientProxyUnwrapper unwrapper = new ClientProxyUnwrapper();
 
     @AfterEach
     void cleanup() {
@@ -74,7 +75,7 @@ public class DefaultAndNamedMongoClientConfigTest extends MongoWithReplicasTestB
     }
 
     private void assertProperConnection(MongoClient client, int expectedPort) {
-        assertThat(unwrapper.apply(client)).isInstanceOfSatisfying(MongoClientImpl.class, c -> {
+        assertThat(ClientProxy.unwrap(client)).isInstanceOfSatisfying(MongoClientImpl.class, c -> {
             assertThat(c.getCluster().getSettings().getHosts()).singleElement().satisfies(sa -> {
                 assertThat(sa.getPort()).isEqualTo(expectedPort);
             });

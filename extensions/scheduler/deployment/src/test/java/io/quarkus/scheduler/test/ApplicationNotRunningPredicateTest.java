@@ -6,13 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import javax.enterprise.event.Observes;
-import javax.interceptor.Interceptor;
+import jakarta.enterprise.event.Observes;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.quarkus.arc.Priority;
 import io.quarkus.runtime.StartupEvent;
 import io.quarkus.scheduler.FailedExecution;
 import io.quarkus.scheduler.Scheduled;
@@ -43,15 +41,15 @@ public class ApplicationNotRunningPredicateTest {
 
     static class Jobs {
 
-        volatile boolean preStart;
+        volatile boolean started;
 
-        void started(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) StartupEvent event) {
-            preStart = true;
+        void started(@Observes StartupEvent event) {
+            started = true;
         }
 
         @Scheduled(every = "0.2s", skipExecutionIf = Scheduled.ApplicationNotRunning.class)
         void scheduleAfterStarted() {
-            if (!preStart) {
+            if (!started) {
                 throw new IllegalStateException();
             }
         }

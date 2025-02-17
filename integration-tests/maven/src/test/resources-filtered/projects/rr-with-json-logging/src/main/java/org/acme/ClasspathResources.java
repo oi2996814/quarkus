@@ -2,10 +2,10 @@ package org.acme;
 
 import org.apache.commons.io.IOUtils;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -72,7 +72,7 @@ public class ClasspathResources {
         try {
             //this class is only present in multi release jars
             //for fast-jar we need to make sure it is loaded correctly
-            Class<?> clazz = this.getClass().getClassLoader().loadClass("io.smallrye.context.Jdk9CompletableFutureWrapper");
+            Class<?> clazz = this.getClass().getClassLoader().loadClass("io.smallrye.common.vertx.VertxContext");
             if (clazz.getClassLoader() == getClass().getClassLoader()) {
                 return SUCCESS;
             }
@@ -165,11 +165,13 @@ public class ClasspathResources {
     private String assertUniqueDirectories() {
         final String testType = "unique-directories";
         try {
-            Enumeration<URL> resources = this.getClass().getClassLoader().getResources("META-INF/kie.conf");
+            Enumeration<URL> resources = this.getClass().getClassLoader().getResources("META-INF/quarkus-extension.yaml");
             List<URL> resourcesList = Collections.list(resources);
-            // 'META-INF/kie.conf' should be present in 'kie-internal', 'drools-core', 'drools-compiler' and 'drools-model-compiler'
-            if (resourcesList.size() != 4) {
-                return errorResult(testType, "wrong number of directory urls");
+            // 'META-INF/quarkus-extension.yaml' should be present in all extensions
+            int expected = 13;
+            if (resourcesList.size() != expected) {
+                return errorResult(testType,
+                        "wrong number of directory urls, expected " + expected + " but got " + resourcesList.size());
             }
             return SUCCESS;
         } catch (Exception e) {

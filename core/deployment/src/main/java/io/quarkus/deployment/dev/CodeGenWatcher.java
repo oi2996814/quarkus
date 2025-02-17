@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.locks.Lock;
 
 import org.eclipse.microprofile.config.Config;
 import org.jboss.logging.Logger;
@@ -22,10 +23,13 @@ class CodeGenWatcher {
 
     private final QuarkusClassLoader deploymentClassLoader;
     private final FSWatchUtil fsWatchUtil;
+    private final Lock codeGenLock = CodeGenLock.lockForCodeGen();
 
     CodeGenWatcher(CuratedApplication curatedApplication, DevModeContext context) throws CodeGenException {
         final QuarkusClassLoader deploymentClassLoader = curatedApplication.createDeploymentClassLoader();
-        final List<CodeGenData> codeGens = CodeGenerator.init(deploymentClassLoader, context.getAllModules());
+        final List<CodeGenData> codeGens = CodeGenerator.init(curatedApplication.getApplicationModel(),
+                context.getBuildSystemProperties(),
+                deploymentClassLoader, context.getAllModules());
         if (codeGens.isEmpty()) {
             fsWatchUtil = null;
             this.deploymentClassLoader = null;
@@ -37,16 +41,21 @@ class CodeGenWatcher {
             final Config config = CodeGenerator.getConfig(curatedApplication.getApplicationModel(), LaunchMode.DEVELOPMENT,
                     properties, deploymentClassLoader);
             for (CodeGenData codeGen : codeGens) {
-                watchers.add(new FSWatchUtil.Watcher(codeGen.sourceDir, codeGen.provider.inputExtension(),
-                        modifiedPaths -> {
-                            try {
-                                CodeGenerator.trigger(deploymentClassLoader,
-                                        codeGen,
-                                        curatedApplication.getApplicationModel(), config, false);
-                            } catch (Exception any) {
-                                log.warn("Code generation failed", any);
-                            }
-                        }));
+                for (String ext : codeGen.provider.inputExtensions()) {
+                    watchers.add(new FSWatchUtil.Watcher(codeGen.sourceDir, ext,
+                            modifiedPaths -> {
+                                codeGenLock.lock();
+                                try {
+                                    CodeGenerator.trigger(deploymentClassLoader,
+                                            codeGen,
+                                            curatedApplication.getApplicationModel(), config, false);
+                                } catch (Exception any) {
+                                    log.warn("Code generation failed", any);
+                                } finally {
+                                    codeGenLock.unlock();
+                                }
+                            }));
+                }
             }
             fsWatchUtil = new FSWatchUtil();
             fsWatchUtil.observe(watchers, 500);

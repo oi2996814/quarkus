@@ -6,11 +6,10 @@ import io.quarkus.panache.common.Parameters
 import io.quarkus.panache.common.Sort
 import io.quarkus.panache.common.impl.GenerateBridge
 import io.smallrye.common.annotation.CheckReturnValue
-import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
-import org.hibernate.reactive.mutiny.Mutiny
+import jakarta.persistence.LockModeType
 import java.util.stream.Stream
-import javax.persistence.LockModeType
+import org.hibernate.reactive.mutiny.Mutiny
 
 /**
  * Defines methods to be used via the companion objects of entities.
@@ -33,8 +32,7 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param id the ID of the entity to find.
      * @return the entity found, or `null` if not found.
      */
-    @GenerateBridge
-    fun findById(id: Id): Uni<Entity?> = injectionMissing()
+    @GenerateBridge fun findById(id: Id): Uni<Entity?> = injectionMissing()
 
     /**
      * Find an entity of this type by ID and lock it.
@@ -54,7 +52,6 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params optional sequence of indexed parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
     fun find(query: String, vararg params: Any): PanacheQuery<Entity> = injectionMissing()
@@ -67,10 +64,10 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params optional sequence of indexed parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
-    fun find(query: String, sort: Sort, vararg params: Any): PanacheQuery<Entity> = injectionMissing()
+    fun find(query: String, sort: Sort, vararg params: Any): PanacheQuery<Entity> =
+        injectionMissing()
 
     /**
      * Find entities using a query, with named parameters.
@@ -79,7 +76,6 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params [Map] of named parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
     fun find(query: String, params: Map<String, Any>): PanacheQuery<Entity> = injectionMissing()
@@ -92,10 +88,10 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params [Map] of indexed parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
-    fun find(query: String, sort: Sort, params: Map<String, Any>): PanacheQuery<Entity> = injectionMissing()
+    fun find(query: String, sort: Sort, params: Map<String, Any>): PanacheQuery<Entity> =
+        injectionMissing()
 
     /**
      * Find entities using a query, with named parameters.
@@ -104,7 +100,6 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params [Parameters] of named parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
     fun find(query: String, params: Parameters): PanacheQuery<Entity> = injectionMissing()
@@ -117,20 +112,18 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params [Parameters] of indexed parameters
      * @return a new [PanacheQuery] instance for the given query
      * @see [list] list
-     * @see [stream] stream
      */
     @GenerateBridge
-    fun find(query: String, sort: Sort, params: Parameters): PanacheQuery<Entity> = injectionMissing()
+    fun find(query: String, sort: Sort, params: Parameters): PanacheQuery<Entity> =
+        injectionMissing()
 
     /**
      * Find all entities of this type.
      *
      * @return a new [PanacheQuery] instance to find all entities of this type.
      * @see [listAll] listAll
-     * @see [streamAll] streamAll
      */
-    @GenerateBridge
-    fun findAll(): PanacheQuery<Entity> = injectionMissing()
+    @GenerateBridge fun findAll(): PanacheQuery<Entity> = injectionMissing()
 
     /**
      * Find all entities of this type, in the given order.
@@ -138,20 +131,17 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param sort the sort order to use
      * @return a new [PanacheQuery] instance to find all entities of this type.
      * @see [listAll] listAll
-     * @see [streamAll] streamAll
      */
-    @GenerateBridge
-    fun findAll(sort: Sort): PanacheQuery<Entity> = injectionMissing()
+    @GenerateBridge fun findAll(sort: Sort): PanacheQuery<Entity> = injectionMissing()
 
     /**
-     * Find entities matching a query, with optional indexed parameters.
-     * This method is a shortcut for `find(query, params).list()`.
+     * Find entities matching a query, with optional indexed parameters. This method is a shortcut
+     * for `find(query, params).list()`.
      *
      * @param query a query string
      * @param params optional sequence of indexed parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
@@ -166,234 +156,96 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param params optional sequence of indexed parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
     fun list(query: String, sort: Sort, vararg params: Any): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find entities matching a query, with named parameters.
-     * This method is a shortcut for `find(query, params).list()`.
+     * Find entities matching a query, with named parameters. This method is a shortcut for
+     * `find(query, params).list()`.
      *
      * @param query a query string
      * @param params [Map] of named parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
     fun list(query: String, params: Map<String, Any>): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find entities matching a query and the given sort options, with named parameters.
-     * This method is a shortcut for `find(query, sort, params).list()`.
+     * Find entities matching a query and the given sort options, with named parameters. This method
+     * is a shortcut for `find(query, sort, params).list()`.
      *
      * @param query a query string
      * @param sort the sort strategy to use
      * @param params [Map] of indexed parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
-    fun list(query: String, sort: Sort, params: Map<String, Any>): Uni<List<Entity>> = injectionMissing()
+    fun list(query: String, sort: Sort, params: Map<String, Any>): Uni<List<Entity>> =
+        injectionMissing()
 
     /**
-     * Find entities matching a query, with named parameters.
-     * This method is a shortcut for `find(query, params).list()`.
+     * Find entities matching a query, with named parameters. This method is a shortcut for
+     * `find(query, params).list()`.
      *
      * @param query a query string
      * @param params [Parameters] of named parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
     fun list(query: String, params: Parameters): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find entities matching a query and the given sort options, with named parameters.
-     * This method is a shortcut for `find(query, sort, params).list()`.
+     * Find entities matching a query and the given sort options, with named parameters. This method
+     * is a shortcut for `find(query, sort, params).list()`.
      *
      * @param query a query string
      * @param sort the sort strategy to use
      * @param params [Parameters] of indexed parameters
      * @return a [List] containing all results, without paging
      * @see [find] find
-     * @see [stream] stream
      */
     @CheckReturnValue
     @GenerateBridge
     fun list(query: String, sort: Sort, params: Parameters): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find all entities of this type.
-     * This method is a shortcut for `findAll().list()`.
+     * Find all entities of this type. This method is a shortcut for `findAll().list()`.
      *
      * @return a [List] containing all results, without paging
      * @see [findAll] findAll
-     * @see [streamAll] streamAll
      */
-    @CheckReturnValue
-    @GenerateBridge
-    fun listAll(): Uni<List<Entity>> = injectionMissing()
+    @CheckReturnValue @GenerateBridge fun listAll(): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find all entities of this type, in the given order.
-     * This method is a shortcut for `findAll(sort).list()`.
+     * Find all entities of this type, in the given order. This method is a shortcut for
+     * `findAll(sort).list()`.
      *
      * @param sort the sort order to use
      * @return a [List] containing all results, without paging
      * @see [findAll] findAll
-     * @see [streamAll] streamAll
      */
     @CheckReturnValue
     @GenerateBridge
     fun listAll(sort: Sort): Uni<List<Entity>> = injectionMissing()
 
     /**
-     * Find entities matching a query, with optional indexed parameters.
-     * This method is a shortcut for `find(query, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param params optional sequence of indexed parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, vararg params: Any): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find entities matching a query and the given sort options, with optional indexed parameters.
-     * This method is a shortcut for `find(query, sort, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param sort the sort strategy to use
-     * @param params optional sequence of indexed parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, sort: Sort, vararg params: Any): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find entities matching a query, with named parameters.
-     * This method is a shortcut for `find(query, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param params [Map] of named parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, params: Map<String, Any>): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find entities matching a query and the given sort options, with named parameters.
-     * This method is a shortcut for `find(query, sort, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param sort the sort strategy to use
-     * @param params [Map] of indexed parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, sort: Sort, params: Map<String, Any>): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find entities matching a query, with named parameters.
-     * This method is a shortcut for `find(query, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param params [Parameters] of named parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, params: Parameters): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find entities matching a query and the given sort options, with named parameters.
-     * This method is a shortcut for `find(query, sort, params).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param query a query string
-     * @param sort the sort strategy to use
-     * @param params [Parameters] of indexed parameters
-     * @return a [Stream] containing all results, without paging
-     * @see [find] find
-     * @see [list] list
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun stream(query: String, sort: Sort, params: Parameters): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find all entities of this type.
-     * This method is a shortcut for `findAll().stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @return a [Stream] containing all results, without paging
-     * @see [findAll] findAll
-     * @see [listAll] listAll
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun streamAll(): Multi<Entity> = injectionMissing()
-
-    /**
-     * Find all entities of this type, in the given order.
-     * This method is a shortcut for `findAll(sort).stream()`.
-     * It requires a transaction to work.
-     * Without a transaction, the underlying cursor can be closed before the end of the stream.
-     *
-     * @param sort the sort order to use
-     * @return a [Stream] containing all results, without paging
-     * @see [findAll] findAll
-     * @see [listAll] listAll
-     */
-    @CheckReturnValue
-    @GenerateBridge
-    fun streamAll(sort: Sort): Multi<Entity> = injectionMissing()
-
-    /**
      * Counts the number of this type of entity in the database.
      *
      * @return the number of this type of entity in the database.
      */
-    @CheckReturnValue
-    @GenerateBridge
-    fun count(): Uni<Long> = injectionMissing()
+    @CheckReturnValue @GenerateBridge fun count(): Uni<Long> = injectionMissing()
 
     /**
-     * Counts the number of this type of entity matching the given query, with optional indexed parameters.
+     * Counts the number of this type of entity matching the given query, with optional indexed
+     * parameters.
      *
      * @param query a query string
      * @param params optional sequence of indexed parameters
@@ -434,9 +286,7 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @return the number of entities deleted.
      * @see [delete] delete
      */
-    @CheckReturnValue
-    @GenerateBridge
-    fun deleteAll(): Uni<Long> = injectionMissing()
+    @CheckReturnValue @GenerateBridge fun deleteAll(): Uni<Long> = injectionMissing()
 
     /**
      * Delete an entity of this type by ID.
@@ -444,9 +294,7 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param id the ID of the entity to delete.
      * @return false if the entity was not deleted (not found).
      */
-    @CheckReturnValue
-    @GenerateBridge
-    fun deleteById(id: Any): Uni<Boolean> = injectionMissing()
+    @CheckReturnValue @GenerateBridge fun deleteById(id: Any): Uni<Boolean> = injectionMissing()
 
     /**
      * Delete all entities of this type matching the given query, with optional indexed parameters.
@@ -499,8 +347,7 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param entities the entities to persist
      * @return
      */
-    @CheckReturnValue
-    fun persist(entities: Iterable<Entity>) = INSTANCE.persist(entities)
+    @CheckReturnValue fun persist(entities: Iterable<Entity>) = INSTANCE.persist(entities)
 
     /**
      * Persist all given entities.
@@ -508,8 +355,7 @@ interface PanacheCompanionBase<Entity : PanacheEntityBase, Id : Any> {
      * @param entities the entities to persist
      * @return
      */
-    @CheckReturnValue
-    fun persist(entities: Stream<Entity>) = INSTANCE.persist(entities)
+    @CheckReturnValue fun persist(entities: Stream<Entity>) = INSTANCE.persist(entities)
 
     /**
      * Persist all given entities.

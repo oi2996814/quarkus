@@ -5,11 +5,11 @@ import java.lang.reflect.Type;
 import java.util.Collections;
 import java.util.Set;
 
-import javax.enterprise.context.Dependent;
-import javax.enterprise.context.spi.CreationalContext;
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.spi.Bean;
-import javax.enterprise.inject.spi.InjectionPoint;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.Bean;
+import jakarta.enterprise.inject.spi.InjectionPoint;
 
 import io.quarkus.arc.impl.Qualifiers;
 
@@ -87,15 +87,17 @@ public interface InjectableBean<T> extends Bean<T>, InjectableReferenceProvider<
         return Collections.emptySet();
     }
 
+    /**
+     * By default, this method always returns an empty set, because obtaining the set
+     * of injection points of a bean at application runtime is rarely useful.
+     * <p>
+     * In the {@linkplain ArcContainer#strictCompatibility() strict mode}, this method
+     * works as described by the CDI specification. Feedback on usefulness of this
+     * method is welcome!
+     */
     @Override
     default Set<InjectionPoint> getInjectionPoints() {
         return Collections.emptySet();
-    }
-
-    // Deprecated method which can be safely removed once we use CDI 4.0+
-    @Deprecated
-    default boolean isNullable() {
-        return false;
     }
 
     @Override
@@ -128,19 +130,71 @@ public interface InjectableBean<T> extends Bean<T>, InjectableReferenceProvider<
     }
 
     /**
+     * Returns whether this bean has an explicitly assigned priority. This is typically
+     * done using the {@link jakarta.annotation.Priority @Priority} annotation.
+     * <p>
+     * Calling {@link #getPriority()} is not enough to determine if a bean has an explicitly
+     * assigned priority, because that method returns {@code 0} when no priority was assigned.
+     * That is not distinguishable from a situation when a bean has explicitly assigned
+     * priority of {@code 0}.
+     *
+     * @return whether this bean has an explicitly assigned priority
+     */
+    default boolean hasPriority() {
+        return false;
+    }
+
+    /**
      * A bean may have a priority assigned.
      * <p>
-     * Class-based beans can specify the priority declaratively via {@link javax.annotation.Priority} and
-     * {@link io.quarkus.arc.Priority}. If no priority annotation is used then a bean has the priority of value 0.
+     * Class-based beans and producer beans can specify the priority declaratively via {@link jakarta.annotation.Priority}.
+     * If no priority annotation is used then a bean has the priority of value 0.
      * <p>
      * This priority is used to sort the resolved beans when performing programmatic lookup via
      * {@link Instance} or when injecting a list of beans by means of the {@link All} qualifier.
      *
      * @return the priority
-     * @see Priority
+     * @see jakarta.annotation.Priority
      */
     default int getPriority() {
         return 0;
+    }
+
+    /**
+     * The return value depends on the {@link #getKind()}.
+     *
+     * <ul>
+     * <li>For managed beans, interceptors, decorators and built-in beans, the bean class is returned.</li>
+     * <li>For a producer method, the class of the return type is returned.</li>
+     * <li>For a producer field, the class of the field is returned.</li>
+     * <li>For a synthetic bean, the implementation class defined by the registrar is returned.
+     * </ul>
+     *
+     * @return the implementation class, or null in case of a producer of a primitive type or an array
+     * @see Kind
+     */
+    default Class<?> getImplementationClass() {
+        return getBeanClass();
+    }
+
+    /**
+     * Equivalent to {@code checkActive().value()}.
+     *
+     * @see #checkActive()
+     */
+    default boolean isActive() {
+        return checkActive().value();
+    }
+
+    /**
+     * Returns whether this bean is active and if not, the reason why. Certain
+     * synthetic beans may be inactive from time to time. Attempting to inject
+     * or lookup such an inactive bean leads to {@link InactiveBeanException}.
+     *
+     * @return whether this bean is active and if not, the reason why
+     */
+    default ActiveResult checkActive() {
+        return ActiveResult.active();
     }
 
     enum Kind {

@@ -3,15 +3,15 @@ package io.quarkus.reactive.mssql.client;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.reactive.datasource.ReactiveDataSource;
 import io.quarkus.test.QuarkusUnitTest;
-import io.vertx.mssqlclient.MSSQLPool;
+import io.vertx.sqlclient.Pool;
 
 public class MultipleDataSourcesTest {
 
@@ -40,7 +40,7 @@ public class MultipleDataSourcesTest {
     static class BeanUsingDefaultDataSource {
 
         @Inject
-        MSSQLPool msSQLClient;
+        Pool msSQLClient;
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();
@@ -60,7 +60,7 @@ public class MultipleDataSourcesTest {
 
         @Inject
         @ReactiveDataSource("hibernate")
-        MSSQLPool msSQLClient;
+        Pool msSQLClient;
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();

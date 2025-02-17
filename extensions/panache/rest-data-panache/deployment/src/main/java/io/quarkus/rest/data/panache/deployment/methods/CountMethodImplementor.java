@@ -1,9 +1,10 @@
 package io.quarkus.rest.data.panache.deployment.methods;
 
 import static io.quarkus.gizmo.MethodDescriptor.ofMethod;
-import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.ofType;
+import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.responseType;
+import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.uniType;
 
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response;
 
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.gizmo.ClassCreator;
@@ -74,7 +75,7 @@ public final class CountMethodImplementor extends StandardMethodImplementor {
             ResourceProperties resourceProperties, FieldDescriptor resourceField) {
         // Method parameters: sort strings, page index, page size, uri info
         MethodCreator methodCreator = SignatureMethodCreator.getMethodCreator(RESOURCE_METHOD_NAME, classCreator,
-                isNotReactivePanache() ? ofType(Response.class) : ofType(Uni.class, Long.class));
+                isNotReactivePanache() ? responseType() : uniType(Long.class));
 
         // Add method annotations
         addGetAnnotation(methodCreator);
@@ -86,7 +87,7 @@ public final class CountMethodImplementor extends StandardMethodImplementor {
         if (!isResteasyClassic()) {
             // We only add the Links annotation in Resteasy Reactive because Resteasy Classic ignores the REL parameter:
             // it always uses "list" for GET methods, so it interferes with the list implementation.
-            addLinksAnnotation(methodCreator, resourceMetadata.getEntityType(), REL);
+            addLinksAnnotation(methodCreator, resourceProperties, resourceMetadata.getEntityType(), REL);
         }
 
         ResultHandle resource = methodCreator.readInstanceField(resourceField, methodCreator.getThis());

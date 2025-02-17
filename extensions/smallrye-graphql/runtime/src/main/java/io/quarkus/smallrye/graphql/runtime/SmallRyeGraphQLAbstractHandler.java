@@ -1,15 +1,16 @@
 package io.quarkus.smallrye.graphql.runtime;
 
+import static io.quarkus.jsonp.JsonProviderHolder.jsonProvider;
+
 import java.io.StringReader;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonReader;
-import javax.json.JsonReaderFactory;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonReader;
+import jakarta.json.JsonReaderFactory;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InjectableContext;
@@ -38,7 +39,7 @@ public abstract class SmallRyeGraphQLAbstractHandler implements Handler<RoutingC
 
     private volatile ExecutionService executionService;
 
-    protected static final JsonReaderFactory jsonReaderFactory = Json.createReaderFactory(null);
+    protected static final JsonReaderFactory jsonReaderFactory = jsonProvider().createReaderFactory(null);
 
     public SmallRyeGraphQLAbstractHandler(
             CurrentIdentityAssociation currentIdentityAssociation,

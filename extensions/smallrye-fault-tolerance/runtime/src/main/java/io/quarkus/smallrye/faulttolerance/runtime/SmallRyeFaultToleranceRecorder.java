@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.enterprise.inject.spi.DeploymentException;
+import jakarta.enterprise.inject.spi.DeploymentException;
 
 import org.eclipse.microprofile.faulttolerance.exceptions.FaultToleranceDefinitionException;
 
@@ -23,7 +23,7 @@ public class SmallRyeFaultToleranceRecorder {
         Map<QuarkusFaultToleranceOperationProvider.CacheKey, FaultToleranceOperation> operationCache = new HashMap<>(
                 ftMethods.size());
         for (FaultToleranceMethod ftMethod : ftMethods) {
-            FaultToleranceOperation operation = FaultToleranceOperation.create(ftMethod);
+            FaultToleranceOperation operation = new FaultToleranceOperation(ftMethod);
             try {
                 operation.validate();
 
@@ -41,7 +41,7 @@ public class SmallRyeFaultToleranceRecorder {
                 if (error instanceof DeploymentException) {
                     throw (DeploymentException) error;
                 } else {
-                    throw new DeploymentException(allExceptions.get(0));
+                    throw new DeploymentException(error);
                 }
             } else {
                 StringBuilder message = new StringBuilder("Found " + allExceptions.size() + " deployment problems: ");

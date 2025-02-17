@@ -1,9 +1,9 @@
 package io.quarkus.security.webauthn.test;
 
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -16,7 +16,7 @@ public class TestResource {
     @Authenticated
     @Path("secure")
     @GET
-    public String getUserName() {
+    public String getUsername() {
         return identity.getPrincipal().getName() + ": " + identity.getRoles();
     }
 

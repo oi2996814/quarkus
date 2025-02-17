@@ -2,10 +2,9 @@ package io.quarkus.oidc.client.filter.runtime;
 
 import java.io.IOException;
 
-import javax.ws.rs.client.ClientRequestContext;
-import javax.ws.rs.client.ClientRequestFilter;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.client.ClientRequestContext;
+import jakarta.ws.rs.client.ClientRequestFilter;
+import jakarta.ws.rs.core.HttpHeaders;
 
 import org.jboss.logging.Logger;
 
@@ -22,14 +21,20 @@ public class AbstractOidcClientRequestFilter extends AbstractTokensProducer impl
 
     @Override
     public void filter(ClientRequestContext requestContext) throws IOException {
+        if (isClientFeatureDisabled()) {
+            LOG.debug("OIDC client filter can not acquire and propagate tokens because "
+                    + "OIDC client is disabled with `quarkus.oidc-client.enabled=false`");
+            return;
+        }
         try {
             final String accessToken = getAccessToken();
             requestContext.getHeaders().add(HttpHeaders.AUTHORIZATION, BEARER_SCHEME_WITH_SPACE + accessToken);
         } catch (DisabledOidcClientException ex) {
-            requestContext.abortWith(Response.status(500).build());
+            LOG.debug("Client is disabled, acquiring and propagating the token is not necessary");
+            return;
         } catch (Exception ex) {
-            LOG.debugf("Access token is not available, aborting the request with HTTP 401 error: %s", ex.getMessage());
-            requestContext.abortWith(Response.status(401).build());
+            LOG.debugf("Access token is not available, cause: %s, aborting the request", ex.getMessage());
+            throw (ex instanceof RuntimeException) ? (RuntimeException) ex : new RuntimeException(ex);
         }
     }
 

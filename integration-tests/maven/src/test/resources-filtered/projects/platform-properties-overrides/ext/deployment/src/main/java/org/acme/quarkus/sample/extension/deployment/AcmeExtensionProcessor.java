@@ -1,6 +1,6 @@
 package org.acme.quarkus.sample.extension.deployment;
 
-import javax.inject.Singleton;
+import jakarta.inject.Singleton;
 
 import org.acme.quarkus.sample.extension.ConfigReport;
 import org.acme.quarkus.sample.extension.ConfigReportRecorder;
@@ -26,7 +26,7 @@ class AcmeExtensionProcessor {
     SyntheticBeanBuildItem syntheticBean(ConfigReportRecorder recorder, NativeConfig nativeConfig) {
        return SyntheticBeanBuildItem.configure(ConfigReport.class)
     		   .scope(Singleton.class)
-    		   .runtimeValue(recorder.configReport(nativeConfig.builderImage))
+    		   .runtimeValue(recorder.configReport(nativeConfig.builderImage().image()))
     		   .done();
     }
 }

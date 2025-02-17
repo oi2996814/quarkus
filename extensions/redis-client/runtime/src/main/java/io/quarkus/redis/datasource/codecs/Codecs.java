@@ -1,7 +1,17 @@
 package io.quarkus.redis.datasource.codecs;
 
+import java.io.IOException;
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.quarkus.vertx.runtime.jackson.QuarkusJacksonJsonCodec;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.Json;
 
@@ -11,44 +21,74 @@ public class Codecs {
         // Avoid direct instantiation
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T> Codec<T> getDefaultCodecFor(Class<T> clazz) {
-        if (clazz.equals(Double.class) || clazz.equals(Double.TYPE)) {
-            return (Codec<T>) DoubleCodec.INSTANCE;
-        }
-        if (clazz.equals(Integer.class) || clazz.equals(Integer.TYPE)) {
-            return (Codec<T>) IntegerCodec.INSTANCE;
-        }
-        if (clazz.equals(String.class)) {
-            return (Codec<T>) StringCodec.INSTANCE;
-        }
-        if (clazz.equals(byte[].class)) {
-            return (Codec<T>) ByteArrayCodec.INSTANCE;
-        }
-        // JSON by default
-        return new JsonCodec<>(clazz);
+    private static final List<Codec> CODECS = new CopyOnWriteArrayList<>(
+            List.of(StringCodec.INSTANCE, DoubleCodec.INSTANCE, IntegerCodec.INSTANCE, ByteArrayCodec.INSTANCE));
+
+    public static void register(Codec codec) {
+        CODECS.add(Objects.requireNonNull(codec));
     }
 
-    public static class JsonCodec<T> implements Codec<T> {
+    public static void register(Stream<Codec> codecs) {
+        codecs.forEach(Codecs::register);
+    }
 
-        private final Class<T> clazz;
+    public static Codec getDefaultCodecFor(Type type) {
+        for (Codec codec : CODECS) {
+            if (codec.canHandle(type)) {
+                return codec;
+            }
+        }
 
-        public JsonCodec(Class<T> clazz) {
-            this.clazz = clazz;
+        // JSON by default
+        return new JsonCodec(type);
+    }
+
+    public static class JsonCodec implements Codec {
+        private final TypeReference<?> type;
+        private final Class<?> clazz;
+        private final ObjectMapper mapper;
+
+        public JsonCodec(Type clazz) {
+            if (clazz instanceof Class) {
+                this.clazz = (Class<?>) clazz;
+                this.type = null;
+            } else {
+                this.type = new TypeReference<>() {
+                    @Override
+                    public Type getType() {
+                        return clazz;
+                    }
+                };
+                this.clazz = null;
+            }
+            this.mapper = QuarkusJacksonJsonCodec.mapper();
         }
 
         @Override
-        public byte[] encode(T item) {
+        public boolean canHandle(Type clazz) {
+            throw new UnsupportedOperationException("Should not be called, the JSON codec is the fallback");
+        }
+
+        @Override
+        public byte[] encode(Object item) {
             return Json.encodeToBuffer(item).getBytes();
         }
 
         @Override
-        public T decode(byte[] payload) {
-            return Json.decodeValue(Buffer.buffer(payload), clazz);
+        public Object decode(byte[] payload) {
+            try {
+                if (clazz != null) {
+                    return Json.decodeValue(Buffer.buffer(payload), clazz);
+                } else {
+                    return mapper.readValue(payload, type);
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
-    public static class StringCodec implements Codec<String> {
+    public static class StringCodec implements Codec {
 
         public static StringCodec INSTANCE = new StringCodec();
 
@@ -57,8 +97,13 @@ public class Codecs {
         }
 
         @Override
-        public byte[] encode(String item) {
-            return item.getBytes(StandardCharsets.UTF_8);
+        public boolean canHandle(Type clazz) {
+            return clazz.equals(String.class);
+        }
+
+        @Override
+        public byte[] encode(Object item) {
+            return ((String) item).getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -67,7 +112,7 @@ public class Codecs {
         }
     }
 
-    public static class DoubleCodec implements Codec<Double> {
+    public static class DoubleCodec implements Codec {
 
         public static DoubleCodec INSTANCE = new DoubleCodec();
 
@@ -76,11 +121,16 @@ public class Codecs {
         }
 
         @Override
-        public byte[] encode(Double item) {
+        public boolean canHandle(Type clazz) {
+            return clazz.equals(Double.class) || clazz.equals(Double.TYPE);
+        }
+
+        @Override
+        public byte[] encode(Object item) {
             if (item == null) {
                 return null;
             }
-            return Double.toString(item).getBytes(StandardCharsets.UTF_8);
+            return Double.toString((double) item).getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -92,7 +142,7 @@ public class Codecs {
         }
     }
 
-    public static class IntegerCodec implements Codec<Integer> {
+    public static class IntegerCodec implements Codec {
 
         public static IntegerCodec INSTANCE = new IntegerCodec();
 
@@ -101,11 +151,16 @@ public class Codecs {
         }
 
         @Override
-        public byte[] encode(Integer item) {
+        public boolean canHandle(Type clazz) {
+            return clazz.equals(Integer.class) || clazz.equals(Integer.TYPE);
+        }
+
+        @Override
+        public byte[] encode(Object item) {
             if (item == null) {
                 return null;
             }
-            return Integer.toString(item).getBytes(StandardCharsets.UTF_8);
+            return Integer.toString((int) item).getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -117,7 +172,7 @@ public class Codecs {
         }
     }
 
-    public static class ByteArrayCodec implements Codec<byte[]> {
+    public static class ByteArrayCodec implements Codec {
 
         public static ByteArrayCodec INSTANCE = new ByteArrayCodec();
 
@@ -126,8 +181,13 @@ public class Codecs {
         }
 
         @Override
-        public byte[] encode(byte[] item) {
-            return item;
+        public boolean canHandle(Type clazz) {
+            return clazz.equals(byte[].class);
+        }
+
+        @Override
+        public byte[] encode(Object item) {
+            return (byte[]) item;
         }
 
         @Override

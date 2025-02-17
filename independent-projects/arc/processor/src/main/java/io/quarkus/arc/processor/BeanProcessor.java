@@ -23,22 +23,26 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import javax.annotation.Priority;
+import jakarta.annotation.Priority;
 
-import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.AnnotationTransformation;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
 import org.jboss.logging.Logger;
 
-import io.quarkus.arc.AlternativePriority;
 import io.quarkus.arc.InjectableBean;
 import io.quarkus.arc.processor.BeanDeploymentValidator.ValidationContext;
+import io.quarkus.arc.processor.BeanRegistrar.RegistrationContext;
 import io.quarkus.arc.processor.BuildExtension.BuildContext;
 import io.quarkus.arc.processor.BuildExtension.Key;
+import io.quarkus.arc.processor.CustomAlterableContexts.CustomAlterableContextInfo;
 import io.quarkus.arc.processor.ResourceOutput.Resource;
 import io.quarkus.arc.processor.ResourceOutput.Resource.SpecialType;
+import io.quarkus.arc.processor.bcextensions.ExtensionsEntryPoint;
 import io.quarkus.gizmo.BytecodeCreator;
+import io.quarkus.gizmo.MethodCreator;
+import io.quarkus.gizmo.ResultHandle;
 
 /**
  * An integrator should create a new instance of the bean processor using the convenient {@link Builder} and then invoke the
@@ -48,11 +52,16 @@ import io.quarkus.gizmo.BytecodeCreator;
  * <li>{@link #registerCustomContexts()}</li>
  * <li>{@link #registerScopes()}</li>
  * <li>{@link #registerBeans()}</li>
- * <li>{@link #initialize(Consumer)}</li>
+ * <li>{@link #registerSyntheticInjectionPoints(io.quarkus.arc.processor.BeanRegistrar.RegistrationContext)}</li>
+ * <li>{@link BeanDeployment#initBeanByTypeMap()}</li>
+ * <li>{@link #registerSyntheticObservers()}</li>
+ * <li>{@link #initialize(Consumer, List)}</li>
  * <li>{@link #validate(Consumer)}</li>
  * <li>{@link #processValidationErrors(io.quarkus.arc.processor.BeanDeploymentValidator.ValidationContext)}</li>
- * <li>{@link #generateResources(ReflectionRegistration, Set, Consumer)}</li>
+ * <li>{@link #generateResources(ReflectionRegistration, Set, Consumer, boolean, ExecutorService)}</li>
  * </ol>
+ *
+ * @see #process()
  */
 public class BeanProcessor {
 
@@ -78,6 +87,7 @@ public class BeanProcessor {
     private final boolean generateSources;
     private final boolean allowMocking;
     private final boolean transformUnproxyableClasses;
+    private final Predicate<BeanDeployment> optimizeContexts;
     private final List<Function<BeanInfo, Consumer<BytecodeCreator>>> suppressConditionGenerators;
 
     // This predicate is used to filter annotations for InjectionPoint metadata
@@ -86,7 +96,17 @@ public class BeanProcessor {
     // Such as java.lang.Deprecated
     protected final Predicate<DotName> injectionPointAnnotationsPredicate;
 
+    private final ExtensionsEntryPoint buildCompatibleExtensions;
+    private final CustomAlterableContexts customAlterableContexts; // generic but currently only used for BCE
+
     private BeanProcessor(Builder builder) {
+        this.buildCompatibleExtensions = builder.buildCompatibleExtensions;
+        this.customAlterableContexts = new CustomAlterableContexts(builder.applicationClassPredicate);
+        if (buildCompatibleExtensions != null) {
+            buildCompatibleExtensions.registerMetaAnnotations(builder, customAlterableContexts);
+            buildCompatibleExtensions.runEnhancement(builder.beanArchiveComputingIndex, builder);
+        }
+
         this.reflectionRegistration = builder.reflectionRegistration;
         this.applicationClassPredicate = builder.applicationClassPredicate;
         this.name = builder.name;
@@ -97,20 +117,21 @@ public class BeanProcessor {
                 applicationClassPredicate);
         this.generateSources = builder.generateSources;
         this.allowMocking = builder.allowMocking;
+        this.optimizeContexts = builder.optimizeContexts;
         this.transformUnproxyableClasses = builder.transformUnproxyableClasses;
         this.suppressConditionGenerators = builder.suppressConditionGenerators;
 
         // Initialize all build processors
         buildContext = new BuildContextImpl();
-        buildContext.putInternal(Key.INDEX.asString(),
-                builder.beanArchiveComputingIndex != null ? builder.beanArchiveComputingIndex
-                        : builder.beanArchiveImmutableIndex);
+        buildContext.putInternal(Key.INDEX, builder.beanArchiveComputingIndex != null ? builder.beanArchiveComputingIndex
+                : builder.beanArchiveImmutableIndex);
 
         this.beanRegistrars = initAndSort(builder.beanRegistrars, buildContext);
         this.observerRegistrars = initAndSort(builder.observerRegistrars, buildContext);
         this.contextRegistrars = initAndSort(builder.contextRegistrars, buildContext);
         this.beanDeploymentValidators = initAndSort(builder.beanDeploymentValidators, buildContext);
-        this.beanDeployment = new BeanDeployment(buildContext, builder);
+        this.beanDeployment = new BeanDeployment(name, buildContext, builder);
+        buildContext.putInternal(Key.DEPLOYMENT, this.beanDeployment);
 
         // Make it configurable if we find that the set of annotations needs to grow
         this.injectionPointAnnotationsPredicate = Predicate.not(DotNames.DEPRECATED::equals);
@@ -134,6 +155,15 @@ public class BeanProcessor {
         return beanDeployment.registerBeans(beanRegistrars);
     }
 
+    /**
+     * Register synthetic injection points from all synthetic beans.
+     *
+     * @param context
+     */
+    public void registerSyntheticInjectionPoints(BeanRegistrar.RegistrationContext context) {
+        beanDeployment.registerSyntheticInjectionPoints(context);
+    }
+
     public ObserverRegistrar.RegistrationContext registerSyntheticObservers() {
         return beanDeployment.registerSyntheticObservers(observerRegistrars);
     }
@@ -154,7 +184,14 @@ public class BeanProcessor {
      * @return the validation context
      */
     public BeanDeploymentValidator.ValidationContext validate(Consumer<BytecodeTransformer> bytecodeTransformerConsumer) {
-        return beanDeployment.validate(beanDeploymentValidators, bytecodeTransformerConsumer);
+        ValidationContext validationContext = beanDeployment.validate(beanDeploymentValidators, bytecodeTransformerConsumer);
+        customAlterableContexts.validate(validationContext, transformUnproxyableClasses, bytecodeTransformerConsumer);
+        if (buildCompatibleExtensions != null) {
+            buildCompatibleExtensions.runValidation(beanDeployment.getBeanArchiveIndex(),
+                    validationContext.get(Key.BEANS), validationContext.get(Key.OBSERVERS));
+            buildCompatibleExtensions.registerValidationErrors(validationContext);
+        }
+        return validationContext;
     }
 
     public void processValidationErrors(BeanDeploymentValidator.ValidationContext validationContext) {
@@ -166,12 +203,16 @@ public class BeanProcessor {
             ExecutorService executor)
             throws IOException, InterruptedException, ExecutionException {
 
+        beanDeployment.resourceGenerationStarted();
+
         ReflectionRegistration refReg = reflectionRegistration != null ? reflectionRegistration : this.reflectionRegistration;
         PrivateMembersCollector privateMembers = new PrivateMembersCollector();
+        boolean optimizeContextsValue = optimizeContexts != null ? optimizeContexts.test(beanDeployment) : false;
 
         // These maps are precomputed and then used in the ComponentsProviderGenerator which is generated first
         Map<BeanInfo, String> beanToGeneratedName = new HashMap<>();
         Map<ObserverInfo, String> observerToGeneratedName = new HashMap<>();
+        Map<DotName, String> scopeToGeneratedName = new HashMap<>();
 
         BeanGenerator beanGenerator = new BeanGenerator(annotationLiterals, applicationClassPredicate, privateMembers,
                 generateSources, refReg, existingClasses, beanToGeneratedName,
@@ -181,8 +222,14 @@ public class BeanProcessor {
             beanGenerator.precomputeGeneratedName(bean);
         }
 
+        CustomAlterableContextsGenerator alterableContextsGenerator = new CustomAlterableContextsGenerator(generateSources);
+        List<CustomAlterableContextInfo> alterableContexts = customAlterableContexts.getRegistered();
+
+        // Set of normal scopes for which the client proxy delegate can be optimized
+        Set<DotName> singleContextNormalScopes = findSingleContextNormalScopes();
+
         ClientProxyGenerator clientProxyGenerator = new ClientProxyGenerator(applicationClassPredicate, generateSources,
-                allowMocking, refReg, existingClasses);
+                allowMocking, refReg, existingClasses, singleContextNormalScopes);
 
         InterceptorGenerator interceptorGenerator = new InterceptorGenerator(annotationLiterals, applicationClassPredicate,
                 privateMembers, generateSources, refReg, existingClasses, beanToGeneratedName,
@@ -191,7 +238,6 @@ public class BeanProcessor {
         for (InterceptorInfo interceptor : interceptors) {
             interceptorGenerator.precomputeGeneratedName(interceptor);
         }
-        interceptors.forEach(interceptorGenerator::precomputeGeneratedName);
 
         DecoratorGenerator decoratorGenerator = new DecoratorGenerator(annotationLiterals, applicationClassPredicate,
                 privateMembers, generateSources, refReg, existingClasses, beanToGeneratedName,
@@ -202,7 +248,7 @@ public class BeanProcessor {
         }
 
         SubclassGenerator subclassGenerator = new SubclassGenerator(annotationLiterals, applicationClassPredicate,
-                generateSources, refReg, existingClasses);
+                generateSources, refReg, existingClasses, privateMembers);
 
         ObserverGenerator observerGenerator = new ObserverGenerator(annotationLiterals, applicationClassPredicate,
                 privateMembers, generateSources, refReg, existingClasses, observerToGeneratedName,
@@ -211,6 +257,24 @@ public class BeanProcessor {
         for (ObserverInfo observer : observers) {
             observerGenerator.precomputeGeneratedName(observer);
         }
+
+        ContextInstancesGenerator contextInstancesGenerator = new ContextInstancesGenerator(generateSources,
+                refReg, beanDeployment, scopeToGeneratedName);
+        if (optimizeContextsValue) {
+            contextInstancesGenerator.precomputeGeneratedName(BuiltinScope.APPLICATION.getName());
+            contextInstancesGenerator.precomputeGeneratedName(BuiltinScope.REQUEST.getName());
+        }
+
+        InvokerGenerator invokerGenerator = new InvokerGenerator(generateSources,
+                applicationClassPredicate, beanDeployment, annotationLiterals, reflectionRegistration,
+                injectionPointAnnotationsPredicate);
+        Collection<InvokerInfo> invokers = beanDeployment.getInvokers();
+
+        // this is different to `SubclassGenerator` in that it generates support classes
+        // for interception of producer methods and synthetic beans and only supports
+        // limited form of interception (and no decoration)
+        InterceptionProxyGenerator interceptionGenerator = new InterceptionProxyGenerator(generateSources,
+                applicationClassPredicate, annotationLiterals, reflectionRegistration);
 
         List<Resource> resources = new ArrayList<>();
 
@@ -231,7 +295,8 @@ public class BeanProcessor {
                                     name,
                                     beanDeployment,
                                     beanToGeneratedName,
-                                    observerToGeneratedName);
+                                    observerToGeneratedName,
+                                    scopeToGeneratedName);
                 }
             }));
 
@@ -303,6 +368,23 @@ public class BeanProcessor {
                                         }
                                     }));
                                 }
+
+                                if (bean.getInterceptionProxy() != null) {
+                                    secondaryTasks.add(executor.submit(new Callable<Collection<Resource>>() {
+                                        @Override
+                                        public Collection<Resource> call() throws Exception {
+                                            Collection<Resource> interceptionResources = interceptionGenerator.generate(bean);
+                                            for (Resource r : interceptionResources) {
+                                                if (r.getSpecialType() == SpecialType.SUBCLASS) {
+                                                    refReg.registerSubclass(bean.getInterceptionProxy().getTargetClass(),
+                                                            r.getFullyQualifiedName());
+                                                    break;
+                                                }
+                                            }
+                                            return interceptionResources;
+                                        }
+                                    }));
+                                }
                             }
                         }
                         return beanResources;
@@ -316,6 +398,40 @@ public class BeanProcessor {
                     @Override
                     public Collection<Resource> call() throws Exception {
                         return observerGenerator.generate(observer);
+                    }
+                }));
+            }
+
+            // Generate invokers
+            for (InvokerInfo invoker : invokers) {
+                primaryTasks.add(executor.submit(new Callable<Collection<Resource>>() {
+                    @Override
+                    public Collection<Resource> call() throws Exception {
+                        return invokerGenerator.generate(invoker);
+                    }
+                }));
+            }
+
+            // Generate `_InjectableContext` subclasses for custom `AlterableContext`s
+            for (CustomAlterableContextInfo info : alterableContexts) {
+                primaryTasks.add(executor.submit(new Callable<Collection<Resource>>() {
+                    @Override
+                    public Collection<Resource> call() throws Exception {
+                        return alterableContextsGenerator.generate(info);
+                    }
+                }));
+            }
+
+            if (optimizeContextsValue) {
+                // Generate _ContextInstances
+                primaryTasks.add(executor.submit(new Callable<Collection<Resource>>() {
+
+                    @Override
+                    public Collection<Resource> call() throws Exception {
+                        Collection<Resource> resources = new ArrayList<>();
+                        resources.addAll(contextInstancesGenerator.generate(BuiltinScope.APPLICATION.getName()));
+                        resources.addAll(contextInstancesGenerator.generate(BuiltinScope.REQUEST.getName()));
+                        return resources;
                     }
                 }));
             }
@@ -370,12 +486,32 @@ public class BeanProcessor {
                             }
                             resources.addAll(subclassResources);
                         }
+                        if (bean.getInterceptionProxy() != null) {
+                            Collection<Resource> interceptionResources = interceptionGenerator.generate(bean);
+                            for (Resource r : interceptionResources) {
+                                if (r.getSpecialType() == SpecialType.SUBCLASS) {
+                                    refReg.registerSubclass(bean.getInterceptionProxy().getTargetClass(),
+                                            r.getFullyQualifiedName());
+                                    break;
+                                }
+                            }
+                            resources.addAll(interceptionResources);
+                        }
                     }
                 }
             }
             // Generate observers
             for (ObserverInfo observer : observers) {
                 resources.addAll(observerGenerator.generate(observer));
+            }
+            // Generate invokers
+            for (InvokerInfo invoker : invokers) {
+                resources.addAll(invokerGenerator.generate(invoker));
+            }
+
+            // Generate `_InjectableContext` subclasses for custom `AlterableContext`s
+            for (CustomAlterableContextInfo info : alterableContexts) {
+                resources.addAll(alterableContextsGenerator.generate(info));
             }
 
             // Generate _ComponentsProvider
@@ -384,7 +520,14 @@ public class BeanProcessor {
                             name,
                             beanDeployment,
                             beanToGeneratedName,
-                            observerToGeneratedName));
+                            observerToGeneratedName,
+                            scopeToGeneratedName));
+
+            if (optimizeContextsValue) {
+                // Generate _ContextInstances
+                resources.addAll(contextInstancesGenerator.generate(BuiltinScope.APPLICATION.getName()));
+                resources.addAll(contextInstancesGenerator.generate(BuiltinScope.REQUEST.getName()));
+            }
         }
 
         // Generate AnnotationLiterals - at this point all annotation literals must be processed
@@ -428,18 +571,40 @@ public class BeanProcessor {
         };
         registerCustomContexts();
         registerScopes();
-        registerBeans();
+        RegistrationContext registrationContext = registerBeans();
+        registerSyntheticInjectionPoints(registrationContext);
         beanDeployment.initBeanByTypeMap();
         registerSyntheticObservers();
         initialize(unsupportedBytecodeTransformer, Collections.emptyList());
         ValidationContext validationContext = validate(unsupportedBytecodeTransformer);
         processValidationErrors(validationContext);
-        generateResources(null, new HashSet<>(), unsupportedBytecodeTransformer, true, null);
+        generateResources(ReflectionRegistration.NOOP, new HashSet<>(), unsupportedBytecodeTransformer,
+                beanDeployment.removeUnusedBeans, null);
         return beanDeployment;
     }
 
     public Predicate<DotName> getInjectionPointAnnotationsPredicate() {
         return injectionPointAnnotationsPredicate;
+    }
+
+    private Set<DotName> findSingleContextNormalScopes() {
+        Map<DotName, Integer> contextsForScope = new HashMap<>();
+        // built-in contexts
+        contextsForScope.put(BuiltinScope.REQUEST.getName(), 1);
+        // custom contexts
+        for (Map.Entry<ScopeInfo, List<Function<MethodCreator, ResultHandle>>> entry : beanDeployment
+                .getCustomContexts()
+                .entrySet()) {
+            if (entry.getKey().isNormal()) {
+                contextsForScope.merge(entry.getKey().getDotName(), entry.getValue().size(), Integer::sum);
+            }
+        }
+
+        return contextsForScope.entrySet()
+                .stream()
+                .filter(entry -> entry.getValue() == 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
     }
 
     public static class Builder {
@@ -453,7 +618,7 @@ public class BeanProcessor {
         ReflectionRegistration reflectionRegistration;
 
         final List<DotName> resourceAnnotations;
-        final List<AnnotationsTransformer> annotationTransformers;
+        final List<AnnotationTransformation> annotationTransformers;
         final List<InjectionPointsTransformer> injectionPointTransformers;
         final List<ObserverTransformer> observerTransformers;
         final List<BeanRegistrar> beanRegistrars;
@@ -471,11 +636,16 @@ public class BeanProcessor {
         boolean generateSources;
         boolean jtaCapabilities;
         boolean transformUnproxyableClasses;
+        boolean transformPrivateInjectedFields;
         boolean failOnInterceptedPrivateMethod;
         boolean allowMocking;
+        boolean strictCompatibility;
+        Predicate<BeanDeployment> optimizeContexts;
 
         AlternativePriorities alternativePriorities;
         final List<Predicate<ClassInfo>> excludeTypes;
+
+        ExtensionsEntryPoint buildCompatibleExtensions;
 
         Predicate<DotName> applicationClassPredicate;
 
@@ -502,8 +672,10 @@ public class BeanProcessor {
             generateSources = false;
             jtaCapabilities = false;
             transformUnproxyableClasses = false;
+            transformPrivateInjectedFields = false;
             failOnInterceptedPrivateMethod = false;
             allowMocking = false;
+            strictCompatibility = false;
 
             excludeTypes = new ArrayList<>();
 
@@ -566,26 +738,6 @@ public class BeanProcessor {
             return this;
         }
 
-        /**
-         * @deprecated use {@link #addStereotypeRegistrar(StereotypeRegistrar)};
-         *             this method will be removed at some time after Quarkus 3.0
-         */
-        @Deprecated
-        public Builder setAdditionalStereotypes(Map<DotName, Collection<AnnotationInstance>> additionalStereotypes) {
-            Objects.requireNonNull(additionalStereotypes);
-            this.stereotypeRegistrars.add(new StereotypeRegistrar() {
-                @Override
-                public Set<DotName> getAdditionalStereotypes() {
-                    return additionalStereotypes.values()
-                            .stream()
-                            .flatMap(Collection::stream)
-                            .map(AnnotationInstance::name)
-                            .collect(Collectors.toSet());
-                }
-            });
-            return this;
-        }
-
         public Builder addQualifierRegistrar(QualifierRegistrar qualifierRegistrar) {
             this.qualifierRegistrars.add(qualifierRegistrar);
             return this;
@@ -606,22 +758,22 @@ public class BeanProcessor {
             return this;
         }
 
-        /**
-         * @deprecated annotation literal sharing is now always enabled, this method doesn't do anything
-         *             and will be removed at some time after Quarkus 3.0
-         */
-        @Deprecated
-        public Builder setSharedAnnotationLiterals(boolean sharedAnnotationLiterals) {
-            return this;
-        }
-
         public Builder setReflectionRegistration(ReflectionRegistration reflectionRegistration) {
             this.reflectionRegistration = reflectionRegistration;
             return this;
         }
 
+        /**
+         * @deprecated use {@link #addAnnotationTransformation(AnnotationTransformation)}
+         */
+        @Deprecated(forRemoval = true)
         public Builder addAnnotationTransformer(AnnotationsTransformer transformer) {
             this.annotationTransformers.add(transformer);
+            return this;
+        }
+
+        public Builder addAnnotationTransformation(AnnotationTransformation transformation) {
+            this.annotationTransformers.add(transformation);
             return this;
         }
 
@@ -685,7 +837,8 @@ public class BeanProcessor {
          * <li>does not have a name,</li>
          * <li>does not declare an observer,</li>
          * <li>does not declare any producer which is eligible for injection to any injection point,</li>
-         * <li>is not directly eligible for injection into any {@link javax.enterprise.inject.Instance} injection point</li>
+         * <li>is not directly eligible for injection into any {@link jakarta.enterprise.inject.Instance} injection point,</li>
+         * <li>is not a result of resolving an invoker lookup</li>
          * </ul>
          *
          * @param removeUnusedBeans
@@ -720,6 +873,17 @@ public class BeanProcessor {
         }
 
         /**
+         * If set to true the container will transform injected private field of class based beans during validation.
+         *
+         * @param value
+         * @return self
+         */
+        public Builder setTransformPrivateInjectedFields(boolean value) {
+            this.transformPrivateInjectedFields = value;
+            return this;
+        }
+
+        /**
          * If set to true, the build will fail if an annotation that would result in an interceptor being created (such as
          * {@code @Transactional})
          */
@@ -740,9 +904,50 @@ public class BeanProcessor {
         }
 
         /**
+         * If set to {@code true}, the container will perform additional validations mandated by the CDI specification.
+         * Some improvements on top of the CDI specification may be disabled. Applications that work as expected
+         * in the strict mode should work without a change in the default, non-strict mode.
+         * <p>
+         * The strict mode is mainly introduced to allow passing the CDI Lite TCK. Applications are recommended
+         * to use the default, non-strict mode, which makes CDI more convenient to use. The "strictness" of
+         * the strict mode (the set of additional validations and the set of disabled improvements on top of
+         * the CDI specification) may change over time.
+         * <p>
+         * Note that {@link #setTransformUnproxyableClasses(boolean)} also has effect on specification compatibility.
+         * Set it to {@code false} when unproxyable bean types should always lead to a deployment problem.
+         */
+        public Builder setStrictCompatibility(boolean strictCompatibility) {
+            this.strictCompatibility = strictCompatibility;
+            return this;
+        }
+
+        /**
+         *
+         * @param value
+         * @return self
+         */
+        public Builder setOptimizeContexts(boolean value) {
+            return setOptimizeContexts(new Predicate<BeanDeployment>() {
+                @Override
+                public boolean test(BeanDeployment t) {
+                    return value;
+                }
+            });
+        }
+
+        /**
+         *
+         * @param fun
+         * @return self
+         */
+        public Builder setOptimizeContexts(Predicate<BeanDeployment> fun) {
+            this.optimizeContexts = fun;
+            return this;
+        }
+
+        /**
          * Can be used to compute a priority of an alternative bean. A non-null computed value always
-         * takes precedence over the priority defined by {@link Priority}, {@link AlternativePriority} or an alternative
-         * stereotype.
+         * takes precedence over the priority defined by {@link Priority} or a stereotype.
          *
          * @param priorities
          * @return self
@@ -771,6 +976,11 @@ public class BeanProcessor {
          */
         public Builder addSuppressConditionGenerator(Function<BeanInfo, Consumer<BytecodeCreator>> generator) {
             this.suppressConditionGenerators.add(generator);
+            return this;
+        }
+
+        public Builder setBuildCompatibleExtensions(ExtensionsEntryPoint buildCompatibleExtensions) {
+            this.buildCompatibleExtensions = buildCompatibleExtensions;
             return this;
         }
 
@@ -807,6 +1017,11 @@ public class BeanProcessor {
                 throw new IllegalArgumentException("Key may not start wit " + Key.BUILT_IN_PREFIX + ": " + keyStr);
             }
             return putInternal(keyStr, value);
+        }
+
+        @SuppressWarnings("unchecked")
+        <V> V putInternal(Key<V> key, V value) {
+            return (V) data.put(key.asString(), value);
         }
 
         @SuppressWarnings("unchecked")

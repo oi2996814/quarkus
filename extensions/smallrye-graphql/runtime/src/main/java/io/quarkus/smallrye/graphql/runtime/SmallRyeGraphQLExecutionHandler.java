@@ -1,5 +1,7 @@
 package io.quarkus.smallrye.graphql.runtime;
 
+import static io.quarkus.jsonp.JsonProviderHolder.jsonProvider;
+
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.UnsupportedEncodingException;
@@ -8,14 +10,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonObjectBuilder;
-import javax.json.JsonReader;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonObjectBuilder;
+import jakarta.json.JsonReader;
+import jakarta.json.stream.JsonParsingException;
+
+import org.jboss.logging.Logger;
 
 import graphql.ErrorType;
 import graphql.ExecutionResult;
+import graphql.ExecutionResultImpl;
 import graphql.GraphQLError;
+import graphql.GraphqlErrorBuilder;
+import graphql.execution.AbortExecutionException;
 import io.quarkus.security.identity.CurrentIdentityAssociation;
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.smallrye.graphql.execution.ExecutionResponse;
@@ -40,11 +47,13 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
     private static final String EXTENSIONS = "extensions";
     private static final String APPLICATION_GRAPHQL = "application/graphql";
     private static final String OK = "OK";
-    private static final String DEFAULT_RESPONSE_CONTENT_TYPE = "application/graphql+json; charset="
+    private static final String DEFAULT_RESPONSE_CONTENT_TYPE = "application/graphql-response+json; charset="
             + StandardCharsets.UTF_8.name();
     private static final String DEFAULT_REQUEST_CONTENT_TYPE = "application/json; charset="
             + StandardCharsets.UTF_8.name();
     private static final String MISSING_OPERATION = "Missing operation body";
+
+    private static final Logger log = Logger.getLogger(SmallRyeGraphQLExecutionHandler.class);
 
     public SmallRyeGraphQLExecutionHandler(boolean allowGet, boolean allowPostWithQueryParameters, boolean runBlocking,
             CurrentIdentityAssociation currentIdentityAssociation,
@@ -98,7 +107,7 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
                 JsonObject jsonObjectFromQueryParameters = getJsonObjectFromQueryParameters(ctx);
                 JsonObject mergedJsonObject;
                 if (jsonObjectFromBody != null) {
-                    mergedJsonObject = Json.createMergePatch(jsonObjectFromQueryParameters).apply(jsonObjectFromBody)
+                    mergedJsonObject = jsonProvider().createMergePatch(jsonObjectFromQueryParameters).apply(jsonObjectFromBody)
                             .asJsonObject();
                 } else {
                     mergedJsonObject = jsonObjectFromQueryParameters;
@@ -117,6 +126,8 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
             }
         } catch (IOException ex) {
             throw new RuntimeException(ex);
+        } catch (JsonParsingException ex) {
+            sendError("Unparseable request", response, ctx, requestedCharset);
         }
     }
 
@@ -143,7 +154,7 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
     }
 
     private JsonObject getJsonObjectFromQueryParameters(RoutingContext ctx) throws UnsupportedEncodingException {
-        JsonObjectBuilder input = Json.createObjectBuilder();
+        JsonObjectBuilder input = jsonProvider().createObjectBuilder();
         // Query
         String query = stripNewlinesAndTabs(readQueryParameter(ctx, QUERY));
         if (query != null && !query.isEmpty()) {
@@ -179,7 +190,7 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
 
         // If the content type is application/graphql, the query is in the body
         if (contentType != null && contentType.startsWith(APPLICATION_GRAPHQL)) {
-            JsonObjectBuilder input = Json.createObjectBuilder();
+            JsonObjectBuilder input = jsonProvider().createObjectBuilder();
             input.add(QUERY, body);
             return input.build();
             // Else we expect a Json in the content
@@ -218,31 +229,76 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
                 if (isValidAcceptRequest(a.rawValue())) {
                     return a.rawValue();
                 }
+
+                if (a.rawValue().startsWith("*/*")) {
+                    return DEFAULT_RESPONSE_CONTENT_TYPE;
+                }
             }
             // Seems like an unknown accept is passed in
             String accept = ctx.request().getHeader("Accept");
-            if (accept != null && !accept.isEmpty() && !accept.startsWith("*/*")) {
+            if (accept != null && !accept.isEmpty()) {
                 return accept;
             }
         }
         return DEFAULT_RESPONSE_CONTENT_TYPE;
     }
 
-    private String getCharset(String mimeType) {
-        if (mimeType != null && mimeType.contains(";")) {
-            String[] parts = mimeType.split(";");
-            for (String part : parts) {
-                if (part.trim().startsWith("charset")) {
-                    return part.split("=")[1];
-                }
+    private static int indexOfSemicolonOrWhitespace(String s, int start) {
+        for (int i = start; i < s.length(); i++) {
+            final char c = s.charAt(i);
+            if (c == ';' || Character.isWhitespace(c)) {
+                return i;
             }
+        }
+        return -1;
+    }
+
+    private static final String CHARSET_TOKEN = "charset=";
+    private static final String UTF_8_LOW = "utf-8";
+    private static final String UTF_8_HIGH = "UTF-8";
+
+    private static String parseCharset(String mimeType) {
+        if (mimeType == null) {
+            return null;
+        }
+        final int charsetIndex = mimeType.indexOf(CHARSET_TOKEN);
+        if (charsetIndex == -1) {
+            return null;
+        }
+        final int charsetValueStart = charsetIndex + CHARSET_TOKEN.length();
+        final int firstSemicolonWhitespace = indexOfSemicolonOrWhitespace(mimeType, charsetValueStart);
+        final int charsetValueEnd = firstSemicolonWhitespace == -1 ? mimeType.length() : firstSemicolonWhitespace;
+        final int charsetLen = charsetValueEnd - charsetValueStart;
+        if (charsetLen == 0) {
+            return null;
+        }
+        return charsetOf(mimeType, charsetValueStart, charsetLen);
+    }
+
+    private static String charsetOf(String mimeType, int charsetValueStart, int charsetLen) {
+        if (charsetLen == UTF_8_LOW.length()) {
+            if (mimeType.regionMatches(charsetValueStart, UTF_8_LOW, 0, UTF_8_LOW.length())) {
+                return UTF_8_LOW;
+            }
+            if (mimeType.regionMatches(charsetValueStart, UTF_8_HIGH, 0, UTF_8_LOW.length())) {
+                return UTF_8_HIGH;
+            }
+        }
+        return mimeType.substring(charsetValueStart, charsetValueStart + charsetLen);
+    }
+
+    private static String getCharset(String mimeType) {
+        final String parsedCharset = parseCharset(mimeType);
+        if (parsedCharset != null) {
+            return parsedCharset;
         }
         return StandardCharsets.UTF_8.name();
     }
 
     private boolean isValidAcceptRequest(String mimeType) {
-        // At this point we only accept two
         return mimeType.startsWith("application/json")
+                || mimeType.startsWith("application/graphql-response+json")
+                // application/graphql+json is incorrect, but we keep it for backwards compatibility
                 || mimeType.startsWith("application/graphql+json");
     }
 
@@ -254,7 +310,7 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
         return null;
     }
 
-    private static final Pattern PATTERN_NEWLINE_OR_TAB = Pattern.compile("\\n|\\t");
+    private static final Pattern PATTERN_NEWLINE_OR_TAB = Pattern.compile("\\n|\\t|\\r");
 
     /**
      * Strip away unescaped tabs and line breaks from the incoming JSON document so that it can be
@@ -290,6 +346,21 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
         }
     }
 
+    private void sendError(String errorMessage, HttpServerResponse response,
+            RoutingContext ctx, String requestedCharset) {
+        VertxExecutionResponseWriter writer = new VertxExecutionResponseWriter(response, ctx, requestedCharset);
+        GraphQLError error = GraphqlErrorBuilder
+                .newError()
+                .message(errorMessage)
+                .build();
+        ExecutionResult executionResult = ExecutionResultImpl
+                .newExecutionResult()
+                .addError(error)
+                .build();
+        ExecutionResponse executionResponse = new ExecutionResponse(executionResult);
+        writer.write(executionResponse);
+    }
+
     private void doRequest(JsonObject jsonInput, HttpServerResponse response, RoutingContext ctx,
             String requestedCharset) {
         VertxExecutionResponseWriter writer = new VertxExecutionResponseWriter(response, ctx, requestedCharset);
@@ -320,14 +391,26 @@ public class SmallRyeGraphQLExecutionHandler extends SmallRyeGraphQLAbstractHand
 
         @Override
         public void write(ExecutionResponse er) {
-
             if (shouldFail(er)) {
+                er.getExecutionResult()
+                        .getErrors().stream()
+                        .filter(e -> e.getErrorType().equals(ErrorType.ExecutionAborted))
+                        .forEach(e -> {
+                            log.error("Execution aborted", (AbortExecutionException) e);
+                        });
                 response.setStatusCode(500)
                         .end();
             } else {
-                response.setStatusCode(200)
-                        .setStatusMessage(OK)
-                        .end(Buffer.buffer(er.getExecutionResultAsString(), requestedCharset));
+                try {
+                    response.setStatusCode(200)
+                            .setStatusMessage(OK)
+                            .end(Buffer.buffer(er.getExecutionResultAsString(), requestedCharset));
+                } catch (IllegalStateException ise) {
+                    // The application already finished the request by itself for some reason
+                    if (log.isDebugEnabled()) {
+                        log.debug("Cannot write response", ise);
+                    }
+                }
             }
         }
 

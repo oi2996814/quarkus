@@ -7,13 +7,14 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Optional;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.container.ContainerRequestContext;
-import javax.ws.rs.core.CacheControl;
-import javax.ws.rs.core.NewCookie;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Variant;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.CacheControl;
+import jakarta.ws.rs.core.NewCookie;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriBuilder;
+import jakarta.ws.rs.core.Variant;
 
 import org.jboss.resteasy.reactive.RestResponse;
 import org.jboss.resteasy.reactive.server.ServerExceptionMapper;
@@ -30,13 +31,44 @@ public class RestResponseResource {
     }
 
     @GET
+    @Path("rest-response-empty")
+    public RestResponse<String> empty() {
+        return RestResponse.status(499);
+    }
+
+    @GET
+    @Path("response-empty")
+    public Response emptyResponse() {
+        return Response.status(499).build();
+    }
+
+    @GET
     @Path("rest-response-wildcard")
     public RestResponse<?> wildcard() {
         return RestResponse.ResponseBuilder.ok("Hello").header("content-type", "text/plain").build();
     }
 
     @GET
+    @Path("rest-response-location")
+    public RestResponse<?> location() {
+        final var location = UriBuilder.fromResource(RestResponseResource.class).path("{language}")
+                .queryParam("user", "John")
+                .build("en/us");
+        return RestResponse.ResponseBuilder.ok("Hello").location(location).build();
+    }
+
+    @GET
+    @Path("rest-response-content-location")
+    public RestResponse<?> contentLocation() {
+        final var location = UriBuilder.fromResource(RestResponseResource.class).path("{language}")
+                .queryParam("user", "John")
+                .build("en/us");
+        return RestResponse.ResponseBuilder.ok("Hello").contentLocation(location).build();
+    }
+
+    @GET
     @Path("rest-response-full")
+    @SuppressWarnings("deprecation")
     public RestResponse<String> getResponse() throws URISyntaxException {
         CacheControl cc = new CacheControl();
         cc.setMaxAge(42);

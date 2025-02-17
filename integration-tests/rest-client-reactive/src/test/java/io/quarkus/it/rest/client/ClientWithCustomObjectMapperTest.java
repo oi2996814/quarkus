@@ -1,23 +1,23 @@
 package io.quarkus.it.rest.client;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.ok;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.ext.ContextResolver;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.ext.ContextResolver;
 
-import org.eclipse.microprofile.rest.client.RestClientBuilder;
-import org.jboss.resteasy.reactive.ClientWebApplicationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,11 +25,14 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder;
 import io.quarkus.test.junit.QuarkusTest;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 
 @QuarkusTest
 public class ClientWithCustomObjectMapperTest {
@@ -40,15 +43,17 @@ public class ClientWithCustomObjectMapperTest {
 
     @BeforeEach
     public void setUp() throws MalformedURLException {
+        ClientObjectMapperUnknown.USED.set(false);
+        ClientObjectMapperNoUnknown.USED.set(false);
         wireMockServer = new WireMockServer(options().port(20001));
         wireMockServer.start();
 
-        clientAllowsUnknown = RestClientBuilder.newBuilder()
+        clientAllowsUnknown = QuarkusRestClientBuilder.newBuilder()
                 .baseUrl(new URL(wireMockServer.baseUrl()))
                 .register(ClientObjectMapperUnknown.class)
                 .build(MyClient.class);
 
-        clientDisallowsUnknown = RestClientBuilder.newBuilder()
+        clientDisallowsUnknown = QuarkusRestClientBuilder.newBuilder()
                 .baseUrl(new URL(wireMockServer.baseUrl()))
                 .register(ClientObjectMapperNoUnknown.class)
                 .build(MyClient.class);
@@ -60,27 +65,41 @@ public class ClientWithCustomObjectMapperTest {
     }
 
     @Test
-    void testCustomObjectMappersShouldBeUsed() {
+    void testCustomObjectMappersShouldBeUsedInReader() {
         var json = "{ \"value\": \"someValue\", \"secondValue\": \"toBeIgnored\" }";
         wireMockServer.stubFor(
-                WireMock.get(WireMock.urlMatching("/get"))
+                WireMock.get(WireMock.urlMatching("/client"))
                         .willReturn(okJson(json)));
 
         // FAIL_ON_UNKNOWN_PROPERTIES disabled
-        assertThat(clientAllowsUnknown.get().await().indefinitely())
-                .isEqualTo(new Request("someValue"));
+        clientAllowsUnknown.get().subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem().assertItem(new Request("someValue"));
 
         // FAIL_ON_UNKNOWN_PROPERTIES enabled
-        assertThatThrownBy(() -> clientDisallowsUnknown.get().await().indefinitely())
-                .isInstanceOf(ClientWebApplicationException.class);
+        clientDisallowsUnknown.get().subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(UnrecognizedPropertyException.class);
     }
 
-    @Path("/get")
+    @Test
+    void testCustomObjectMappersShouldBeUsedInWriter() {
+        wireMockServer.stubFor(
+                WireMock.post(WireMock.urlMatching("/client"))
+                        .willReturn(ok()));
+
+        clientDisallowsUnknown.post(new Request());
+        assertThat(ClientObjectMapperNoUnknown.USED.get()).isTrue();
+    }
+
+    @Path("/client")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public interface MyClient {
         @GET
         Uni<Request> get();
+
+        @POST
+        void post(Request request);
     }
 
     public static class Request {
@@ -119,8 +138,11 @@ public class ClientWithCustomObjectMapperTest {
     }
 
     public static class ClientObjectMapperUnknown implements ContextResolver<ObjectMapper> {
+        static final AtomicBoolean USED = new AtomicBoolean(false);
+
         @Override
         public ObjectMapper getContext(Class<?> type) {
+            USED.set(true);
             return new ObjectMapper()
                     .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                     .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
@@ -128,8 +150,12 @@ public class ClientWithCustomObjectMapperTest {
     }
 
     public static class ClientObjectMapperNoUnknown implements ContextResolver<ObjectMapper> {
+
+        static final AtomicBoolean USED = new AtomicBoolean(false);
+
         @Override
         public ObjectMapper getContext(Class<?> type) {
+            USED.set(true);
             return new ObjectMapper()
                     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                     .enable(SerializationFeature.FAIL_ON_EMPTY_BEANS);

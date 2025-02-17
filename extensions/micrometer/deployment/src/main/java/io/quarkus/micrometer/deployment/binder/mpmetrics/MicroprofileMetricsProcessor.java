@@ -3,7 +3,7 @@ package io.quarkus.micrometer.deployment.binder.mpmetrics;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
-import javax.enterprise.context.Dependent;
+import jakarta.enterprise.context.Dependent;
 
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
@@ -53,7 +53,7 @@ public class MicroprofileMetricsProcessor {
         MicrometerConfig mConfig;
 
         public boolean getAsBoolean() {
-            return METRIC_ANNOTATION_CLASS != null && mConfig.checkBinderEnabledWithDefault(mConfig.binder.mpMetrics);
+            return METRIC_ANNOTATION_CLASS != null && mConfig.checkBinderEnabledWithDefault(mConfig.binder().mpMetrics());
         }
     }
 

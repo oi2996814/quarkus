@@ -9,18 +9,23 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import javax.enterprise.context.spi.Context;
-import javax.enterprise.context.spi.Contextual;
-import javax.enterprise.context.spi.CreationalContext;
-import javax.enterprise.inject.spi.EventContext;
-import javax.enterprise.inject.spi.EventMetadata;
-import javax.interceptor.InvocationContext;
+import jakarta.enterprise.context.spi.Context;
+import jakarta.enterprise.context.spi.Contextual;
+import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.inject.spi.EventContext;
+import jakarta.enterprise.inject.spi.EventMetadata;
+import jakarta.interceptor.InvocationContext;
 
+import io.quarkus.arc.ActiveResult;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
+import io.quarkus.arc.ArcInvocationContext;
 import io.quarkus.arc.ClientProxy;
 import io.quarkus.arc.ComponentsProvider;
 import io.quarkus.arc.InjectableBean;
@@ -28,11 +33,13 @@ import io.quarkus.arc.InjectableBean.Kind;
 import io.quarkus.arc.InjectableContext;
 import io.quarkus.arc.InjectableInterceptor;
 import io.quarkus.arc.InjectableReferenceProvider;
+import io.quarkus.arc.InterceptorCreator.InterceptFunction;
 import io.quarkus.arc.impl.ClientProxies;
 import io.quarkus.arc.impl.CreationalContextImpl;
 import io.quarkus.arc.impl.DecoratorDelegateProvider;
 import io.quarkus.arc.impl.FixedValueSupplier;
 import io.quarkus.arc.impl.InjectableReferenceProviders;
+import io.quarkus.arc.impl.InjectionPointImpl;
 import io.quarkus.arc.impl.Instances;
 import io.quarkus.arc.impl.InterceptedMethodMetadata;
 import io.quarkus.arc.impl.InterceptorInvocation;
@@ -57,6 +64,9 @@ public final class MethodDescriptors {
             Map.class, String.class);
 
     public static final MethodDescriptor SUPPLIER_GET = MethodDescriptor.ofMethod(Supplier.class, "get", Object.class);
+
+    public static final MethodDescriptor CONSUMER_ACCEPT = MethodDescriptor.ofMethod(Consumer.class, "accept",
+            void.class, Object.class);
 
     public static final MethodDescriptor CREATIONAL_CTX_CHILD = MethodDescriptor.ofMethod(CreationalContextImpl.class, "child",
             CreationalContextImpl.class,
@@ -89,6 +99,8 @@ public final class MethodDescriptors {
             Object.class);
 
     public static final MethodDescriptor OBJECT_HASH_CODE = MethodDescriptor.ofMethod(Object.class, "hashCode", int.class);
+
+    public static final MethodDescriptor OBJECT_GET_CLASS = MethodDescriptor.ofMethod(Object.class, "getClass", Class.class);
 
     public static final MethodDescriptor OBJECT_CONSTRUCTOR = MethodDescriptor.ofConstructor(Object.class);
 
@@ -143,6 +155,9 @@ public final class MethodDescriptors {
     public static final MethodDescriptor CLIENT_PROXY_GET_CONTEXTUAL_INSTANCE = MethodDescriptor.ofMethod(ClientProxy.class,
             ClientProxyGenerator.GET_CONTEXTUAL_INSTANCE_METHOD_NAME, Object.class);
 
+    public static final MethodDescriptor CLIENT_PROXY_UNWRAP = MethodDescriptor.ofMethod(ClientProxy.class,
+            "unwrap", Object.class, Object.class);
+
     public static final MethodDescriptor INJECTABLE_BEAN_DESTROY = MethodDescriptor.ofMethod(InjectableBean.class, "destroy",
             void.class, Object.class,
             CreationalContext.class);
@@ -163,23 +178,30 @@ public final class MethodDescriptors {
 
     public static final MethodDescriptor INVOCATION_CONTEXTS_PERFORM_AROUND_INVOKE = MethodDescriptor.ofMethod(
             InvocationContexts.class,
-            "performAroundInvoke",
-            Object.class, Object.class, Method.class, Function.class, Object[].class, List.class,
-            Set.class);
+            "performAroundInvoke", Object.class, Object.class, Object[].class, InterceptedMethodMetadata.class);
+
+    public static final MethodDescriptor INVOCATION_CONTEXTS_PERFORM_TARGET_AROUND_INVOKE = MethodDescriptor.ofMethod(
+            InvocationContexts.class,
+            "performTargetAroundInvoke", Object.class, InvocationContext.class, List.class, BiFunction.class);
 
     public static final MethodDescriptor INVOCATION_CONTEXTS_AROUND_CONSTRUCT = MethodDescriptor.ofMethod(
             InvocationContexts.class,
             "aroundConstruct",
-            InvocationContext.class, Constructor.class, Object[].class, List.class, Supplier.class, Set.class);
+            InvocationContext.class, Constructor.class, Object[].class, List.class, Function.class, Set.class);
 
     public static final MethodDescriptor INVOCATION_CONTEXTS_POST_CONSTRUCT = MethodDescriptor.ofMethod(
             InvocationContexts.class,
             "postConstruct",
-            InvocationContext.class, Object.class, List.class, Set.class);
+            InvocationContext.class, Object.class, List.class, Set.class, Runnable.class);
 
     public static final MethodDescriptor INVOCATION_CONTEXTS_PRE_DESTROY = MethodDescriptor.ofMethod(InvocationContexts.class,
             "preDestroy",
-            InvocationContext.class, Object.class, List.class, Set.class);
+            InvocationContext.class, Object.class, List.class, Set.class, Runnable.class);
+
+    public static final MethodDescriptor INVOCATION_CONTEXTS_PERFORM_SUPERCLASS = MethodDescriptor.ofMethod(
+            InvocationContexts.class,
+            "performSuperclassInterception",
+            Object.class, InvocationContext.class, List.class, Object.class, Object[].class);
 
     public static final MethodDescriptor INVOCATION_CONTEXT_PROCEED = MethodDescriptor.ofMethod(InvocationContext.class,
             "proceed",
@@ -188,6 +210,10 @@ public final class MethodDescriptors {
     public static final MethodDescriptor INVOCATION_CONTEXT_GET_TARGET = MethodDescriptor.ofMethod(InvocationContext.class,
             "getTarget",
             Object.class);
+
+    public static final MethodDescriptor INVOCATION_CONTEXT_GET_PARAMETERS = MethodDescriptor.ofMethod(InvocationContext.class,
+            "getParameters",
+            Object[].class);
 
     public static final MethodDescriptor CREATIONAL_CTX_ADD_DEP_TO_PARENT = MethodDescriptor.ofMethod(
             CreationalContextImpl.class,
@@ -208,6 +234,9 @@ public final class MethodDescriptors {
     public static final MethodDescriptor COLLECTIONS_EMPTY_MAP = MethodDescriptor.ofMethod(Collections.class, "emptyMap",
             Map.class);
 
+    public static final MethodDescriptor COLLECTIONS_EMPTY_SET = MethodDescriptor.ofMethod(Collections.class, "emptySet",
+            Set.class);
+
     public static final MethodDescriptor SETS_OF = MethodDescriptor.ofMethod(Sets.class, "of", Set.class, Object[].class);
 
     public static final MethodDescriptor ARC_CONTAINER = MethodDescriptor.ofMethod(Arc.class, "container", ArcContainer.class);
@@ -217,6 +246,9 @@ public final class MethodDescriptors {
 
     public static final MethodDescriptor ARC_CONTAINER_GET_ACTIVE_CONTEXT = MethodDescriptor.ofMethod(ArcContainer.class,
             "getActiveContext", InjectableContext.class, Class.class);
+
+    public static final MethodDescriptor ARC_CONTAINER_GET_CONTEXTS = MethodDescriptor.ofMethod(ArcContainer.class,
+            "getContexts", List.class, Class.class);
 
     public static final MethodDescriptor CONTEXT_GET = MethodDescriptor.ofMethod(Context.class, "get", Object.class,
             Contextual.class,
@@ -229,8 +261,7 @@ public final class MethodDescriptors {
             String.class);
 
     public static final MethodDescriptor INTERCEPTED_METHOD_METADATA_CONSTRUCTOR = MethodDescriptor.ofConstructor(
-            InterceptedMethodMetadata.class,
-            List.class, Method.class, Set.class);
+            InterceptedMethodMetadata.class, List.class, Method.class, Set.class, BiFunction.class);
 
     public static final MethodDescriptor CREATIONAL_CTX_HAS_DEPENDENT_INSTANCES = MethodDescriptor.ofMethod(
             CreationalContextImpl.class,
@@ -252,25 +283,26 @@ public final class MethodDescriptors {
     public static final MethodDescriptor CLIENT_PROXIES_GET_APP_SCOPED_DELEGATE = MethodDescriptor.ofMethod(ClientProxies.class,
             "getApplicationScopedDelegate", Object.class, InjectableContext.class, InjectableBean.class);
 
+    public static final MethodDescriptor CLIENT_PROXIES_GET_SINGLE_CONTEXT_DELEGATE = MethodDescriptor.ofMethod(
+            ClientProxies.class,
+            "getSingleContextDelegate", Object.class, InjectableContext.class, InjectableBean.class);
+
     public static final MethodDescriptor CLIENT_PROXIES_GET_DELEGATE = MethodDescriptor.ofMethod(ClientProxies.class,
             "getDelegate", Object.class, InjectableBean.class);
 
-    public static final MethodDescriptor DECORATOR_DELEGATE_PROVIDER_SET = MethodDescriptor
-            .ofMethod(DecoratorDelegateProvider.class, "set", Object.class, Object.class);
+    public static final MethodDescriptor DECORATOR_DELEGATE_PROVIDER_GET = MethodDescriptor.ofMethod(
+            DecoratorDelegateProvider.class, "getCurrent", Object.class, CreationalContext.class);
 
-    public static final MethodDescriptor DECORATOR_DELEGATE_PROVIDER_UNSET = MethodDescriptor
-            .ofMethod(DecoratorDelegateProvider.class, "unset", void.class);
-
-    public static final MethodDescriptor DECORATOR_DELEGATE_PROVIDER_GET = MethodDescriptor
-            .ofMethod(DecoratorDelegateProvider.class, "get", Object.class);
+    public static final MethodDescriptor DECORATOR_DELEGATE_PROVIDER_SET = MethodDescriptor.ofMethod(
+            DecoratorDelegateProvider.class, "setCurrent", Object.class, CreationalContext.class, Object.class);
 
     public static final MethodDescriptor INSTANCES_LIST_OF = MethodDescriptor
             .ofMethod(Instances.class, "listOf", List.class, InjectableBean.class, Type.class, Type.class,
-                    Set.class, CreationalContextImpl.class, Set.class, Member.class, int.class);
+                    Set.class, CreationalContext.class, Set.class, Member.class, int.class, boolean.class);
 
     public static final MethodDescriptor INSTANCES_LIST_OF_HANDLES = MethodDescriptor
             .ofMethod(Instances.class, "listOfHandles", List.class, InjectableBean.class, Type.class, Type.class,
-                    Set.class, CreationalContextImpl.class, Set.class, Member.class, int.class);
+                    Set.class, CreationalContext.class, Set.class, Member.class, int.class, boolean.class);
 
     public static final MethodDescriptor COMPONENTS_PROVIDER_UNABLE_TO_LOAD_REMOVED_BEAN_TYPE = MethodDescriptor.ofMethod(
             ComponentsProvider.class, "unableToLoadRemovedBeanType",
@@ -279,6 +311,26 @@ public final class MethodDescriptors {
     public static final MethodDescriptor BEANS_TO_STRING = MethodDescriptor.ofMethod(io.quarkus.arc.impl.Beans.class,
             "toString", String.class,
             InjectableBean.class);
+
+    public static final MethodDescriptor INJECTION_POINT_IMPL_CONSTRUCTOR = MethodDescriptor.ofConstructor(
+            InjectionPointImpl.class,
+            Type.class, Type.class, Set.class, InjectableBean.class, Set.class, Member.class, int.class, boolean.class);
+
+    public static final MethodDescriptor INTERCEPT_FUNCTION_INTERCEPT = MethodDescriptor.ofMethod(InterceptFunction.class,
+            "intercept", Object.class, ArcInvocationContext.class);
+
+    public static final MethodDescriptor LOCK_LOCK = MethodDescriptor.ofMethod(Lock.class, "lock", void.class);
+    public static final MethodDescriptor LOCK_UNLOCK = MethodDescriptor.ofMethod(Lock.class, "unlock", void.class);
+
+    public static final MethodDescriptor ACTIVE_RESULT_VALUE = MethodDescriptor.ofMethod(ActiveResult.class,
+            "value", boolean.class);
+    public static final MethodDescriptor ACTIVE_RESULT_REASON = MethodDescriptor.ofMethod(ActiveResult.class,
+            "inactiveReason", String.class);
+    public static final MethodDescriptor ACTIVE_RESULT_CAUSE = MethodDescriptor.ofMethod(ActiveResult.class,
+            "inactiveCause", ActiveResult.class);
+
+    public static final MethodDescriptor STRING_BUILDER_APPEND = MethodDescriptor.ofMethod(StringBuilder.class,
+            "append", StringBuilder.class, String.class);
 
     private MethodDescriptors() {
     }

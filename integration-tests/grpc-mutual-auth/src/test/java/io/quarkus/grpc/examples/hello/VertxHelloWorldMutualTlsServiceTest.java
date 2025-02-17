@@ -1,28 +1,32 @@
 package io.quarkus.grpc.examples.hello;
 
-import java.io.InputStream;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import javax.inject.Inject;
+import java.time.Duration;
+import java.util.Map;
+
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
+import examples.GreeterGrpc;
+import examples.HelloReply;
+import examples.HelloRequest;
+import examples.MutinyGreeterGrpc;
+import io.grpc.Channel;
+import io.grpc.StatusRuntimeException;
+import io.quarkus.grpc.test.utils.GRPCTestUtils;
 import io.quarkus.grpc.test.utils.VertxGRPCTestProfile;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.http.HttpClientOptions;
-import io.vertx.core.net.PemKeyCertOptions;
-import io.vertx.core.net.PemTrustOptions;
-import io.vertx.core.net.SocketAddress;
 import io.vertx.grpc.client.GrpcClient;
-import io.vertx.grpc.client.GrpcClientChannel;
 
 @QuarkusTest
 @TestProfile(VertxGRPCTestProfile.class)
-@Disabled
 class VertxHelloWorldMutualTlsServiceTest extends HelloWorldMutualTlsServiceTestBase {
 
     @Inject
@@ -32,30 +36,36 @@ class VertxHelloWorldMutualTlsServiceTest extends HelloWorldMutualTlsServiceTest
 
     @BeforeEach
     public void init() throws Exception {
-        HttpClientOptions options = new HttpClientOptions();
-        options.setUseAlpn(true);
-        options.setSsl(true);
-        Buffer buffer;
-        try (InputStream stream = stream("tls/ca.pem")) {
-            buffer = Buffer.buffer(stream.readAllBytes());
-        }
-        Buffer cb;
-        try (InputStream stream = stream("tls/client.pem")) {
-            cb = Buffer.buffer(stream.readAllBytes());
-        }
-        Buffer ck;
-        try (InputStream stream = stream("tls/client.key")) {
-            ck = Buffer.buffer(stream.readAllBytes());
-        }
-        options.setTrustOptions(new PemTrustOptions().addCertValue(buffer));
-        options.setKeyCertOptions(new PemKeyCertOptions().setCertValue(cb).setKeyValue(ck));
-        client = GrpcClient.client(vertx, options);
-        channel = new GrpcClientChannel(client, SocketAddress.inetSocketAddress(8444, "localhost"));
+        Map.Entry<GrpcClient, Channel> pair = GRPCTestUtils.tls(vertx, "tls/ca.pem", "tls/client.pem", "tls/client.key");
+        client = pair.getKey();
+        channel = pair.getValue();
     }
 
     @AfterEach
     public void cleanup() {
-        client.close().toCompletionStage().toCompletableFuture().join();
+        GRPCTestUtils.close(client);
     }
 
+    @Test
+    public void testRolesHelloWorldServiceUsingBlockingStub() {
+        GreeterGrpc.GreeterBlockingStub client = GreeterGrpc.newBlockingStub(channel);
+        HelloReply reply = client
+                .sayHelloRoleUser(HelloRequest.newBuilder().setName("neo-blocking").build());
+        assertThat(reply.getMessage())
+                .isEqualTo("Hello neo-blocking from CN=testclient,O=Default Company Ltd,L=Default City,C=XX");
+        assertThrows(StatusRuntimeException.class,
+                () -> client.sayHelloRoleAdmin(HelloRequest.newBuilder().setName("neo-blocking").build()));
+    }
+
+    @Test
+    public void testRolesHelloWorldServiceUsingMutinyStub() {
+        HelloReply reply = MutinyGreeterGrpc.newMutinyStub(channel)
+                .sayHelloRoleUser(HelloRequest.newBuilder().setName("neo-blocking").build())
+                .await().atMost(Duration.ofSeconds(5));
+        assertThat(reply.getMessage())
+                .isEqualTo("Hello neo-blocking from CN=testclient,O=Default Company Ltd,L=Default City,C=XX");
+        assertThrows(StatusRuntimeException.class, () -> MutinyGreeterGrpc.newMutinyStub(channel)
+                .sayHelloRoleAdmin(HelloRequest.newBuilder().setName("neo-blocking").build())
+                .await().atMost(Duration.ofSeconds(5)));
+    }
 }

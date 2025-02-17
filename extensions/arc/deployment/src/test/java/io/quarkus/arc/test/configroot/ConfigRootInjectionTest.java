@@ -3,8 +3,8 @@ package io.quarkus.arc.test.configroot;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -26,19 +26,16 @@ public class ConfigRootInjectionTest {
     @Test
     public void testInjectionWorks() {
         assertNotNull(client.applicationConfig);
-        assertNotNull(client.applicationConfig.name);
-        assertEquals(1, client.threadPoolConfig.coreThreads);
+        assertNotNull(client.applicationConfig.name());
+        assertEquals(1, client.threadPoolConfig.coreThreads());
     }
 
     @Singleton
     static class Client {
-
         @Inject
         ApplicationConfig applicationConfig;
 
         @Inject
         ThreadPoolConfig threadPoolConfig;
-
     }
-
 }

@@ -80,12 +80,16 @@ public abstract class AbstractTestWithCallbacksExtension {
         invokeAfterEachCallbacks(QuarkusTestMethodContext.class, testMethodContext);
     }
 
-    protected boolean isAfterAllCallbacksEmpty() {
-        return afterAllCallbacks == null || afterAllCallbacks.isEmpty();
+    protected boolean isAfterEachCallbacksEmpty() {
+        return afterEachCallbacks == null || afterEachCallbacks.isEmpty();
     }
 
     protected void invokeAfterEachCallbacks(Class<?> clazz, Object classInstance) throws Exception {
         invokeCallbacks(afterEachCallbacks, "afterEach", clazz, classInstance);
+    }
+
+    protected boolean isAfterAllCallbacksEmpty() {
+        return afterAllCallbacks == null || afterAllCallbacks.isEmpty();
     }
 
     protected void invokeAfterAllCallbacks(QuarkusTestContext testContext) throws Exception {
@@ -96,7 +100,7 @@ public abstract class AbstractTestWithCallbacksExtension {
         invokeCallbacks(afterAllCallbacks, "afterAll", clazz, testContext);
     }
 
-    protected void populateCallbacks(ClassLoader classLoader) throws ClassNotFoundException {
+    protected static void clearCallbacks() {
         beforeClassCallbacks = new ArrayList<>();
         afterConstructCallbacks = new ArrayList<>();
         beforeEachCallbacks = new ArrayList<>();
@@ -104,6 +108,10 @@ public abstract class AbstractTestWithCallbacksExtension {
         afterTestCallbacks = new ArrayList<>();
         afterEachCallbacks = new ArrayList<>();
         afterAllCallbacks = new ArrayList<>();
+    }
+
+    protected void populateCallbacks(ClassLoader classLoader) throws ClassNotFoundException {
+        clearCallbacks();
 
         ServiceLoader<?> quarkusTestBeforeClassLoader = ServiceLoader
                 .load(Class.forName(QuarkusTestBeforeClassCallback.class.getName(), false, classLoader), classLoader);
@@ -154,7 +162,32 @@ public abstract class AbstractTestWithCallbacksExtension {
                         .invoke(callback, classInstance);
             }
         } catch (InvocationTargetException e) {
-            throw e.getCause() instanceof Exception ? (Exception) e.getCause() : e;
+            if (e.getCause() instanceof Exception) {
+                throw (Exception) e.getCause();
+            } else if (e.getCause() instanceof AssertionError) {
+                throw (AssertionError) e.getCause();
+            }
+            throw e;
+        }
+    }
+
+    protected Class getTestingType() {
+
+        // In general, the testing type should be the test extension class, but ...
+        Class type = this.getClass();
+
+        // We don't want to pick up the class of anonymous classes, since they're clearly supposed to 'be' the superclass.
+        // We want something like
+        //        @RegisterExtension
+        //        static QuarkusTestExtension TEST = new QuarkusTestExtension() {
+        //        @Override
+        //        // Whatever
+        //  };
+        // to count as a QuarkusTestExtension class
+        if (type.isAnonymousClass()) {
+            return type.getSuperclass();
+        } else {
+            return type;
         }
     }
 }

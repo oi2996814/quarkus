@@ -7,13 +7,13 @@ import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
-import io.vertx.mutiny.mssqlclient.MSSQLPool;
+import io.vertx.mutiny.sqlclient.Pool;
 
 public class DevServicesMsSQLDatasourceTestCase {
 
@@ -30,7 +30,7 @@ public class DevServicesMsSQLDatasourceTestCase {
                     .isEmpty());
 
     @Inject
-    MSSQLPool pool;
+    Pool pool;
 
     @Test
     public void testDatasource() throws Exception {

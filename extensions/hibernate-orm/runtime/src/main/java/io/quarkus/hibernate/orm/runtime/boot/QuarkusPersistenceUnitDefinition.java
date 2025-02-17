@@ -1,15 +1,13 @@
 package io.quarkus.hibernate.orm.runtime.boot;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
-
 import io.quarkus.hibernate.orm.runtime.boot.xml.RecordableXmlMapping;
+import io.quarkus.hibernate.orm.runtime.customized.FormatMapperKind;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticDescriptor;
-import io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy;
+import io.quarkus.hibernate.orm.runtime.recording.RecordedConfig;
 import io.quarkus.runtime.annotations.RecordableConstructor;
 
 /**
@@ -18,70 +16,49 @@ import io.quarkus.runtime.annotations.RecordableConstructor;
  */
 public final class QuarkusPersistenceUnitDefinition {
 
-    private final RuntimePersistenceUnitDescriptor actualHibernateDescriptor;
-    private final Optional<String> dataSource;
-    private final MultiTenancyStrategy multitenancyStrategy;
+    private final QuarkusPersistenceUnitDescriptor persistenceUnitDescriptor;
+    private final RecordedConfig config;
     private final List<RecordableXmlMapping> xmlMappings;
     private final boolean isReactive;
     private final boolean fromPersistenceXml;
+    private final boolean isHibernateValidatorPresent;
+    private final Optional<FormatMapperKind> jsonMapperCreator;
+    private final Optional<FormatMapperKind> xmlMapperCreator;
     private final List<HibernateOrmIntegrationStaticDescriptor> integrationStaticDescriptors;
-    private final Map<String, String> quarkusConfigUnsupportedProperties;
-
-    public QuarkusPersistenceUnitDefinition(PersistenceUnitDescriptor persistenceUnitDescriptor,
-            String configurationName, Optional<String> dataSource,
-            MultiTenancyStrategy multitenancyStrategy, List<RecordableXmlMapping> xmlMappings,
-            Map<String, String> quarkusConfigUnsupportedProperties,
-            boolean isReactive, boolean fromPersistenceXml,
-            List<HibernateOrmIntegrationStaticDescriptor> integrationStaticDescriptors) {
-        Objects.requireNonNull(persistenceUnitDescriptor);
-        Objects.requireNonNull(multitenancyStrategy);
-        this.actualHibernateDescriptor = RuntimePersistenceUnitDescriptor.validateAndReadFrom(persistenceUnitDescriptor,
-                configurationName);
-        this.dataSource = dataSource;
-        this.multitenancyStrategy = multitenancyStrategy;
-        this.xmlMappings = xmlMappings;
-        this.quarkusConfigUnsupportedProperties = quarkusConfigUnsupportedProperties;
-        this.isReactive = isReactive;
-        this.fromPersistenceXml = fromPersistenceXml;
-        this.integrationStaticDescriptors = integrationStaticDescriptors;
-    }
 
     @RecordableConstructor
-    public QuarkusPersistenceUnitDefinition(RuntimePersistenceUnitDescriptor actualHibernateDescriptor,
-            Optional<String> dataSource,
-            MultiTenancyStrategy multitenancyStrategy,
+    public QuarkusPersistenceUnitDefinition(QuarkusPersistenceUnitDescriptor persistenceUnitDescriptor,
+            RecordedConfig config,
             List<RecordableXmlMapping> xmlMappings,
-            Map<String, String> quarkusConfigUnsupportedProperties,
             boolean reactive,
             boolean fromPersistenceXml,
+            boolean hibernateValidatorPresent,
+            Optional<FormatMapperKind> jsonMapperCreator,
+            Optional<FormatMapperKind> xmlMapperCreator,
             List<HibernateOrmIntegrationStaticDescriptor> integrationStaticDescriptors) {
-        Objects.requireNonNull(actualHibernateDescriptor);
-        Objects.requireNonNull(dataSource);
-        Objects.requireNonNull(multitenancyStrategy);
-        this.actualHibernateDescriptor = actualHibernateDescriptor;
-        this.dataSource = dataSource;
-        this.multitenancyStrategy = multitenancyStrategy;
+        Objects.requireNonNull(persistenceUnitDescriptor);
+        Objects.requireNonNull(config);
+        this.persistenceUnitDescriptor = persistenceUnitDescriptor;
+        this.config = config;
         this.xmlMappings = xmlMappings;
-        this.quarkusConfigUnsupportedProperties = quarkusConfigUnsupportedProperties;
         this.isReactive = reactive;
         this.fromPersistenceXml = fromPersistenceXml;
+        this.isHibernateValidatorPresent = hibernateValidatorPresent;
+        this.jsonMapperCreator = jsonMapperCreator;
+        this.xmlMapperCreator = xmlMapperCreator;
         this.integrationStaticDescriptors = integrationStaticDescriptors;
     }
 
-    public RuntimePersistenceUnitDescriptor getActualHibernateDescriptor() {
-        return actualHibernateDescriptor;
+    public QuarkusPersistenceUnitDescriptor getPersistenceUnitDescriptor() {
+        return persistenceUnitDescriptor;
     }
 
     public String getName() {
-        return actualHibernateDescriptor.getName();
+        return persistenceUnitDescriptor.getName();
     }
 
-    public Optional<String> getDataSource() {
-        return dataSource;
-    }
-
-    public MultiTenancyStrategy getMultitenancyStrategy() {
-        return multitenancyStrategy;
+    public RecordedConfig getConfig() {
+        return config;
     }
 
     public List<RecordableXmlMapping> getXmlMappings() {
@@ -97,12 +74,20 @@ public final class QuarkusPersistenceUnitDefinition {
         return fromPersistenceXml;
     }
 
-    public List<HibernateOrmIntegrationStaticDescriptor> getIntegrationStaticDescriptors() {
-        return integrationStaticDescriptors;
+    public boolean isHibernateValidatorPresent() {
+        return isHibernateValidatorPresent;
     }
 
-    public Map<String, String> getQuarkusConfigUnsupportedProperties() {
-        return quarkusConfigUnsupportedProperties;
+    public Optional<FormatMapperKind> getJsonMapperCreator() {
+        return jsonMapperCreator;
+    }
+
+    public Optional<FormatMapperKind> getXmlMapperCreator() {
+        return xmlMapperCreator;
+    }
+
+    public List<HibernateOrmIntegrationStaticDescriptor> getIntegrationStaticDescriptors() {
+        return integrationStaticDescriptors;
     }
 
 }

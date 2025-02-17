@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
@@ -43,7 +43,7 @@ public class FailingInterceptorTest {
         Uni<HelloReply> result = greeter.sayHello(HelloRequest.newBuilder().setName("ServiceA").build());
         assertThatThrownBy(() -> result.await().atMost(Duration.ofSeconds(4)))
                 .isInstanceOf(StatusRuntimeException.class)
-                .hasMessageContaining("UNKNOWN");
+                .hasMessageContaining("INVALID_ARGUMENT");
     }
 
     @ApplicationScoped

@@ -1,6 +1,5 @@
 package io.quarkus.hibernate.orm.runtime.graal;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
@@ -16,7 +15,9 @@ public class DisableLoggingFeature implements Feature {
     private static final String[] CATEGORIES = {
             "org.hibernate.Version",
             "org.hibernate.annotations.common.Version",
-            "org.hibernate.dialect.Dialect"
+            "SQL dialect",
+            "org.hibernate.cfg.Environment",
+            "org.hibernate.orm.connections.pooling"
     };
 
     private final Map<String, Level> categoryMap = new HashMap<>(CATEGORIES.length);
@@ -34,15 +35,13 @@ public class DisableLoggingFeature implements Feature {
     public void afterAnalysis(AfterAnalysisAccess access) {
         for (String category : CATEGORIES) {
             Level level = categoryMap.remove(category);
-            if (level != null) {
-                Logger logger = Logger.getLogger(category);
-                logger.setLevel(level);
-            }
+            Logger logger = Logger.getLogger(category);
+            logger.setLevel(level);
         }
     }
 
     @Override
     public String getDescription() {
-        return "Disables INFO logging during the analysis phase for the " + Arrays.toString(CATEGORIES) + " categories";
+        return "Disables INFO logging during the analysis phase";
     }
 }

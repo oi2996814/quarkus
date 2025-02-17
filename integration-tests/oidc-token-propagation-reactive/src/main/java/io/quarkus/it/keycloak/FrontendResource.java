@@ -1,10 +1,10 @@
 package io.quarkus.it.keycloak;
 
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
 
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
@@ -18,6 +18,10 @@ public class FrontendResource {
 
     @Inject
     @RestClient
+    IdTokenPropagationService idTokenPropagationService;
+
+    @Inject
+    @RestClient
     ServiceWithoutToken serviceWithoutToken;
 
     @GET
@@ -26,6 +30,14 @@ public class FrontendResource {
     @RolesAllowed("user")
     public Uni<String> userNameAccessTokenPropagation() {
         return accessTokenPropagationService.getUserName();
+    }
+
+    @GET
+    @Path("id-token-propagation")
+    @Produces("text/plain")
+    @RolesAllowed("user")
+    public Uni<String> userNameIdTokenPropagation() {
+        return idTokenPropagationService.getUserName();
     }
 
     @GET

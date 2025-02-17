@@ -6,9 +6,9 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-import javax.annotation.Priority;
-import javax.enterprise.inject.Alternative;
-import javax.inject.Singleton;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
@@ -46,17 +46,17 @@ public class QuarkusFaultToleranceOperationProvider implements FaultToleranceOpe
 
     private FaultToleranceOperation createAtRuntime(CacheKey key) {
         LOG.debugf("FaultToleranceOperation not found in the cache for %s creating it at runtime", key);
-        return FaultToleranceOperation.create(FaultToleranceMethods.create(key.beanClass, key.method));
+        return new FaultToleranceOperation(FaultToleranceMethods.create(key.beanClass, key.method));
     }
 
-    Map<CacheKey, FaultToleranceOperation> getOperationCache() {
+    public Map<CacheKey, FaultToleranceOperation> getOperationCache() {
         return operationCache;
     }
 
     static class CacheKey {
-        private Class<?> beanClass;
-        private Method method;
-        private int hashCode;
+        private final Class<?> beanClass;
+        private final Method method;
+        private final int hashCode;
 
         public CacheKey(Class<?> beanClass, Method method) {
             this.beanClass = beanClass;
@@ -73,8 +73,8 @@ public class QuarkusFaultToleranceOperationProvider implements FaultToleranceOpe
                 return false;
             }
             CacheKey cacheKey = (CacheKey) o;
-            return Objects.equals(beanClass, cacheKey.beanClass) &&
-                    Objects.equals(method, cacheKey.method);
+            return Objects.equals(beanClass, cacheKey.beanClass)
+                    && Objects.equals(method, cacheKey.method);
         }
 
         @Override

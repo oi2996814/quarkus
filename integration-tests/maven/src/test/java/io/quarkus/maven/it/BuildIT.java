@@ -22,11 +22,12 @@ import org.junit.jupiter.api.Test;
 
 import io.quarkus.maven.it.verifier.MavenProcessInvocationResult;
 import io.quarkus.maven.it.verifier.RunningInvoker;
-import io.quarkus.runtime.configuration.ProfileManager;
-import io.quarkus.test.devmode.util.DevModeTestUtils;
+import io.quarkus.test.devmode.util.DevModeClient;
 
 @DisableForNative
 class BuildIT extends MojoTestBase {
+
+    private DevModeClient devModeClient = new DevModeClient();
 
     private RunningInvoker running;
     private File testDir;
@@ -36,7 +37,8 @@ class BuildIT extends MojoTestBase {
         testDir = initProject("projects/project-with-extension", "projects/project-with-extension-build");
         running = new RunningInvoker(testDir, false);
         MavenProcessInvocationResult result = running
-                .execute(List.of("clean", "compile", "quarkus:build", "-Dquarkus.bootstrap.workspace-discovery"), Map.of());
+                .execute(List.of("clean", "compile", "quarkus:build", "-Dquarkus.bootstrap.workspace-discovery",
+                        "-Dquarkus.analytics.disabled=true"), Map.of());
         assertThat(result.getProcess().waitFor()).isZero();
 
         launch(TestContext.FAST_NO_PREFIX, "/app/hello/local-modules", new File(testDir, "runner"), "",
@@ -48,7 +50,8 @@ class BuildIT extends MojoTestBase {
             throws MavenInvocationException, IOException, InterruptedException {
         testDir = initProject("projects/test-source-sets");
         running = new RunningInvoker(testDir, false);
-        MavenProcessInvocationResult result = running.execute(List.of("clean", "verify"), Map.of());
+        MavenProcessInvocationResult result = running.execute(List.of("clean", "verify", "-Dquarkus.analytics.disabled=true"),
+                Map.of());
         assertThat(result.getProcess().waitFor()).isZero();
     }
 
@@ -118,7 +121,7 @@ class BuildIT extends MojoTestBase {
     @Test
     void testModuleWithOverriddenBuildProfile() throws MavenInvocationException, InterruptedException, IOException {
         testDir = initProject("projects/build-mode-quarkus-profile-override");
-        build(String.format("-D%s=foo", ProfileManager.QUARKUS_PROFILE_PROP));
+        build(String.format("-D%s=foo", "quarkus.profile"));
         launch();
     }
 
@@ -204,7 +207,7 @@ class BuildIT extends MojoTestBase {
                         List.of())
                 .start();
         try {
-            Assertions.assertEquals(expectedMessage, DevModeTestUtils.getHttpResponse(path));
+            Assertions.assertEquals(expectedMessage, devModeClient.getHttpResponse(path));
         } finally {
             process.destroy();
         }
@@ -226,7 +229,12 @@ class BuildIT extends MojoTestBase {
             }
         }
         MavenProcessInvocationResult result = running.execute(args, Collections.emptyMap());
-        assertThat(result.getProcess().waitFor()).isZero();
+        int exitCode = result.getProcess().waitFor();
+        if (exitCode != 0) {
+            System.err.println(running.log()); //dump the log in order to make it easier find error in CI
+            assertThat(exitCode).isZero(); // make sure the build fails
+        }
+
     }
 
     private void ensureManifestOfJarIsReadableByJarInputStream(File jar) throws IOException {

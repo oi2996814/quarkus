@@ -6,10 +6,10 @@ import static org.hamcrest.CoreMatchers.is;
 
 import java.util.function.Supplier;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.container.ContainerResponseContext;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.core.Response;
 
 import org.jboss.resteasy.reactive.server.ServerRequestFilter;
 import org.jboss.resteasy.reactive.server.ServerResponseFilter;
@@ -30,7 +30,7 @@ public class FilterWithPathParamsTest {
                 @Override
                 public JavaArchive get() {
                     return ShrinkWrap.create(JavaArchive.class)
-                            .addClasses(HelloResource.class, Filters.class);
+                            .addClasses(HelloResource.class, Filters.class, NotFoundExeptionMapper.class);
                 }
             });
 

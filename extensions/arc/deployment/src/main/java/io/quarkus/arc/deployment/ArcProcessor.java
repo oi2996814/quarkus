@@ -3,12 +3,12 @@ package io.quarkus.arc.deployment;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,21 +19,17 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.AmbiguousResolutionException;
-import javax.enterprise.inject.UnsatisfiedResolutionException;
-import javax.enterprise.inject.spi.DefinitionException;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.UnsatisfiedResolutionException;
 
-import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
-import org.jboss.jandex.AnnotationTarget.Kind;
-import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
+import org.jboss.jandex.ClassInfo.NestingType;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
-import org.jboss.jandex.MethodParameterInfo;
 import org.jboss.jandex.Type;
 import org.jboss.logging.Logger;
 
@@ -47,35 +43,24 @@ import io.quarkus.arc.deployment.UnremovableBeanBuildItem.BeanClassNameExclusion
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem.BeanTypeExclusion;
 import io.quarkus.arc.deployment.ValidationPhaseBuildItem.ValidationErrorBuildItem;
 import io.quarkus.arc.processor.AlternativePriorities;
-import io.quarkus.arc.processor.AnnotationLiteralProcessor;
-import io.quarkus.arc.processor.Annotations;
 import io.quarkus.arc.processor.AnnotationsTransformer;
 import io.quarkus.arc.processor.BeanConfigurator;
 import io.quarkus.arc.processor.BeanDefiningAnnotation;
 import io.quarkus.arc.processor.BeanDeployment;
 import io.quarkus.arc.processor.BeanDeploymentValidator;
-import io.quarkus.arc.processor.BeanGenerator;
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.arc.processor.BeanProcessor;
 import io.quarkus.arc.processor.BeanRegistrar;
 import io.quarkus.arc.processor.BeanResolver;
-import io.quarkus.arc.processor.Beans;
-import io.quarkus.arc.processor.BuiltinScope;
 import io.quarkus.arc.processor.BytecodeTransformer;
 import io.quarkus.arc.processor.ContextConfigurator;
 import io.quarkus.arc.processor.ContextRegistrar;
 import io.quarkus.arc.processor.DotNames;
-import io.quarkus.arc.processor.InjectionPointInfo;
-import io.quarkus.arc.processor.InjectionPointInfo.TypeAndQualifiers;
-import io.quarkus.arc.processor.MethodDescriptors;
 import io.quarkus.arc.processor.ObserverConfigurator;
 import io.quarkus.arc.processor.ObserverRegistrar;
 import io.quarkus.arc.processor.ReflectionRegistration;
 import io.quarkus.arc.processor.ResourceOutput;
 import io.quarkus.arc.processor.StereotypeInfo;
-import io.quarkus.arc.processor.StereotypeRegistrar;
-import io.quarkus.arc.processor.Transformation;
-import io.quarkus.arc.processor.Types;
 import io.quarkus.arc.runtime.AdditionalBean;
 import io.quarkus.arc.runtime.ArcRecorder;
 import io.quarkus.arc.runtime.BeanContainer;
@@ -83,15 +68,14 @@ import io.quarkus.arc.runtime.LaunchModeProducer;
 import io.quarkus.arc.runtime.LoggerProducer;
 import io.quarkus.arc.runtime.appcds.AppCDSRecorder;
 import io.quarkus.arc.runtime.context.ArcContextProvider;
-import io.quarkus.arc.runtime.test.PreloadedTestApplicationClassPredicate;
 import io.quarkus.bootstrap.BootstrapDebug;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.Feature;
-import io.quarkus.deployment.IsTest;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
-import io.quarkus.deployment.annotations.ExecutionTime;
+import io.quarkus.deployment.annotations.Consume;
+import io.quarkus.deployment.annotations.Produce;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.AdditionalApplicationArchiveMarkerBuildItem;
 import io.quarkus.deployment.builditem.ApplicationClassPredicateBuildItem;
@@ -111,13 +95,10 @@ import io.quarkus.deployment.builditem.nativeimage.ReflectiveFieldBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveMethodBuildItem;
 import io.quarkus.deployment.pkg.builditem.AppCDSControlPointBuildItem;
 import io.quarkus.deployment.pkg.builditem.AppCDSRequestedBuildItem;
-import io.quarkus.gizmo.MethodDescriptor;
-import io.quarkus.gizmo.ResultHandle;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.QuarkusApplication;
 import io.quarkus.runtime.annotations.QuarkusMain;
 import io.quarkus.runtime.test.TestApplicationClassPredicate;
-import io.quarkus.runtime.util.HashUtil;
 import io.quarkus.smallrye.context.deployment.spi.ThreadContextProviderBuildItem;
 
 /**
@@ -148,6 +129,11 @@ public class ArcProcessor {
     }
 
     @BuildStep
+    BuildCompatibleExtensionsBuildItem buildCompatibleExtensions() {
+        return new BuildCompatibleExtensionsBuildItem();
+    }
+
+    @BuildStep
     AdditionalBeanBuildItem quarkusApplication(CombinedIndexBuildItem combinedIndex) {
         List<String> quarkusApplications = new ArrayList<>();
         for (ClassInfo quarkusApplication : combinedIndex.getIndex()
@@ -163,25 +149,6 @@ public class ArcProcessor {
                 .build();
     }
 
-    @BuildStep
-    StereotypeRegistrarBuildItem convertLegacyAdditionalStereotypes(List<AdditionalStereotypeBuildItem> buildItems) {
-        return new StereotypeRegistrarBuildItem(new StereotypeRegistrar() {
-            @Override
-            public Set<DotName> getAdditionalStereotypes() {
-                Set<DotName> result = new HashSet<>();
-                for (AdditionalStereotypeBuildItem buildItem : buildItems) {
-                    result.addAll(buildItem.getStereotypes()
-                            .values()
-                            .stream()
-                            .flatMap(Collection::stream)
-                            .map(AnnotationInstance::name)
-                            .collect(Collectors.toSet()));
-                }
-                return result;
-            }
-        });
-    }
-
     // PHASE 1 - build BeanProcessor
     @BuildStep
     public ContextRegistrationPhaseBuildItem initialize(
@@ -189,6 +156,7 @@ public class ArcProcessor {
             BeanArchiveIndexBuildItem beanArchiveIndex,
             CombinedIndexBuildItem combinedIndex,
             ApplicationIndexBuildItem applicationIndex,
+            BuildCompatibleExtensionsBuildItem buildCompatibleExtensions,
             List<ExcludedTypeBuildItem> excludedTypes,
             List<AnnotationsTransformerBuildItem> annotationTransformers,
             List<InjectionPointTransformerBuildItem> injectionPointTransformers,
@@ -241,7 +209,7 @@ public class ArcProcessor {
         applicationClassPredicateProducer.produce(new CompletedApplicationClassPredicateBuildItem(applicationClassPredicate));
         builder.setApplicationClassPredicate(applicationClassPredicate);
 
-        builder.addAnnotationTransformer(new AnnotationsTransformer() {
+        builder.addAnnotationTransformation(new AnnotationsTransformer() {
 
             @Override
             public boolean appliesTo(AnnotationTarget.Kind kind) {
@@ -288,7 +256,7 @@ public class ArcProcessor {
                 resourceAnnotations.stream().map(ResourceAnnotationBuildItem::getName).collect(Collectors.toList()));
         // register all annotation transformers
         for (AnnotationsTransformerBuildItem transformer : annotationTransformers) {
-            builder.addAnnotationTransformer(transformer.getAnnotationsTransformer());
+            builder.addAnnotationTransformation(transformer.getAnnotationTransformation());
         }
         // register all injection point transformers
         for (InjectionPointTransformerBuildItem transformer : injectionPointTransformers) {
@@ -334,8 +302,8 @@ public class ArcProcessor {
             }
         }
         // unremovable beans specified in application.properties
-        if (arcConfig.unremovableTypes.isPresent()) {
-            List<Predicate<ClassInfo>> classPredicates = initClassPredicates(arcConfig.unremovableTypes.get());
+        if (arcConfig.unremovableTypes().isPresent()) {
+            List<Predicate<ClassInfo>> classPredicates = initClassPredicates(arcConfig.unremovableTypes().get());
             builder.addRemovalExclusion(new Predicate<BeanInfo>() {
                 @Override
                 public boolean test(BeanInfo beanInfo) {
@@ -360,15 +328,17 @@ public class ArcProcessor {
                 }
             });
         }
-        builder.setTransformUnproxyableClasses(arcConfig.transformUnproxyableClasses);
-        builder.setFailOnInterceptedPrivateMethod(arcConfig.failOnInterceptedPrivateMethod);
+        builder.setTransformUnproxyableClasses(arcConfig.transformUnproxyableClasses());
+        builder.setTransformPrivateInjectedFields(arcConfig.transformPrivateInjectedFields());
+        builder.setFailOnInterceptedPrivateMethod(arcConfig.failOnInterceptedPrivateMethod());
         builder.setJtaCapabilities(capabilities.isPresent(Capability.TRANSACTIONS));
-        builder.setGenerateSources(BootstrapDebug.DEBUG_SOURCES_DIR != null);
+        builder.setGenerateSources(BootstrapDebug.debugSourcesDir() != null);
         builder.setAllowMocking(launchModeBuildItem.getLaunchMode() == LaunchMode.TEST);
+        builder.setStrictCompatibility(arcConfig.strictCompatibility());
 
-        if (arcConfig.selectedAlternatives.isPresent()) {
+        if (arcConfig.selectedAlternatives().isPresent()) {
             final List<Predicate<ClassInfo>> selectedAlternatives = initClassPredicates(
-                    arcConfig.selectedAlternatives.get());
+                    arcConfig.selectedAlternatives().get());
             builder.setAlternativePriorities(new AlternativePriorities() {
 
                 @Override
@@ -402,9 +372,9 @@ public class ArcProcessor {
             });
         }
 
-        if (arcConfig.excludeTypes.isPresent()) {
+        if (arcConfig.excludeTypes().isPresent()) {
             for (Predicate<ClassInfo> predicate : initClassPredicates(
-                    arcConfig.excludeTypes.get())) {
+                    arcConfig.excludeTypes().get())) {
                 builder.addExcludeType(predicate);
             }
         }
@@ -414,10 +384,32 @@ public class ArcProcessor {
                 builder.addExcludeType(predicate);
             }
         }
+        if (launchModeBuildItem.getLaunchMode() == LaunchMode.TEST) {
+            builder.addExcludeType(createQuarkusComponentTestExcludePredicate(index));
+        }
 
         for (SuppressConditionGeneratorBuildItem generator : suppressConditionGenerators) {
             builder.addSuppressConditionGenerator(generator.getGenerator());
         }
+
+        builder.setBuildCompatibleExtensions(buildCompatibleExtensions.entrypoint);
+        builder.setOptimizeContexts(new Predicate<BeanDeployment>() {
+            @Override
+            public boolean test(BeanDeployment deployment) {
+                switch (arcConfig.optimizeContexts()) {
+                    case TRUE:
+                        return true;
+                    case FALSE:
+                        return false;
+                    case AUTO:
+                        // Optimize the context if there is less than 1000 beans in the app
+                        // Note that removed beans are excluded
+                        return deployment.getBeans().size() < 1000;
+                    default:
+                        throw new IllegalArgumentException("Unexpected value: " + arcConfig.optimizeContexts());
+                }
+            }
+        });
 
         BeanProcessor beanProcessor = builder.build();
         ContextRegistrar.RegistrationContext context = beanProcessor.registerCustomContexts();
@@ -430,7 +422,8 @@ public class ArcProcessor {
             List<ContextConfiguratorBuildItem> contextConfigurationRegistry,
             BuildProducer<InterceptorResolverBuildItem> interceptorResolver,
             BuildProducer<BeanDiscoveryFinishedBuildItem> beanDiscoveryFinished,
-            BuildProducer<TransformedAnnotationsBuildItem> transformedAnnotations) {
+            BuildProducer<TransformedAnnotationsBuildItem> transformedAnnotations,
+            BuildProducer<InvokerFactoryBuildItem> invokerFactory) {
 
         for (ContextConfiguratorBuildItem contextConfigurator : contextConfigurationRegistry) {
             for (ContextConfigurator value : contextConfigurator.getValues()) {
@@ -445,6 +438,7 @@ public class ArcProcessor {
         interceptorResolver.produce(new InterceptorResolverBuildItem(beanDeployment));
         beanDiscoveryFinished.produce(new BeanDiscoveryFinishedBuildItem(beanDeployment));
         transformedAnnotations.produce(new TransformedAnnotationsBuildItem(beanDeployment));
+        invokerFactory.produce(new InvokerFactoryBuildItem(beanDeployment));
 
         return new BeanRegistrationPhaseBuildItem(registrationContext, beanProcessor);
     }
@@ -463,43 +457,12 @@ public class ArcProcessor {
             configurator.getValues().forEach(BeanConfigurator::done);
         }
 
-        // Initialize the type -> bean map
-        beanRegistrationPhase.getBeanProcessor().getBeanDeployment().initBeanByTypeMap();
-
-        // Register a synthetic bean for each List<?> with qualifier @All
-        List<InjectionPointInfo> listAll = beanRegistrationPhase.getInjectionPoints().stream()
-                .filter(this::isListAllInjectionPoint).collect(Collectors.toList());
-        for (InjectionPointInfo injectionPoint : listAll) {
-            // Note that at this point we can be sure that the required type is List<>
-            Type typeParam = injectionPoint.getType().asParameterizedType().arguments().get(0);
-            if (typeParam.kind() == Type.Kind.WILDCARD_TYPE) {
-                ClassInfo declaringClass;
-                if (injectionPoint.isField()) {
-                    declaringClass = injectionPoint.getTarget().asField().declaringClass();
-                } else {
-                    declaringClass = injectionPoint.getTarget().asMethod().declaringClass();
-                }
-                if (declaringClass.declaredAnnotation(DotNames.KOTLIN_METADATA_ANNOTATION) != null) {
-                    validationErrors.produce(new ValidationErrorBuildItem(
-                            new DefinitionException(
-                                    "kotlin.collections.List cannot be used together with the @All qualifier, please use MutableList or java.util.List instead: "
-                                            + injectionPoint.getTargetInfo())));
-                } else {
-                    validationErrors.produce(new ValidationErrorBuildItem(
-                            new DefinitionException(
-                                    "Wildcard is not a legal type argument for " + injectionPoint.getTargetInfo())));
-                }
-            } else if (typeParam.kind() == Type.Kind.TYPE_VARIABLE) {
-                validationErrors.produce(new ValidationErrorBuildItem(new DefinitionException(
-                        "Type variable is not a legal type argument for " + injectionPoint.getTargetInfo())));
-            }
-        }
-        if (!listAll.isEmpty()) {
-            registerListInjectionPointsBeans(beanRegistrationPhase, listAll, reflectiveMethods, reflectiveFields,
-                    unremovableBeans);
-        }
-
         BeanProcessor beanProcessor = beanRegistrationPhase.getBeanProcessor();
+        beanProcessor.registerSyntheticInjectionPoints(beanRegistrationPhase.getContext());
+
+        // Initialize the type -> bean map
+        beanProcessor.getBeanDeployment().initBeanByTypeMap();
+
         ObserverRegistrar.RegistrationContext registrationContext = beanProcessor.registerSyntheticObservers();
 
         return new ObserverRegistrationPhaseBuildItem(registrationContext, beanProcessor);
@@ -530,14 +493,12 @@ public class ArcProcessor {
         return new ValidationPhaseBuildItem(validationContext, beanProcessor);
     }
 
-    // PHASE 5 - generate resources and initialize the container
+    // PHASE 5 - generate resources
     @BuildStep
-    @Record(STATIC_INIT)
-    public PreBeanContainerBuildItem generateResources(ArcConfig config, ArcRecorder recorder,
-            ShutdownContextBuildItem shutdown,
+    @Produce(ResourcesGeneratedPhaseBuildItem.class)
+    public void generateResources(ArcConfig config,
             ValidationPhaseBuildItem validationPhase,
             List<ValidationPhaseBuildItem.ValidationErrorBuildItem> validationErrors,
-            List<BeanContainerListenerBuildItem> beanContainerListenerBuildItems,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClasses,
             BuildProducer<ReflectiveMethodBuildItem> reflectiveMethods,
             BuildProducer<ReflectiveFieldBuildItem> reflectiveFields,
@@ -546,7 +507,6 @@ public class ArcProcessor {
             BuildProducer<GeneratedResourceBuildItem> generatedResource,
             BuildProducer<BytecodeTransformerBuildItem> bytecodeTransformer,
             List<ReflectiveBeanClassBuildItem> reflectiveBeanClasses,
-            Optional<CurrentContextFactoryBuildItem> currentContextFactory,
             ExecutorService buildExecutor) throws Exception {
 
         for (ValidationErrorBuildItem validationError : validationErrors) {
@@ -558,7 +518,8 @@ public class ArcProcessor {
         BeanProcessor beanProcessor = validationPhase.getBeanProcessor();
         beanProcessor.processValidationErrors(validationPhase.getContext());
         ExistingClasses existingClasses = liveReloadBuildItem.getContextObject(ExistingClasses.class);
-        if (existingClasses == null) {
+        if (existingClasses == null || !liveReloadBuildItem.isLiveReload()) {
+            // Reset the data if there is no context object or if the first start was unsuccessful
             existingClasses = new ExistingClasses();
             liveReloadBuildItem.setContextObject(ExistingClasses.class, existingClasses);
         }
@@ -573,21 +534,30 @@ public class ArcProcessor {
         ExecutorService executor = parallelResourceGeneration ? buildExecutor : null;
         List<ResourceOutput.Resource> resources;
         resources = beanProcessor.generateResources(new ReflectionRegistration() {
+
+            @Override
+            public void registerMethod(String declaringClass, String name, String... params) {
+                reflectiveMethods.produce(new ReflectiveMethodBuildItem(getClass().getName(), declaringClass, name, params));
+            }
+
             @Override
             public void registerMethod(MethodInfo methodInfo) {
-                reflectiveMethods.produce(new ReflectiveMethodBuildItem(methodInfo));
+                reflectiveMethods.produce(new ReflectiveMethodBuildItem(getClass().getName(), methodInfo));
             }
 
             @Override
             public void registerField(FieldInfo fieldInfo) {
-                reflectiveFields.produce(new ReflectiveFieldBuildItem(fieldInfo));
+                reflectiveFields.produce(new ReflectiveFieldBuildItem(getClass().getName(), fieldInfo));
             }
 
             @Override
             public void registerClientProxy(DotName beanClassName, String clientProxyName) {
                 if (reflectiveBeanClassesNames.contains(beanClassName)) {
                     // Fields should never be registered for client proxies
-                    reflectiveClasses.produce(new ReflectiveClassBuildItem(true, false, clientProxyName));
+                    reflectiveClasses
+                            .produce(ReflectiveClassBuildItem.builder(clientProxyName)
+                                    .reason(getClass().getName())
+                                    .methods().build());
                 }
             }
 
@@ -595,12 +565,15 @@ public class ArcProcessor {
             public void registerSubclass(DotName beanClassName, String subclassName) {
                 if (reflectiveBeanClassesNames.contains(beanClassName)) {
                     // Fields should never be registered for subclasses
-                    reflectiveClasses.produce(new ReflectiveClassBuildItem(true, false, subclassName));
+                    reflectiveClasses
+                            .produce(ReflectiveClassBuildItem.builder(subclassName)
+                                    .reason(getClass().getName())
+                                    .methods().build());
                 }
             }
 
         }, existingClasses.existingClasses, bytecodeTransformerConsumer,
-                config.shouldEnableBeanRemoval() && config.detectUnusedFalsePositives, executor);
+                config.shouldEnableBeanRemoval() && config.detectUnusedFalsePositives(), executor);
 
         for (ResourceOutput.Resource resource : resources) {
             switch (resource.getType()) {
@@ -626,20 +599,41 @@ public class ArcProcessor {
 
         // Register all qualifiers for reflection to support type-safe resolution at runtime in native image
         for (ClassInfo qualifier : beanProcessor.getBeanDeployment().getQualifiers()) {
-            reflectiveClasses.produce(new ReflectiveClassBuildItem(true, false, qualifier.name().toString()));
+            reflectiveClasses
+                    .produce(ReflectiveClassBuildItem.builder(qualifier.name().toString())
+                            .reason(getClass().getName())
+                            .methods().build());
         }
 
         // Register all interceptor bindings for reflection so that AnnotationLiteral.equals() works in a native image
         for (ClassInfo binding : beanProcessor.getBeanDeployment().getInterceptorBindings()) {
-            reflectiveClasses.produce(new ReflectiveClassBuildItem(true, false, binding.name().toString()));
+            reflectiveClasses
+                    .produce(ReflectiveClassBuildItem.builder(binding.name().toString())
+                            .reason(getClass().getName())
+                            .methods().build());
         }
+    }
 
+    // PHASE 6 - initialize the container
+    @BuildStep
+    @Consume(ResourcesGeneratedPhaseBuildItem.class)
+    @Record(STATIC_INIT)
+    public ArcContainerBuildItem initializeContainer(ArcConfig config, ArcRecorder recorder,
+            ShutdownContextBuildItem shutdown, Optional<CurrentContextFactoryBuildItem> currentContextFactory)
+            throws Exception {
         ArcContainer container = recorder.initContainer(shutdown,
-                currentContextFactory.isPresent() ? currentContextFactory.get().getFactory() : null);
-        BeanContainer beanContainer = recorder.initBeanContainer(container,
+                currentContextFactory.isPresent() ? currentContextFactory.get().getFactory() : null,
+                config.strictCompatibility());
+        return new ArcContainerBuildItem(container);
+    }
+
+    @BuildStep
+    @Record(STATIC_INIT)
+    public PreBeanContainerBuildItem notifyBeanContainerListeners(ArcContainerBuildItem container,
+            List<BeanContainerListenerBuildItem> beanContainerListenerBuildItems, ArcRecorder recorder) throws Exception {
+        BeanContainer beanContainer = recorder.initBeanContainer(container.getContainer(),
                 beanContainerListenerBuildItems.stream().map(BeanContainerListenerBuildItem::getBeanContainerListener)
                         .collect(Collectors.toList()));
-
         return new PreBeanContainerBuildItem(beanContainer);
     }
 
@@ -656,31 +650,12 @@ public class ArcProcessor {
         beanContainerProducer.produce(new BeanContainerBuildItem(bi.getValue()));
     }
 
-    @BuildStep(onlyIf = IsTest.class)
-    public AdditionalBeanBuildItem testApplicationClassPredicateBean() {
-        // We need to register the bean implementation for TestApplicationClassPredicate
-        // TestApplicationClassPredicate is used programmatically in the ArC recorder when StartupEvent is fired
-        return AdditionalBeanBuildItem.unremovableOf(PreloadedTestApplicationClassPredicate.class);
-    }
-
-    @BuildStep(onlyIf = IsTest.class)
-    @Record(ExecutionTime.STATIC_INIT)
-    void initTestApplicationClassPredicateBean(ArcRecorder recorder, BeanContainerBuildItem beanContainer,
-            BeanDiscoveryFinishedBuildItem beanDiscoveryFinished,
-            CompletedApplicationClassPredicateBuildItem predicate) {
-        Set<String> applicationBeanClasses = new HashSet<>();
-        for (BeanInfo bean : beanDiscoveryFinished.beanStream().classBeans()) {
-            if (predicate.test(bean.getBeanClass())) {
-                applicationBeanClasses.add(bean.getBeanClass().toString());
-            }
-        }
-        recorder.initTestApplicationClassPredicate(applicationBeanClasses);
-    }
-
     @BuildStep
     List<AdditionalApplicationArchiveMarkerBuildItem> marker() {
         return Arrays.asList(new AdditionalApplicationArchiveMarkerBuildItem("META-INF/beans.xml"),
-                new AdditionalApplicationArchiveMarkerBuildItem("META-INF/services/javax.enterprise.inject.spi.Extension"));
+                new AdditionalApplicationArchiveMarkerBuildItem("META-INF/services/jakarta.enterprise.inject.spi.Extension"),
+                new AdditionalApplicationArchiveMarkerBuildItem(
+                        "META-INF/services/jakarta.enterprise.inject.build.compatible.spi.BuildCompatibleExtension"));
     }
 
     @BuildStep
@@ -758,64 +733,6 @@ public class ArcProcessor {
     }
 
     @BuildStep
-    AnnotationsTransformerBuildItem transformListAllInjectionPoints() {
-        return new AnnotationsTransformerBuildItem(new AnnotationsTransformer() {
-
-            @Override
-            public int getPriority() {
-                return Integer.MIN_VALUE;
-            }
-
-            @Override
-            public boolean appliesTo(Kind kind) {
-                return kind == Kind.FIELD || kind == Kind.METHOD;
-            }
-
-            @Override
-            public void transform(TransformationContext ctx) {
-                if (Annotations.contains(ctx.getAnnotations(), DotNames.ALL)) {
-                    // For each injection point annotated with @All add a synthetic qualifier
-                    AnnotationTarget target = ctx.getTarget();
-                    if (target.kind() == Kind.FIELD) {
-                        // Identifier is a hash of "type + field annotations"
-                        String id = HashUtil
-                                .sha1(target.asField().type().toString() + target.asField().annotations().toString());
-                        ctx.transform().add(DotNames.IDENTIFIED,
-                                AnnotationValue.createStringValue("value", id)).done();
-                    } else {
-                        MethodInfo method = target.asMethod();
-                        Set<AnnotationInstance> alls = Annotations.getAnnotations(Kind.METHOD_PARAMETER, DotNames.ALL,
-                                ctx.getAnnotations());
-                        Set<AnnotationInstance> paramsAnnotations = Annotations.getAnnotations(Kind.METHOD_PARAMETER,
-                                ctx.getAnnotations());
-                        List<AnnotationInstance> toAdd = new ArrayList<>();
-                        for (AnnotationInstance annotation : alls) {
-                            short position = annotation.target().asMethodParameter().position();
-                            Set<AnnotationInstance> paramAnnotations = new HashSet<>();
-                            for (AnnotationInstance paramAnnotation : paramsAnnotations) {
-                                if (paramAnnotation.target().asMethodParameter().position() == position) {
-                                    paramAnnotations.add(paramAnnotation);
-                                }
-                            }
-                            // Identifier is a hash of "type + method param annotations"
-                            String id = HashUtil.sha1(method.parameterType(position) + paramAnnotations.toString());
-                            toAdd.add(
-                                    AnnotationInstance.create(DotNames.IDENTIFIED,
-                                            MethodParameterInfo.create(method,
-                                                    annotation.target().asMethodParameter().position()),
-                                            new AnnotationValue[] { AnnotationValue.createStringValue("value", id) }));
-                        }
-                        Transformation transform = ctx.transform();
-                        toAdd.forEach(transform::add);
-                        transform.done();
-                    }
-                }
-            }
-
-        });
-    }
-
-    @BuildStep
     UnremovableBeanBuildItem unremovableAsyncObserverExceptionHandlers() {
         // Make all classes implementing AsyncObserverExceptionHandler unremovable
         return UnremovableBeanBuildItem.beanTypes(Set.of(ASYNC_OBSERVER_EXCEPTION_HANDLER));
@@ -840,145 +757,42 @@ public class ArcProcessor {
 
     @BuildStep
     void registerContextPropagation(ArcConfig config, BuildProducer<ThreadContextProviderBuildItem> threadContextProvider) {
-        if (config.contextPropagation.enabled) {
+        if (config.contextPropagation().enabled()) {
             threadContextProvider.produce(new ThreadContextProviderBuildItem(ArcContextProvider.class));
         }
     }
 
-    private void registerListInjectionPointsBeans(BeanRegistrationPhaseBuildItem beanRegistrationPhase,
-            List<InjectionPointInfo> injectionPoints, BuildProducer<ReflectiveMethodBuildItem> reflectiveMethods,
-            BuildProducer<ReflectiveFieldBuildItem> reflectiveFields,
-            BuildProducer<UnremovableBeanBuildItem> unremovableBeans) {
-        BeanDeployment beanDeployment = beanRegistrationPhase.getBeanProcessor().getBeanDeployment();
-        AnnotationLiteralProcessor annotationLiterals = beanRegistrationPhase.getBeanProcessor()
-                .getAnnotationLiteralProcessor();
-        ReflectionRegistration reflectionRegistration = new ReflectionRegistration() {
-            @Override
-            public void registerMethod(MethodInfo methodInfo) {
-                reflectiveMethods.produce(new ReflectiveMethodBuildItem(methodInfo));
-            }
+    Predicate<ClassInfo> createQuarkusComponentTestExcludePredicate(IndexView index) {
+        // Exlude static nested classed declared on a QuarkusComponentTest:
+        // 1. Test class annotated with @QuarkusComponentTest
+        // 2. Test class with a static field of a type QuarkusComponentTestExtension
+        DotName quarkusComponentTest = DotName.createSimple("io.quarkus.test.component.QuarkusComponentTest");
+        DotName quarkusComponentTestExtension = DotName.createSimple("io.quarkus.test.component.QuarkusComponentTestExtension");
+        return new Predicate<ClassInfo>() {
 
             @Override
-            public void registerField(FieldInfo fieldInfo) {
-                reflectiveFields.produce(new ReflectiveFieldBuildItem(fieldInfo));
-            }
-
-        };
-
-        List<TypeAndQualifiers> unremovables = new ArrayList<>();
-        Set<String> ids = new HashSet<>();
-
-        for (InjectionPointInfo injectionPoint : injectionPoints) {
-
-            // The injection point must be registered immediately and NOT inside the creator callback
-            if (injectionPoint.isField()) {
-                reflectionRegistration.registerField(injectionPoint.getTarget().asField());
-            } else {
-                reflectionRegistration.registerMethod(injectionPoint.getTarget().asMethod());
-            }
-
-            AnnotationInstance identifiedAnnotation = injectionPoint.getRequiredQualifier(DotNames.IDENTIFIED);
-            if (identifiedAnnotation == null
-                    // The id is a hash of "type + all annotations" - if there's an exact match then we don't need to add another bean
-                    || !ids.add(identifiedAnnotation.value().asString())) {
-                continue;
-            }
-
-            // All qualifiers but @All and @Identified
-            Set<AnnotationInstance> qualifiers = new HashSet<>(injectionPoint.getRequiredQualifiers());
-            for (Iterator<AnnotationInstance> it = qualifiers.iterator(); it.hasNext();) {
-                AnnotationInstance qualifier = it.next();
-                if (DotNames.ALL.equals(qualifier.name()) || DotNames.IDENTIFIED.equals(qualifier.name())) {
-                    it.remove();
-                }
-            }
-            if (qualifiers.isEmpty()) {
-                // If no other qualifier is used then add @Any
-                qualifiers.add(AnnotationInstance.create(DotNames.ANY, null, new AnnotationValue[] {}));
-            }
-
-            Type elementType = injectionPoint.getType().asParameterizedType().arguments().get(0);
-
-            unremovables.add(new TypeAndQualifiers(
-                    elementType.name().equals(DotNames.INSTANCE_HANDLE)
-                            ? elementType.asParameterizedType().arguments().get(0)
-                            : elementType,
-                    qualifiers));
-
-            BeanConfigurator<?> configurator = beanRegistrationPhase.getContext()
-                    .configure(List.class)
-                    .forceApplicationClass()
-                    .scope(BuiltinScope.DEPENDENT.getInfo())
-                    .addType(injectionPoint.getRequiredType());
-
-            injectionPoint.getRequiredQualifiers().forEach(configurator::addQualifier);
-
-            if (injectionPoint.getTargetBean().isPresent()) {
-                // Generate the bean class in the same package as the target bean
-                configurator.targetPackageName(injectionPoint.getTargetBean().get().getTargetPackageName());
-            }
-
-            configurator.creator(mc -> {
-                ResultHandle injectionPointType = Types.getTypeHandle(mc, injectionPoint.getType());
-
-                // List<T> or List<InstanceHandle<T>
-                ResultHandle requiredType;
-                MethodDescriptor instancesMethod;
-                if (elementType.name().equals(DotNames.INSTANCE_HANDLE)) {
-                    requiredType = Types.getTypeHandle(mc, elementType.asParameterizedType().arguments().get(0));
-                    instancesMethod = MethodDescriptors.INSTANCES_LIST_OF_HANDLES;
-                } else {
-                    requiredType = Types.getTypeHandle(mc, elementType);
-                    instancesMethod = MethodDescriptors.INSTANCES_LIST_OF;
-                }
-
-                ResultHandle requiredQualifiers = BeanGenerator.collectQualifiers(null, null,
-                        beanDeployment, mc, annotationLiterals, qualifiers);
-                ResultHandle injectionPointAnnotations = BeanGenerator.collectInjectionPointAnnotations(null, null,
-                        beanDeployment,
-                        mc, injectionPoint, annotationLiterals,
-                        beanRegistrationPhase.getBeanProcessor().getInjectionPointAnnotationsPredicate());
-                ResultHandle javaMember = BeanGenerator.getJavaMemberHandle(mc, injectionPoint,
-                        ReflectionRegistration.NOOP);
-                ResultHandle container = mc
-                        .invokeStaticMethod(MethodDescriptors.ARC_CONTAINER);
-                ResultHandle targetBean = mc.invokeInterfaceMethod(
-                        MethodDescriptors.ARC_CONTAINER_BEAN,
-                        container,
-                        injectionPoint.getTargetBean().isPresent()
-                                ? mc.load(injectionPoint.getTargetBean().get().getIdentifier())
-                                : mc.loadNull());
-
-                ResultHandle ret = mc.invokeStaticMethod(instancesMethod, targetBean,
-                        injectionPointType, requiredType, requiredQualifiers, mc.getMethodParam(0),
-                        injectionPointAnnotations,
-                        javaMember, mc.load(injectionPoint.getPosition()));
-                mc.returnValue(ret);
-            });
-            configurator.done();
-        }
-        if (!unremovables.isEmpty()) {
-            // New beans were registered - we need to re-init the type -> bean map
-            // Also make all beans that match the List<> injection points unremovable
-            beanDeployment.initBeanByTypeMap();
-            // And make all the matching beans unremovable
-            unremovableBeans.produce(new UnremovableBeanBuildItem(new Predicate<BeanInfo>() {
-                @Override
-                public boolean test(BeanInfo bean) {
-                    for (TypeAndQualifiers tq : unremovables) {
-                        if (Beans.matches(bean, tq)) {
+            public boolean test(ClassInfo clazz) {
+                if (clazz.nestingType() == NestingType.INNER
+                        && Modifier.isStatic(clazz.flags())) {
+                    DotName enclosingClassName = clazz.enclosingClass();
+                    ClassInfo enclosingClass = index.getClassByName(enclosingClassName);
+                    if (enclosingClass != null) {
+                        if (enclosingClass.hasDeclaredAnnotation(quarkusComponentTest)) {
                             return true;
+                        } else {
+                            for (FieldInfo field : enclosingClass.fields()) {
+                                if (!field.isSynthetic()
+                                        && Modifier.isStatic(field.flags())
+                                        && field.type().name().equals(quarkusComponentTestExtension)) {
+                                    return true;
+                                }
+                            }
                         }
                     }
-                    return false;
                 }
-            }));
-        }
-    }
-
-    private boolean isListAllInjectionPoint(InjectionPointInfo injectionPoint) {
-        return DotNames.LIST.equals(injectionPoint.getRequiredType().name())
-                && Annotations.contains(injectionPoint.getRequiredQualifiers(), DotNames.ALL);
+                return false;
+            }
+        };
     }
 
     private abstract static class AbstractCompositeApplicationClassesPredicate<T> implements Predicate<T> {

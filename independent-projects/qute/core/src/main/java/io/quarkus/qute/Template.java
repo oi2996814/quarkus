@@ -1,7 +1,9 @@
 package io.quarkus.qute;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -145,14 +147,19 @@ public interface Template {
     String getId();
 
     /**
+     * If invoked upon a fragment instance then delegate to the defining template.
      *
      * @return the template variant
      */
     Optional<Variant> getVariant();
 
     /**
+     * Returns all type parameter declarations of the template, including the declarations added by a
+     * {@link io.quarkus.qute.ParserHook}.
+     * <p>
+     * If invoked upon a fragment instance then delegate to the defining template.
      *
-     * @return an immutable list of all parameter declarations defined in the template
+     * @return an immutable list of all type parameter declarations defined in the template
      */
     List<ParameterDeclaration> getParameterDeclarations();
 
@@ -160,6 +167,8 @@ public interface Template {
      * Attempts to find the fragment with the specified identifier.
      * <p>
      * Note that fragment identifiers must be unique in a template.
+     * <p>
+     * If invoked upon a fragment instance then delegate to the defining template.
      *
      * @param id The fragment identifier
      * @return the fragment or {@code null}
@@ -167,11 +176,35 @@ public interface Template {
     Fragment getFragment(String id);
 
     /**
+     * Returns an immutable set of identifiers of fragments defined in the template.
+     * <p>
+     * If invoked upon a fragment instance then delegate to the defining template.
+     *
+     * @return the set of fragment ids
+     */
+    Set<String> getFragmentIds();
+
+    /**
      * @return {@code true} if this template is a fragment, {@code false} otherwise
      */
     default boolean isFragment() {
         return false;
     }
+
+    /**
+     * Returns the child nodes of the root node.
+     *
+     * @return the child nodes of the root node
+     */
+    List<TemplateNode> getNodes();
+
+    /**
+     * Returns all nodes of this template that match the given predicate.
+     *
+     * @param predicate
+     * @return the collection of nodes that match the given predicate
+     */
+    Collection<TemplateNode> findNodes(Predicate<TemplateNode> predicate);
 
     /**
      * A fragment represents a part of the template that can be treated as a separate template.

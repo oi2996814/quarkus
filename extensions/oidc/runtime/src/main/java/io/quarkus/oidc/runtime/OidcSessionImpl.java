@@ -4,8 +4,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Function;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
@@ -35,26 +35,15 @@ public class OidcSessionImpl implements OidcSession {
 
     @Override
     public Uni<Void> logout() {
-        String sessionCookieName = routingContext.get(OidcUtils.SESSION_COOKIE_NAME);
-        if (sessionCookieName != null) {
-            Uni<OidcTenantConfig> oidcConfigUni = resolver.resolveConfig(routingContext);
-            return oidcConfigUni.onItem().transformToUni(new Function<OidcTenantConfig, Uni<? extends Void>>() {
+        Uni<OidcTenantConfig> oidcConfigUni = resolver.resolveConfig(routingContext);
+        return oidcConfigUni.onItem().transformToUni(new Function<OidcTenantConfig, Uni<? extends Void>>() {
+            @Override
+            public Uni<Void> apply(OidcTenantConfig oidcConfig) {
+                return OidcUtils.removeSessionCookie(routingContext, oidcConfig,
+                        resolver.getTokenStateManager());
+            }
+        });
 
-                @Override
-                public Uni<Void> apply(OidcTenantConfig oidcConfig) {
-                    return OidcUtils.removeSessionCookie(routingContext, oidcConfig, sessionCookieName,
-                            resolver.getTokenStateManager());
-                }
-
-            });
-        }
-        return Uni.createFrom().voidItem();
-    }
-
-    @Override
-    public Instant expiresIn() {
-        final long nowSecs = System.currentTimeMillis() / 1000;
-        return Instant.ofEpochSecond(idToken.getExpirationTime() - nowSecs);
     }
 
     @Override

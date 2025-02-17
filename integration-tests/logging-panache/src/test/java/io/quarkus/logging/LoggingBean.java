@@ -1,7 +1,7 @@
 package io.quarkus.logging;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Singleton;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Singleton;
 
 @Singleton
 public class LoggingBean implements LoggingInterface {
@@ -40,4 +40,12 @@ public class LoggingBean implements LoggingInterface {
         Log.error("Hello Error", error);
     }
 
+    // https://github.com/quarkusio/quarkus/issues/32663
+    public void reproduceStackDisciplineIssue() {
+        String result;
+        String now = "now";
+
+        Log.infov("{0} {1}", "number", 42);
+        Log.info("string " + now);
+    }
 }

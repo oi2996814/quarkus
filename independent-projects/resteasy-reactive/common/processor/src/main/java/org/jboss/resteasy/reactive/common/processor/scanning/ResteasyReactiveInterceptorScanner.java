@@ -11,8 +11,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
-import javax.ws.rs.container.ContainerRequestFilter;
-import javax.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.RuntimeType;
+import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ContainerResponseFilter;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -24,6 +25,7 @@ import org.jboss.resteasy.reactive.common.model.PreMatchInterceptorContainer;
 import org.jboss.resteasy.reactive.common.model.ResourceInterceptor;
 import org.jboss.resteasy.reactive.common.model.ResourceInterceptors;
 import org.jboss.resteasy.reactive.common.processor.NameBindingUtil;
+import org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames;
 import org.jboss.resteasy.reactive.spi.BeanFactory;
 
 /**
@@ -201,16 +203,16 @@ public class ResteasyReactiveInterceptorScanner {
             ResourceInterceptor<T> interceptor = interceptorContainer.create();
             interceptor.setClassName(filterClass.name().toString());
             interceptor.setNameBindingNames(NameBindingUtil.nameBindingNames(index, filterClass));
-            AnnotationInstance priorityInstance = filterClass.classAnnotation(PRIORITY);
+            AnnotationInstance priorityInstance = filterClass.declaredAnnotation(PRIORITY);
             if (priorityInstance != null) {
                 interceptor.setPriority(priorityInstance.value().asInt());
             }
-            AnnotationInstance nonBlockingInstance = filterClass.classAnnotation(NON_BLOCKING);
+            AnnotationInstance nonBlockingInstance = filterClass.declaredAnnotation(NON_BLOCKING);
             if (nonBlockingInstance != null) {
                 interceptor.setNonBlockingRequired(true);
             }
             if (interceptorContainer instanceof PreMatchInterceptorContainer
-                    && filterClass.classAnnotation(PRE_MATCHING) != null) {
+                    && filterClass.declaredAnnotation(PRE_MATCHING) != null) {
                 ((PreMatchInterceptorContainer<T>) interceptorContainer).addPreMatchInterceptor(interceptor);
             } else {
                 Set<String> nameBindingNames = interceptor.getNameBindingNames();
@@ -221,6 +223,18 @@ public class ResteasyReactiveInterceptorScanner {
                     interceptorContainer.addNameRequestInterceptor(interceptor);
                 }
             }
+
+            RuntimeType runtimeType = null;
+            if (keepProviderResult == ApplicationScanningResult.KeepProviderResult.SERVER_ONLY) {
+                runtimeType = RuntimeType.SERVER;
+            }
+            AnnotationInstance constrainedToInstance = filterClass
+                    .declaredAnnotation(ResteasyReactiveDotNames.CONSTRAINED_TO);
+            if (constrainedToInstance != null) {
+                runtimeType = RuntimeType.valueOf(constrainedToInstance.value().asEnum());
+            }
+            interceptor.setRuntimeType(runtimeType);
+
             return interceptor;
         }
 

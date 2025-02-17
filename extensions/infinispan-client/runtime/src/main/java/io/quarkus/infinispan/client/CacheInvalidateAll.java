@@ -6,8 +6,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import javax.enterprise.util.Nonbinding;
-import javax.interceptor.InterceptorBinding;
+import jakarta.enterprise.util.Nonbinding;
+import jakarta.interceptor.InterceptorBinding;
 
 import io.quarkus.infinispan.client.CacheInvalidateAll.List;
 
@@ -18,11 +18,14 @@ import io.quarkus.infinispan.client.CacheInvalidateAll.List;
  * This annotation can be combined with {@link CacheResult} annotation on a single method. Caching operations will always
  * be executed in the same order: {@link CacheInvalidateAll} first, then {@link CacheInvalidate} and finally
  * {@link CacheResult}.
+ *
+ * @deprecated Use Infinispan Cache Extension
  */
 @InterceptorBinding
 @Target({ ElementType.TYPE, ElementType.METHOD })
 @Retention(RetentionPolicy.RUNTIME)
 @Repeatable(List.class)
+@Deprecated(forRemoval = true)
 public @interface CacheInvalidateAll {
 
     /**

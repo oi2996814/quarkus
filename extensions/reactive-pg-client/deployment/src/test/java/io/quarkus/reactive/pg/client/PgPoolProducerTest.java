@@ -1,16 +1,15 @@
 package io.quarkus.reactive.pg.client;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
-import io.vertx.pgclient.PgPool;
+import io.vertx.sqlclient.Pool;
 
 public class PgPoolProducerTest {
 
@@ -39,12 +38,10 @@ public class PgPoolProducerTest {
     static class BeanUsingBarePgClient {
 
         @Inject
-        PgPool pgClient;
+        Pool pgClient;
 
-        public CompletionStage<Void> verify() {
-            CompletableFuture<Void> cf = new CompletableFuture<>();
-            pgClient.query("SELECT 1").execute(ar -> cf.complete(null));
-            return cf;
+        public CompletionStage<?> verify() {
+            return pgClient.query("SELECT 1").execute().toCompletionStage();
         }
     }
 
@@ -52,12 +49,11 @@ public class PgPoolProducerTest {
     static class BeanUsingMutinyPgClient {
 
         @Inject
-        io.vertx.mutiny.pgclient.PgPool pgClient;
+        io.vertx.mutiny.sqlclient.Pool pgClient;
 
         public CompletionStage<Void> verify() {
             return pgClient.query("SELECT 1").execute()
                     .onItem().ignore().andContinueWithNull()
-                    .onFailure().recoverWithItem(() -> null)
                     .subscribeAsCompletionStage();
         }
     }

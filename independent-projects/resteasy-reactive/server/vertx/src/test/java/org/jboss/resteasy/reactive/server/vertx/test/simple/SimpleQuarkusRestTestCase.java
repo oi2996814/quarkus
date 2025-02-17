@@ -16,6 +16,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.restassured.RestAssured;
+import io.restassured.http.ContentType;
 import io.restassured.http.Headers;
 
 public class SimpleQuarkusRestTestCase {
@@ -54,7 +55,9 @@ public class SimpleQuarkusRestTestCase {
         RestAssured.get("/missing")
                 .then().statusCode(404);
         RestAssured.get("/simple")
-                .then().body(Matchers.equalTo("GET"));
+                .then().body(Matchers.equalTo("GET")).contentType(ContentType.TEXT);
+        RestAssured.get("/simple/empty")
+                .then().body(Matchers.is(Matchers.emptyOrNullString())).contentType(Matchers.is(Matchers.emptyOrNullString()));
         RestAssured.get("/simple/foo")
                 .then().body(Matchers.equalTo("GET:foo"));
 
@@ -205,6 +208,8 @@ public class SimpleQuarkusRestTestCase {
         RestAssured.get("/simple/lookup-writer")
                 .then().body(Matchers.equalTo("OK"));
         RestAssured.get("/simple/writer")
+                .then().body(Matchers.equalTo("WRITER"));
+        RestAssured.get("/simple/uni-writer")
                 .then().body(Matchers.equalTo("WRITER"));
 
         RestAssured.get("/simple/fast-writer")

@@ -3,18 +3,20 @@ package io.quarkus.mailer.runtime;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 
-import javax.enterprise.inject.Any;
-import javax.enterprise.inject.Instance;
-import javax.enterprise.inject.Produces;
-import javax.enterprise.inject.spi.AnnotatedParameter;
-import javax.enterprise.inject.spi.InjectionPoint;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.AnnotatedParameter;
+import jakarta.enterprise.inject.spi.InjectionPoint;
+import jakarta.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.mailer.MailTemplate;
+import io.quarkus.mailer.MailerName;
+import io.quarkus.mailer.reactive.ReactiveMailer;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -25,14 +27,11 @@ public class MailTemplateProducer {
 
     private static final Logger LOGGER = Logger.getLogger(MailTemplateProducer.class);
 
-    @Inject
-    MutinyMailerImpl mailer;
-
     @Any
     Instance<Template> template;
 
     @Produces
-    MailTemplate getDefault(InjectionPoint injectionPoint) {
+    MailTemplate getDefault(InjectionPoint injectionPoint, @Any Instance<ReactiveMailer> reactiveMailer) {
 
         final String name;
         if (injectionPoint.getMember() instanceof Field) {
@@ -51,7 +50,8 @@ public class MailTemplateProducer {
         return new MailTemplate() {
             @Override
             public MailTemplateInstance instance() {
-                return new MailTemplateInstanceImpl(mailer, template.select(new LocationLiteral(name)).get().instance());
+                return new MailTemplateInstanceImpl(getReactiveMailer(injectionPoint, reactiveMailer),
+                        template.select(new LocationLiteral(name)).get().instance());
             }
 
         };
@@ -59,7 +59,7 @@ public class MailTemplateProducer {
 
     @Location("ignored")
     @Produces
-    MailTemplate get(InjectionPoint injectionPoint) {
+    MailTemplate get(InjectionPoint injectionPoint, @Any Instance<ReactiveMailer> reactiveMailer) {
         Location path = null;
         for (Annotation qualifier : injectionPoint.getQualifiers()) {
             if (qualifier.annotationType().equals(Location.class)) {
@@ -74,16 +74,25 @@ public class MailTemplateProducer {
         return new MailTemplate() {
             @Override
             public MailTemplateInstance instance() {
-                return new MailTemplateInstanceImpl(mailer, template.select(new LocationLiteral(name)).get().instance());
+                return new MailTemplateInstanceImpl(getReactiveMailer(injectionPoint, reactiveMailer),
+                        template.select(new LocationLiteral(name)).get().instance());
             }
         };
+    }
+
+    static ReactiveMailer getReactiveMailer(InjectionPoint injectionPoint, Instance<ReactiveMailer> reactiveMailer) {
+        MailTemplateMailerName mailerName = injectionPoint.getAnnotated().getAnnotation(MailTemplateMailerName.class);
+        if (mailerName != null) {
+            return reactiveMailer.select(MailerName.Literal.of(mailerName.value())).get();
+        }
+        return reactiveMailer.select(Default.Literal.INSTANCE).get();
     }
 
     /**
      * Called by MailTemplateInstanceAdaptor
      */
     public static MailTemplate.MailTemplateInstance getMailTemplateInstance(TemplateInstance instance) {
-        MutinyMailerImpl mailerImpl = Arc.container().instance(MutinyMailerImpl.class).get();
-        return new MailTemplateInstanceImpl(mailerImpl, instance);
+        ReactiveMailer reactiveMailer = Arc.container().instance(ReactiveMailer.class).get();
+        return new MailTemplateInstanceImpl(reactiveMailer, instance);
     }
 }

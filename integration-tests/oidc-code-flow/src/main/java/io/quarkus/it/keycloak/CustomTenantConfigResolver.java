@@ -1,8 +1,10 @@
 package io.quarkus.it.keycloak;
 
-import javax.annotation.PostConstruct;
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
+import java.util.List;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -37,7 +39,9 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
     @Override
     public Uni<OidcTenantConfig> resolve(RoutingContext context, OidcRequestContext<OidcTenantConfig> requestContext) {
         if (context.request().path().contains("callback-before-wrong-redirect")) {
-            if (context.getCookie("q_auth_tenant-before-wrong-redirect") != null) {
+            List<String> stateParam = context.queryParam("state");
+            if (stateParam.size() == 1 &&
+                    context.getCookie("q_auth_tenant-before-wrong-redirect_" + stateParam.get(0)) != null) {
                 // trigger the code to access token exchange failure due to a redirect uri mismatch
                 config.authentication.setRedirectPath("wrong-path");
             }
@@ -45,4 +49,5 @@ public class CustomTenantConfigResolver implements TenantConfigResolver {
         }
         return Uni.createFrom().nullItem();
     }
+
 }

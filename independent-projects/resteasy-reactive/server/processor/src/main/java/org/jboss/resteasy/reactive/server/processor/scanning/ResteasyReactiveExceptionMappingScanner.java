@@ -4,7 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
 
-import javax.ws.rs.Priorities;
+import jakarta.ws.rs.Priorities;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -53,7 +53,7 @@ public class ResteasyReactiveExceptionMappingScanner {
                         ResteasyReactiveDotNames.EXCEPTION_MAPPER,
                         index);
                 DotName handledExceptionDotName = typeParameters.get(0).name();
-                AnnotationInstance priorityInstance = mapperClass.classAnnotation(ResteasyReactiveDotNames.PRIORITY);
+                AnnotationInstance priorityInstance = mapperClass.declaredAnnotation(ResteasyReactiveDotNames.PRIORITY);
                 int priority = Priorities.USER;
                 if (priorityInstance != null) {
                     priority = priorityInstance.value().asInt();

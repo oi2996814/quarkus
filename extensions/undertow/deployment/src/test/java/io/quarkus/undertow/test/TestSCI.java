@@ -3,17 +3,22 @@ package io.quarkus.undertow.test;
 import java.io.IOException;
 import java.util.Set;
 
-import javax.servlet.ServletContainerInitializer;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRegistration;
-import javax.servlet.annotation.HandlesTypes;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.ServletContainerInitializer;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRegistration;
+import jakarta.servlet.annotation.HandlesTypes;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.jboss.logging.Logger;
 
 @HandlesTypes({ SCIInterface.class, SCIAnnotation.class })
 public class TestSCI implements ServletContainerInitializer {
+
+    private static final Logger log = Logger.getLogger(TestSCI.class);
+
     @Override
     public void onStartup(Set<Class<?>> c, ServletContext ctx) throws ServletException {
         ServletRegistration.Dynamic info = ctx.addServlet("test", new HttpServlet() {
@@ -25,5 +30,16 @@ public class TestSCI implements ServletContainerInitializer {
             }
         });
         info.addMapping("/sci");
+
+        log.info("Checking servlet resource paths...");
+
+        Set<String> resourcePaths = ctx.getResourcePaths("/");
+        for (String resourcePath : resourcePaths) {
+            log.info("Resource: " + resourcePath);
+        }
+
+        if (resourcePaths.isEmpty()) {
+            throw new RuntimeException("NO servlet resource paths found!");
+        }
     }
 }

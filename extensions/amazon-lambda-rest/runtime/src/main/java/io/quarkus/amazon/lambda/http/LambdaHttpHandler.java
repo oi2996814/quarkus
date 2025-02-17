@@ -97,7 +97,13 @@ public class LambdaHttpHandler implements RequestHandler<AwsProxyRequest, AwsPro
                     }
                     responseBuilder.setMultiValueHeaders(new Headers());
                     for (String name : res.headers().names()) {
+                        if (name.equalsIgnoreCase("Transfer-Encoding")) {
+                            continue; // ignore transfer encoding, chunked screws up message and response
+                        }
                         for (String v : res.headers().getAll(name)) {
+                            if (name.equalsIgnoreCase("Transfer-Encoding") && v.contains("chunked")) {
+                                continue;
+                            }
                             responseBuilder.getMultiValueHeaders().add(name, v);
                         }
                     }
@@ -124,11 +130,11 @@ public class LambdaHttpHandler implements RequestHandler<AwsProxyRequest, AwsPro
                 }
                 if (msg instanceof LastHttpContent) {
                     if (baos != null) {
-                        if (isBinary(responseBuilder.getMultiValueHeaders().getFirst("Content-Type"))) {
+                        if (isText(responseBuilder.getMultiValueHeaders().getFirst("Content-Type"))) {
+                            responseBuilder.setBody(baos.toString(StandardCharsets.UTF_8));
+                        } else {
                             responseBuilder.setBase64Encoded(true);
                             responseBuilder.setBody(Base64.getEncoder().encodeToString(baos.toByteArray()));
-                        } else {
-                            responseBuilder.setBody(baos.toString(StandardCharsets.UTF_8));
                         }
                     }
                     future.complete(responseBuilder);
@@ -236,10 +242,11 @@ public class LambdaHttpHandler implements RequestHandler<AwsProxyRequest, AwsPro
         return baos;
     }
 
-    private boolean isBinary(String contentType) {
+    private boolean isText(String contentType) {
         if (contentType != null) {
             String ct = contentType.toLowerCase(Locale.ROOT);
-            return !(ct.startsWith("text") || ct.contains("json") || ct.contains("xml") || ct.contains("yaml"));
+            return (ct.startsWith("text") || ct.contains("json") || (ct.contains("xml") && !ct.contains("openxmlformats"))
+                    || ct.contains("yaml"));
         }
         return false;
     }

@@ -2,26 +2,26 @@ package io.quarkus.it.reactive.db2.client;
 
 import java.util.concurrent.CompletionStage;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 import io.quarkus.reactive.datasource.ReactiveDataSource;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.mutiny.db2client.DB2Pool;
+import io.vertx.mutiny.sqlclient.Pool;
 import io.vertx.mutiny.sqlclient.Row;
 
 @Path("/plants")
 public class PlantResource {
 
     @Inject
-    DB2Pool client;
+    Pool client;
 
     @Inject
     @ReactiveDataSource("additional")
-    DB2Pool additionalClient;
+    Pool additionalClient;
 
     @PostConstruct
     void setupDb() {

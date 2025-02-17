@@ -2,7 +2,7 @@ package io.quarkus.micrometer.deployment.binder;
 
 import static io.restassured.RestAssured.when;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -41,8 +41,8 @@ public class UriWithMaxTagMeterFilterTest {
 
     @Test
     public void test() throws Exception {
-        Assertions.assertEquals(1, httpServerConfig.maxUriTags);
-        Assertions.assertEquals(1, httpClientConfig.maxUriTags);
+        Assertions.assertEquals(1, httpServerConfig.maxUriTags());
+        Assertions.assertEquals(1, httpClientConfig.maxUriTags());
 
         // Server limit is constrained to 1
         when().get("/ping/one").then().statusCode(200);

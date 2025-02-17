@@ -1,8 +1,8 @@
 package io.quarkus.opentelemetry.deployment.common;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
-import javax.inject.Inject;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
 
 import io.opentelemetry.api.trace.Tracer;
 import io.quarkus.runtime.StartupEvent;
@@ -27,6 +27,8 @@ public class TracerRouter {
             String name = rc.pathParam("name");
             if (name.equals("Naruto")) {
                 rc.response().end("hello " + name);
+            } else if (name.equals("Itachi")) {
+                rc.response().end("Amaterasu!");
             } else {
                 rc.response().setStatusCode(404).end();
             }

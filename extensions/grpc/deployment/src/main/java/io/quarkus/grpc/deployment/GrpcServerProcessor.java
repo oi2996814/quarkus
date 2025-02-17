@@ -1,9 +1,11 @@
 package io.quarkus.grpc.deployment;
 
 import static io.quarkus.deployment.Feature.GRPC_SERVER;
+import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.grpc.deployment.GrpcDotNames.BLOCKING;
 import static io.quarkus.grpc.deployment.GrpcDotNames.MUTINY_SERVICE;
 import static io.quarkus.grpc.deployment.GrpcDotNames.NON_BLOCKING;
+import static io.quarkus.grpc.deployment.GrpcDotNames.RUN_ON_VIRTUAL_THREAD;
 import static io.quarkus.grpc.deployment.GrpcDotNames.TRANSACTIONAL;
 import static io.quarkus.grpc.deployment.GrpcInterceptors.MICROMETER_INTERCEPTORS;
 import static java.util.Arrays.asList;
@@ -19,9 +21,10 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
-import javax.enterprise.inject.spi.DeploymentException;
-import javax.transaction.Transaction;
+import jakarta.enterprise.inject.spi.DeploymentException;
+import jakarta.transaction.Transaction;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -40,6 +43,7 @@ import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.AnnotationsTransformerBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.BeanArchivePredicateBuildItem;
+import io.quarkus.arc.deployment.BeanContainerBuildItem;
 import io.quarkus.arc.deployment.CustomScopeAnnotationsBuildItem;
 import io.quarkus.arc.deployment.RecorderBeanInitializedBuildItem;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
@@ -71,7 +75,7 @@ import io.quarkus.deployment.recording.RecorderContext;
 import io.quarkus.grpc.GrpcService;
 import io.quarkus.grpc.auth.DefaultAuthExceptionHandlerProvider;
 import io.quarkus.grpc.auth.GrpcSecurityInterceptor;
-import io.quarkus.grpc.deployment.devmode.FieldDefinalizingVisitor;
+import io.quarkus.grpc.auth.GrpcSecurityRecorder;
 import io.quarkus.grpc.protoc.plugin.MutinyGrpcGenerator;
 import io.quarkus.grpc.runtime.GrpcContainer;
 import io.quarkus.grpc.runtime.GrpcServerRecorder;
@@ -82,12 +86,19 @@ import io.quarkus.grpc.runtime.health.GrpcHealthEndpoint;
 import io.quarkus.grpc.runtime.health.GrpcHealthStorage;
 import io.quarkus.grpc.runtime.supports.context.GrpcDuplicatedContextGrpcInterceptor;
 import io.quarkus.grpc.runtime.supports.context.GrpcRequestContextGrpcInterceptor;
+import io.quarkus.grpc.runtime.supports.exc.DefaultExceptionHandlerProvider;
+import io.quarkus.grpc.runtime.supports.exc.ExceptionInterceptor;
 import io.quarkus.kubernetes.spi.KubernetesPortBuildItem;
 import io.quarkus.netty.deployment.MinNettyAllocatorMaxOrderBuildItem;
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
 import io.quarkus.vertx.deployment.VertxBuildItem;
+import io.quarkus.vertx.http.deployment.FilterBuildItem;
 import io.quarkus.vertx.http.deployment.VertxWebRouterBuildItem;
+import io.vertx.core.Handler;
+import io.vertx.ext.web.Router;
+import io.vertx.ext.web.RoutingContext;
 
 public class GrpcServerProcessor {
 
@@ -113,6 +124,8 @@ public class GrpcServerProcessor {
 
         // generated bean class -> blocking methods
         Map<DotName, Set<String>> generatedBeans = new HashMap<>();
+        // generated bean class -> virtual methods
+        Map<DotName, Set<String>> virtuals = new HashMap<>();
         String[] excludedPackages = { "grpc.health.v1", "io.grpc.reflection" };
 
         // We need to transform the generated bean and register a bindable service if:
@@ -132,7 +145,7 @@ public class GrpcServerProcessor {
             ClassInfo userDefinedBean = null;
             for (ClassInfo candidate : serviceCandidates) {
                 // The bean must be annotated with @GrpcService
-                if (candidate.classAnnotation(GrpcDotNames.GRPC_SERVICE) != null) {
+                if (candidate.declaredAnnotation(GrpcDotNames.GRPC_SERVICE) != null) {
                     userDefinedBean = candidate;
                     break;
                 }
@@ -164,20 +177,34 @@ public class GrpcServerProcessor {
             if (!excluded) {
                 log.debugf("Registering generated gRPC bean %s that will delegate to %s", generatedBean, userDefinedBean);
                 delegatingBeans.produce(new DelegatingGrpcBeanBuildItem(generatedBean, userDefinedBean));
-                Set<String> blockingMethods = gatherBlockingMethodNames(userDefinedBean, index.getIndex());
-
+                Set<String> blockingMethods = gatherBlockingOrVirtualMethodNames(userDefinedBean, index.getIndex(), false);
+                Set<String> virtualMethods = gatherBlockingOrVirtualMethodNames(userDefinedBean, index.getIndex(), true);
                 generatedBeans.put(generatedBean.name(), blockingMethods);
+                if (!virtualMethods.isEmpty()) {
+                    virtuals.put(generatedBean.name(), virtualMethods);
+                }
             }
         }
 
-        if (!generatedBeans.isEmpty()) {
+        if (!generatedBeans.isEmpty() || !virtuals.isEmpty()) {
             // For every suitable bean we must:
             // (a) add @Singleton and @GrpcService
             // (b) register a BindableServiceBuildItem, incl. all blocking methods (derived from the user-defined impl)
-            for (Entry<DotName, Set<String>> entry : generatedBeans.entrySet()) {
-                BindableServiceBuildItem bindableService = new BindableServiceBuildItem(entry.getKey());
-                for (String blockingMethod : entry.getValue()) {
-                    bindableService.registerBlockingMethod(blockingMethod);
+            Set<DotName> names = new HashSet<>(generatedBeans.keySet());
+            names.addAll(virtuals.keySet());
+            for (DotName name : names) {
+                BindableServiceBuildItem bindableService = new BindableServiceBuildItem(name);
+                var blocking = generatedBeans.get(name);
+                var rovt = virtuals.get(name);
+                if (blocking != null) {
+                    for (String blockingMethod : blocking) {
+                        bindableService.registerBlockingMethod(blockingMethod);
+                    }
+                }
+                if (rovt != null) {
+                    for (String virtualMethod : rovt) {
+                        bindableService.registerVirtualMethod(virtualMethod);
+                    }
                 }
                 bindables.produce(bindableService);
             }
@@ -215,9 +242,13 @@ public class GrpcServerProcessor {
                 continue;
             }
             BindableServiceBuildItem item = new BindableServiceBuildItem(service.name());
-            Set<String> blockingMethods = gatherBlockingMethodNames(service, index);
+            Set<String> blockingMethods = gatherBlockingOrVirtualMethodNames(service, index, false);
+            Set<String> virtualMethods = gatherBlockingOrVirtualMethodNames(service, index, true);
             for (String method : blockingMethods) {
                 item.registerBlockingMethod(method);
+            }
+            for (String method : virtualMethods) {
+                item.registerVirtualMethod(method);
             }
             bindables.produce(item);
         }
@@ -250,6 +281,7 @@ public class GrpcServerProcessor {
     private enum BlockingMode {
         UNDEFINED(false),
         BLOCKING(true),
+        VIRTUAL_THREAD(true),
         NON_BLOCKING(false),
         // @Transactional on a method
         IMPLICIT(true);
@@ -265,17 +297,24 @@ public class GrpcServerProcessor {
             Supplier<String> exceptionMsgSupplier) {
         boolean blocking = checker.test(BLOCKING);
         boolean nonBlocking = checker.test(NON_BLOCKING);
+        boolean vt = checker.test(RUN_ON_VIRTUAL_THREAD);
         if (blocking && nonBlocking) {
             throw new DeploymentException(exceptionMsgSupplier.get());
         }
-        if (blocking) {
+        if (nonBlocking && vt) {
+            throw new DeploymentException(exceptionMsgSupplier.get());
+        }
+        if (blocking && !vt) {
             return BlockingMode.BLOCKING;
+        }
+        if (vt) {
+            return BlockingMode.VIRTUAL_THREAD;
         }
         if (nonBlocking) {
             return BlockingMode.NON_BLOCKING;
         }
         boolean transactional = checker.test(TRANSACTIONAL);
-        if (transactional) {
+        if (transactional) { // Cannot be on a virtual thread here.
             return BlockingMode.IMPLICIT;
         }
         return BlockingMode.UNDEFINED;
@@ -289,7 +328,8 @@ public class GrpcServerProcessor {
     private static BlockingMode inheritedBlockingMode(Predicate<DotName> checker,
             BlockingMode currentlyKnownMode) {
         boolean transactional = checker.test(TRANSACTIONAL);
-        if (transactional) {
+        boolean vt = checker.test(RUN_ON_VIRTUAL_THREAD);
+        if (transactional && !vt) {
             return BlockingMode.IMPLICIT;
         }
         return currentlyKnownMode;
@@ -303,14 +343,14 @@ public class GrpcServerProcessor {
      * ({@link io.smallrye.common.annotation.Blocking} or {@link io.smallrye.common.annotation.NonBlocking}).
      *
      * <p>
-     * Otherwise returns the "topmost" "non-explicit" annotation (aka {@link javax.transaction.Transactional}).
+     * Otherwise returns the "topmost" "non-explicit" annotation (aka {@link jakarta.transaction.Transactional}).
      */
-    private static boolean methodIsBlocking(List<ClassInfo> classes, String methodName, Type[] methodArgs) {
+    private static BlockingMode getMethodBlockingMode(List<ClassInfo> classes, String methodName, Type[] methodArgs) {
         BlockingMode classModeInherited = BlockingMode.UNDEFINED;
         BlockingMode methodMode = BlockingMode.UNDEFINED;
         for (int i = 0; i < classes.size(); i++) {
             ClassInfo ci = classes.get(i);
-            Predicate<DotName> annotationOnClass = annotationName -> ci.classAnnotation(annotationName) != null;
+            Predicate<DotName> annotationOnClass = annotationName -> ci.declaredAnnotation(annotationName) != null;
             MethodInfo method = ci.method(methodName, methodArgs);
 
             classModeInherited = inheritedBlockingMode(annotationOnClass, classModeInherited);
@@ -322,17 +362,18 @@ public class GrpcServerProcessor {
                 };
                 methodMode = nonInheritedBlockingMode(annotationOnMethod,
                         () -> "Method '" + method.declaringClass().name() + "#" + method.name() +
-                                "' contains both @Blocking and @NonBlocking annotations.");
+                                "' contains both @Blocking and @NonBlocking or both @NonBlocking and @RunOnVirtualThread annotations.");
                 if (methodMode == BlockingMode.UNDEFINED) {
                     methodMode = nonInheritedBlockingMode(annotationOnClass,
-                            () -> "Class '" + ci.name() + "' contains both @Blocking and @NonBlocking annotations.");
+                            () -> "Class '" + ci.name()
+                                    + "' contains both @Blocking and @NonBlocking or both @NonBlocking and @RunOnVirtualThread annotations.");
                 }
 
                 // Handles the case when a method's overridden without an explicit annotation and @Transactional is defined on a superclass
                 if (methodMode == BlockingMode.UNDEFINED) {
                     for (i++; i < classes.size(); i++) {
                         ClassInfo ci2 = classes.get(i);
-                        annotationOnClass = annotationName -> ci2.classAnnotation(annotationName) != null;
+                        annotationOnClass = annotationName -> ci2.declaredAnnotation(annotationName) != null;
                         classModeInherited = inheritedBlockingMode(annotationOnClass, classModeInherited);
                     }
                 }
@@ -341,9 +382,9 @@ public class GrpcServerProcessor {
             }
         }
         if (methodMode != BlockingMode.UNDEFINED) {
-            return methodMode.blocking;
+            return methodMode;
         }
-        return classModeInherited.blocking;
+        return classModeInherited;
     }
 
     /**
@@ -369,7 +410,7 @@ public class GrpcServerProcessor {
      * <li>Else: non-blocking.</li>
      * </ol>
      */
-    static Set<String> gatherBlockingMethodNames(ClassInfo service, IndexView index) {
+    static Set<String> gatherBlockingOrVirtualMethodNames(ClassInfo service, IndexView index, boolean virtual) {
 
         Set<String> result = new HashSet<>();
 
@@ -385,13 +426,23 @@ public class GrpcServerProcessor {
             }
         }
 
-        ClassInfo classInfo;
+        ClassInfo classInfo = null;
         var classes = classHierarchy(service, index);
         if (isExtendingMutinyService) {
             classInfo = service;
         } else {
-            // Collect all gRPC methods from the *ImplBase class, if present
-            classInfo = classes.get(classes.size() - 1);
+            // Collect all gRPC methods from the *ImplBase's AsyncService interface, if present
+            // else use ImplBase's gRPC methods
+            ClassInfo ib = classes.get(classes.size() - 1);
+            for (DotName interfaceName : ib.interfaceNames()) {
+                if (interfaceName.toString().endsWith("$AsyncService")) {
+                    classInfo = index.getClassByName(interfaceName);
+                    break;
+                }
+            }
+            if (classInfo == null) {
+                classInfo = ib;
+            }
         }
 
         List<MethodInfo> implBaseMethods = classInfo.methods();
@@ -403,7 +454,11 @@ public class GrpcServerProcessor {
             }
 
             // Find the annotations for the current method.
-            if (methodIsBlocking(classes, methodName, implBaseMethod.parameterTypes().toArray(new Type[0]))) {
+            BlockingMode blocking = getMethodBlockingMode(classes, methodName,
+                    implBaseMethod.parameterTypes().toArray(new Type[0]));
+            if (virtual && blocking == BlockingMode.VIRTUAL_THREAD) {
+                result.add(methodName);
+            } else if (!virtual && blocking.blocking) {
                 result.add(methodName);
             }
         }
@@ -478,16 +533,20 @@ public class GrpcServerProcessor {
         }
         if (!bean.getScope().getDotName().equals(BuiltinScope.SINGLETON.getName())) {
             errors.produce(new ValidationPhaseBuildItem.ValidationErrorBuildItem(
-                    new IllegalStateException("A gRPC service bean must have the javax.inject.Singleton scope: " + bean)));
+                    new IllegalStateException("A gRPC service bean must have the jakarta.inject.Singleton scope: " + bean)));
         }
     }
 
     @BuildStep(onlyIf = IsNormal.class)
     KubernetesPortBuildItem registerGrpcServiceInKubernetes(List<BindableServiceBuildItem> bindables) {
         if (!bindables.isEmpty()) {
-            int port = ConfigProvider.getConfig().getOptionalValue("quarkus.grpc.server.port", Integer.class)
-                    .orElse(9000);
-            return new KubernetesPortBuildItem(port, "grpc");
+            boolean useSeparateServer = ConfigProvider.getConfig().getOptionalValue("quarkus.grpc.server.use-separate-server",
+                    Boolean.class)
+                    .orElse(true);
+            if (useSeparateServer) {
+                // Only expose the named port "grpc" if the gRPC server is exposed using a separate server.
+                return KubernetesPortBuildItem.fromRuntimeConfiguration("grpc", "quarkus.grpc.server.port", 9000, true);
+            }
         }
         return null;
     }
@@ -512,6 +571,9 @@ public class GrpcServerProcessor {
                 beans.produce(AdditionalBeanBuildItem.unremovableOf(GrpcSecurityInterceptor.class));
                 beans.produce(AdditionalBeanBuildItem.unremovableOf(DefaultAuthExceptionHandlerProvider.class));
             }
+
+            beans.produce(AdditionalBeanBuildItem.unremovableOf(ExceptionInterceptor.class));
+            beans.produce(AdditionalBeanBuildItem.unremovableOf(DefaultExceptionHandlerProvider.class));
         } else {
             log.debug("Unable to find beans exposing the `BindableService` interface - not starting the gRPC server");
         }
@@ -523,11 +585,13 @@ public class GrpcServerProcessor {
         additionalInterceptors
                 .produce(new AdditionalGlobalInterceptorBuildItem(GrpcRequestContextGrpcInterceptor.class.getName()));
         additionalInterceptors
-                .produce(new AdditionalGlobalInterceptorBuildItem(GrpcRequestContextGrpcInterceptor.class.getName()));
+                .produce(new AdditionalGlobalInterceptorBuildItem(GrpcDuplicatedContextGrpcInterceptor.class.getName()));
         if (capabilities.isPresent(Capability.SECURITY)) {
             additionalInterceptors
                     .produce(new AdditionalGlobalInterceptorBuildItem(GrpcSecurityInterceptor.class.getName()));
         }
+        additionalInterceptors
+                .produce(new AdditionalGlobalInterceptorBuildItem(ExceptionInterceptor.class.getName()));
     }
 
     @SuppressWarnings("deprecation")
@@ -537,6 +601,7 @@ public class GrpcServerProcessor {
             List<AdditionalGlobalInterceptorBuildItem> additionalGlobalInterceptors,
             List<DelegatingGrpcBeanBuildItem> delegatingGrpcBeans,
             BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
+
             RecorderContext recorderContext,
             GrpcServerRecorder recorder) {
 
@@ -578,11 +643,7 @@ public class GrpcServerProcessor {
             // the interceptors defined on the user bean have to be applied to the generated bean:
             targetClass = delegateMap.getOrDefault(targetClass, targetClass);
 
-            Set<String> registered = registeredInterceptors.get(targetClass);
-            if (registered == null) {
-                registered = new HashSet<>();
-                registeredInterceptors.put(targetClass, registered);
-            }
+            Set<String> registered = registeredInterceptors.computeIfAbsent(targetClass, k -> new HashSet<>());
             registered.add(interceptorClass);
             superfluousInterceptors.remove(interceptorClass);
         }
@@ -628,7 +689,8 @@ public class GrpcServerProcessor {
             List<RecorderBeanInitializedBuildItem> orderEnforcer,
             LaunchModeBuildItem launchModeBuildItem,
             VertxWebRouterBuildItem routerBuildItem,
-            VertxBuildItem vertx) {
+            VertxBuildItem vertx, Capabilities capabilities,
+            List<FilterBuildItem> filterBuildItems) {
 
         // Build the list of blocking methods per service implementation
         Map<String, List<String>> blocking = new HashMap<>();
@@ -637,11 +699,33 @@ public class GrpcServerProcessor {
                 blocking.put(bindable.serviceClass.toString(), bindable.blockingMethods);
             }
         }
+        Map<String, List<String>> virtuals = new HashMap<>();
+        for (BindableServiceBuildItem bindable : bindables) {
+            if (bindable.hasVirtualMethods()) {
+                virtuals.put(bindable.serviceClass.toString(), bindable.virtualMethods);
+            }
+        }
 
         if (!bindables.isEmpty()
-                || (LaunchMode.current() == LaunchMode.DEVELOPMENT && buildTimeConfig.devMode.forceServerStart)) {
-            recorder.initializeGrpcServer(vertx.getVertx(), routerBuildItem.getHttpRouter(),
-                    config, shutdown, blocking, launchModeBuildItem.getLaunchMode());
+                || (LaunchMode.current() == LaunchMode.DEVELOPMENT && buildTimeConfig.devMode().forceServerStart())) {
+            //Uses mainrouter when the 'quarkus.http.root-path' is not '/'
+            Map<Integer, Handler<RoutingContext>> securityHandlers = null;
+            final RuntimeValue<Router> routerRuntimeValue;
+            if (routerBuildItem.getMainRouter() != null) {
+                routerRuntimeValue = routerBuildItem.getMainRouter();
+                if (capabilities.isPresent(Capability.SECURITY)) {
+                    securityHandlers = filterBuildItems
+                            .stream()
+                            .filter(filter -> filter.getPriority() == FilterBuildItem.AUTHENTICATION
+                                    || filter.getPriority() == FilterBuildItem.AUTHORIZATION)
+                            .collect(Collectors.toMap(f -> f.getPriority() * -1, FilterBuildItem::getHandler));
+                }
+            } else {
+                routerRuntimeValue = routerBuildItem.getHttpRouter();
+            }
+            recorder.initializeGrpcServer(vertx.getVertx(), routerRuntimeValue,
+                    config, shutdown, blocking, virtuals, launchModeBuildItem.getLaunchMode(),
+                    capabilities.isPresent(Capability.SECURITY), securityHandlers);
             return new ServiceStartBuildItem(GRPC_SERVER);
         }
         return null;
@@ -662,14 +746,14 @@ public class GrpcServerProcessor {
             BuildProducer<AdditionalBeanBuildItem> beans) {
         boolean healthEnabled = false;
         if (!bindables.isEmpty()) {
-            healthEnabled = config.mpHealthEnabled;
+            healthEnabled = config.mpHealthEnabled();
 
-            if (config.grpcHealthEnabled) {
+            if (config.grpcHealthEnabled()) {
                 beans.produce(AdditionalBeanBuildItem.unremovableOf(GrpcHealthEndpoint.class));
                 healthEnabled = true;
             }
             healthBuildItems.produce(new HealthBuildItem("io.quarkus.grpc.runtime.health.GrpcHealthCheck",
-                    config.mpHealthEnabled));
+                    config.mpHealthEnabled()));
         }
         if (healthEnabled || LaunchMode.current() == LaunchMode.DEVELOPMENT) {
             beans.produce(AdditionalBeanBuildItem.unremovableOf(GrpcHealthStorage.class));
@@ -705,6 +789,28 @@ public class GrpcServerProcessor {
     @BuildStep
     UnremovableBeanBuildItem unremovableServerInterceptors() {
         return UnremovableBeanBuildItem.beanTypes(GrpcDotNames.SERVER_INTERCEPTOR);
+    }
+
+    @Consume(SyntheticBeansRuntimeInitBuildItem.class)
+    @Record(RUNTIME_INIT)
+    @BuildStep
+    void initGrpcSecurityInterceptor(List<BindableServiceBuildItem> bindables, Capabilities capabilities,
+            GrpcSecurityRecorder recorder, BeanContainerBuildItem beanContainer) {
+        if (capabilities.isPresent(Capability.SECURITY)) {
+
+            // Grpc service to blocking method
+            Map<String, List<String>> blocking = new HashMap<>();
+            for (BindableServiceBuildItem bindable : bindables) {
+                if (bindable.hasBlockingMethods()) {
+                    blocking.put(bindable.serviceClass.toString(), bindable.blockingMethods);
+                }
+            }
+
+            if (!blocking.isEmpty()) {
+                // provide GrpcSecurityInterceptor with blocking methods
+                recorder.initGrpcSecurityInterceptor(blocking, beanContainer.getValue());
+            }
+        }
     }
 
 }

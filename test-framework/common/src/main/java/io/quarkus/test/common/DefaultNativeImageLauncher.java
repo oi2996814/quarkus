@@ -33,6 +33,7 @@ public class DefaultNativeImageLauncher implements NativeImageLauncher {
     private long waitTimeSeconds;
     private String testProfile;
     private List<String> argLine;
+    private Map<String, String> env;
     private String nativeImagePath;
     private String configuredOutputDirectory;
     private Class<?> testClass;
@@ -51,6 +52,7 @@ public class DefaultNativeImageLauncher implements NativeImageLauncher {
         this.nativeImagePath = initContext.nativeImagePath();
         this.configuredOutputDirectory = initContext.getConfiguredOutputDirectory();
         this.argLine = initContext.argLine();
+        this.env = initContext.env();
         this.testClass = initContext.testClass();
     }
 
@@ -130,8 +132,9 @@ public class DefaultNativeImageLauncher implements NativeImageLauncher {
             args.add("-Dtest.url=" + TestHTTPResourceManager.getUri());
         }
         Path logFile = PropertyTestUtil.getLogFilePath();
-        args.add("-Dquarkus.log.file.path=" + logFile.toAbsolutePath().toString());
+        args.add("-Dquarkus.log.file.path=" + logFile.toAbsolutePath());
         args.add("-Dquarkus.log.file.enable=true");
+        args.add("-Dquarkus.log.category.\"io.quarkus\".level=INFO");
         if (testProfile != null) {
             args.add("-Dquarkus.profile=" + testProfile);
         }
@@ -144,9 +147,9 @@ public class DefaultNativeImageLauncher implements NativeImageLauncher {
         Files.deleteIfExists(logFile);
         Files.createDirectories(logFile.getParent());
         if (handleIo) {
-            quarkusProcess = LauncherUtil.launchProcess(args);
+            quarkusProcess = LauncherUtil.launchProcessAndDrainIO(args, env);
         } else {
-            quarkusProcess = Runtime.getRuntime().exec(args.toArray(new String[0]));
+            quarkusProcess = LauncherUtil.launchProcess(args, env);
         }
 
     }

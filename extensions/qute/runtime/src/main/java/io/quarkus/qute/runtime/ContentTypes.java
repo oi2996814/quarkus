@@ -2,8 +2,8 @@ package io.quarkus.qute.runtime;
 
 import java.net.URLConnection;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
@@ -31,7 +31,7 @@ public class ContentTypes {
         int dotIdx = fileName.lastIndexOf('.');
         if (dotIdx != -1) {
             String suffix = fileName.substring(dotIdx + 1, fileName.length());
-            String additionalContentType = config.contentTypes.get(suffix);
+            String additionalContentType = config.contentTypes().get(suffix);
             if (additionalContentType != null) {
                 return additionalContentType;
             }

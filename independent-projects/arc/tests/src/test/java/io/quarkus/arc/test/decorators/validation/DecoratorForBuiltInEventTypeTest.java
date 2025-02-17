@@ -6,17 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.annotation.Annotation;
 import java.util.concurrent.CompletionStage;
 
-import javax.decorator.Decorator;
-import javax.decorator.Delegate;
-import javax.enterprise.event.Event;
-import javax.enterprise.event.NotificationOptions;
-import javax.enterprise.util.TypeLiteral;
-import javax.inject.Inject;
+import jakarta.annotation.Priority;
+import jakarta.decorator.Decorator;
+import jakarta.decorator.Delegate;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.event.NotificationOptions;
+import jakarta.enterprise.util.TypeLiteral;
+import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.quarkus.arc.Priority;
 import io.quarkus.arc.test.ArcTestContainer;
 
 public class DecoratorForBuiltInEventTypeTest {

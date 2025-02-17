@@ -1,13 +1,12 @@
 package io.quarkus.security.spi;
 
-import static java.util.Arrays.asList;
-
-import java.util.HashSet;
+import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 
-import javax.annotation.security.DenyAll;
-import javax.annotation.security.PermitAll;
-import javax.annotation.security.RolesAllowed;
+import jakarta.annotation.security.DenyAll;
+import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -15,41 +14,55 @@ import org.jboss.jandex.DotName;
 import org.jboss.jandex.MethodInfo;
 
 import io.quarkus.security.Authenticated;
+import io.quarkus.security.PermissionsAllowed;
 
 /**
  * @author Michal Szynkiewicz, michal.l.szynkiewicz@gmail.com
  */
-public class SecurityTransformerUtils {
+public final class SecurityTransformerUtils {
     public static final DotName DENY_ALL = DotName.createSimple(DenyAll.class.getName());
-    private static final Set<DotName> SECURITY_ANNOTATIONS;
+    private static final Set<DotName> SECURITY_ANNOTATIONS = Set.of(DotName.createSimple(RolesAllowed.class.getName()),
+            DotName.createSimple(PermissionsAllowed.class.getName()),
+            DotName.createSimple(PermissionsAllowed.List.class.getName()),
+            DotName.createSimple(Authenticated.class.getName()),
+            DotName.createSimple(DenyAll.class.getName()),
+            DotName.createSimple(PermitAll.class.getName()));
 
-    static {
-        SECURITY_ANNOTATIONS = new HashSet<>();
-        // keep the contents the same as in io.quarkus.security.deployment.SecurityAnnotationsRegistrar
-        SECURITY_ANNOTATIONS.addAll(asList(
-                DotName.createSimple(RolesAllowed.class.getName()),
-                DotName.createSimple(Authenticated.class.getName()),
-                DotName.createSimple(DenyAll.class.getName()),
-                DotName.createSimple(PermitAll.class.getName())));
+    private SecurityTransformerUtils() {
+        // utils
     }
 
     public static boolean hasSecurityAnnotation(MethodInfo methodInfo) {
-        for (AnnotationInstance annotation : methodInfo.annotations()) {
-            if (SECURITY_ANNOTATIONS.contains(annotation.name())) {
-                return true;
-            }
-        }
-
-        return false;
+        return findFirstStandardSecurityAnnotation(methodInfo).isPresent();
     }
 
     public static boolean hasSecurityAnnotation(ClassInfo classInfo) {
-        for (AnnotationInstance classAnnotation : classInfo.classAnnotations()) {
-            if (SECURITY_ANNOTATIONS.contains(classAnnotation.name())) {
-                return true;
+        return findFirstStandardSecurityAnnotation(classInfo).isPresent();
+    }
+
+    public static boolean hasSecurityAnnotation(Collection<AnnotationInstance> instances) {
+        return findFirstStandardSecurityAnnotation(instances).isPresent();
+    }
+
+    public static boolean isStandardSecurityAnnotation(AnnotationInstance annotationInstance) {
+        return SECURITY_ANNOTATIONS.contains(annotationInstance.name());
+    }
+
+    public static Optional<AnnotationInstance> findFirstStandardSecurityAnnotation(MethodInfo methodInfo) {
+        return findFirstStandardSecurityAnnotation(methodInfo.annotations());
+    }
+
+    public static Optional<AnnotationInstance> findFirstStandardSecurityAnnotation(ClassInfo classInfo) {
+        return findFirstStandardSecurityAnnotation(classInfo.declaredAnnotations());
+    }
+
+    public static Optional<AnnotationInstance> findFirstStandardSecurityAnnotation(Collection<AnnotationInstance> instances) {
+        for (AnnotationInstance instance : instances) {
+            if (SECURITY_ANNOTATIONS.contains(instance.name())) {
+                return Optional.of(instance);
             }
         }
-
-        return false;
+        return Optional.empty();
     }
+
 }

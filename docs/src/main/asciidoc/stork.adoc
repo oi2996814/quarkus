@@ -5,8 +5,10 @@ https://github.com/quarkusio/quarkus/tree/main/docs/src/main/asciidoc
 ////
 = Getting Started with SmallRye Stork
 :extension-status: preview
-
 include::_attributes.adoc[]
+:categories: cloud
+:topics: service-discovery,load-balancing,stork
+:extensions: io.quarkus:quarkus-smallrye-stork
 
 The essence of distributed systems resides in the interaction between services.
 In modern architecture, you often have multiple instances of your service to share the load or improve the resilience by redundancy.
@@ -48,7 +50,7 @@ However, you can go right to the completed example.
 
 Clone the Git repository: `git clone {quickstarts-clone-url}`, or download an {quickstarts-archive-url}[archive].
 
-The solution is located in the `stork-quickstart` {quickstarts-tree-url}/stork-quickstart[directory].
+The solution is located in the `stork-quickstart` link:{quickstarts-tree-url}/stork-quickstart[directory].
 
 == Discovery and selection
 
@@ -68,10 +70,10 @@ image::stork-process.png[Discovery and Selection of services,width=50%, align=ce
 
 == Bootstrapping the project
 
-Create a Quarkus project importing the quarkus-rest-client-reactive and quarkus-resteasy-reactive extensions using your favorite approach:
+Create a Quarkus project importing the quarkus-rest-client and quarkus-rest extensions using your favorite approach:
 
 :create-app-artifact-id: stork-quickstart
-:create-app-extensions: quarkus-rest-client-reactive,quarkus-resteasy-reactive
+:create-app-extensions: quarkus-rest-client,quarkus-rest
 include::{includes}/devtools/create-app.adoc[]
 
 In the generated project, also add the following dependencies:
@@ -113,8 +115,8 @@ import io.quarkus.runtime.StartupEvent;
 import io.vertx.mutiny.core.Vertx;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 
 @ApplicationScoped
 public class BlueService {
@@ -148,8 +150,8 @@ import io.quarkus.runtime.StartupEvent;
 import io.vertx.mutiny.core.Vertx;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 
 @ApplicationScoped
 public class RedService {
@@ -190,8 +192,8 @@ import io.vertx.ext.consul.ConsulClientOptions;
 import io.vertx.mutiny.core.Vertx;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 
 @ApplicationScoped
 public class Registration {
@@ -225,7 +227,7 @@ Both registration uses the same name (`my-service`), but different ids to indica
 
 So far, we didn't use Stork; we just scaffolded the services we will be discovering, selecting, and calling.
 
-We will call the services using the Reactive REST Client.
+We will call the services using the REST Client.
 Create the `src/main/java/org/acme/MyService.java` file with the following content:
 
 [source, java]
@@ -234,9 +236,9 @@ package org.acme;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 /**
  * The REST Client interface.
@@ -269,10 +271,10 @@ package org.acme;
 
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
 /**
  * A frontend API using our REST Client (which uses Stork to locate and select the service instance on each call).
@@ -294,7 +296,8 @@ public class FrontendApi {
 It injects and uses the REST client as usual.
 
 == Stork Filter
-The `baseUri` configured in the REST client will be processed by `StorkClientRequestFilter` class, this is a https://quarkus.io/specs/jaxrs/2.1/index.html#filters[JAX-RS filter].
+
+The `baseUri` configured in the REST client will be processed by `StorkClientRequestFilter` class, this is a https://quarkus.io/specs/jaxrs/2.1/index.html#filters[Jakarta REST filter].
 If you need to process the metadata associated with a message: HTTP headers, query parameters, media type, and other metadata, you can implement another filter to configure what you need.
 Let’s implement a custom filter to add logging capability to our service. We create `CustomLoggingFilter` and annotating it with the @Provider annotation:
 
@@ -307,7 +310,7 @@ import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.client.spi.ResteasyReactiveClientRequestContext;
 import org.jboss.resteasy.reactive.client.spi.ResteasyReactiveClientRequestFilter;
 
-import javax.ws.rs.ext.Provider;
+import jakarta.ws.rs.ext.Provider;
 
 @Provider
 public class CustomLoggingFilter implements ResteasyReactiveClientRequestFilter {

@@ -4,13 +4,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
@@ -22,29 +21,26 @@ import org.keycloak.representations.idm.UserRepresentation;
 @Path("/admin-client")
 public class AdminClientResource {
 
-    @ConfigProperty(name = "admin-url")
-    String url;
-
     @Inject
     Keycloak keycloak;
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
     @Path("realm")
-    public RealmRepresentation getRealm() {
-        return keycloak.realm("quarkus").toRepresentation();
+    public String getRealm() {
+        return keycloak.realm("quarkus").toRepresentation().getRealm();
     }
 
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
     @Path("newrealm")
-    public RealmRepresentation createRealm() {
+    public String createRealm() {
         RealmRepresentation newRealm = createRealm("quarkus2");
 
         newRealm.getClients().add(createClient("quarkus-app2"));
         newRealm.getUsers().add(createUser("alice", "user"));
         keycloak.realms().create(newRealm);
-        return keycloak.realm("quarkus2").toRepresentation();
+        return keycloak.realm("quarkus2").toRepresentation().getRealm();
     }
 
     private static RealmRepresentation createRealm(String name) {

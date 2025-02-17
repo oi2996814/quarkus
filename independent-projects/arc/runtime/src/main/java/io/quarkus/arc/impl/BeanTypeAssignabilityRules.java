@@ -42,6 +42,9 @@ class BeanTypeAssignabilityRules {
     }
 
     private boolean matchesNoBoxing(Type requiredType, Type beanType) {
+        if (Types.isArray(requiredType) && Types.isArray(beanType)) {
+            return matchesNoBoxing(Types.getArrayComponentType(requiredType), Types.getArrayComponentType(beanType));
+        }
         if (requiredType instanceof Class<?>) {
             if (beanType instanceof Class<?>) {
                 return matches((Class<?>) requiredType, (Class<?>) beanType);
@@ -183,7 +186,7 @@ class BeanTypeAssignabilityRules {
      * Standard Java covariant assignability rules are applied to all other types of bounds.
      * This is not explicitly mentioned in the specification but is implied.
      */
-    Type[] getUppermostTypeVariableBounds(TypeVariable<?> bound) {
+    static Type[] getUppermostTypeVariableBounds(TypeVariable<?> bound) {
         if (bound.getBounds()[0] instanceof TypeVariable<?>) {
             return getUppermostTypeVariableBounds((TypeVariable<?>) bound.getBounds()[0]);
         }

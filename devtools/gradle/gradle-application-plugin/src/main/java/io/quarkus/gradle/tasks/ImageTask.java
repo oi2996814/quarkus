@@ -1,16 +1,23 @@
 
 package io.quarkus.gradle.tasks;
 
-import java.util.Map;
+import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.api.tasks.TaskAction;
 
-public abstract class ImageTask extends QuarkusBuildProviderTask {
+public abstract class ImageTask extends QuarkusBuildTask {
 
-    public ImageTask(QuarkusBuildConfiguration buildConfiguration, String description) {
-        super(buildConfiguration, description);
+    ImageTask(String description, boolean compatible) {
+        super(description, compatible);
     }
 
-    @Override
-    public Map<String, String> forcedProperties() {
-        return Map.of("quarkus.container-image.build", "true");
+    @InputFile
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract RegularFileProperty getBuilderName();
+
+    @TaskAction
+    public void imageTask() {
     }
 }

@@ -2,11 +2,10 @@ package io.quarkus.jackson.deployment;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
-import java.time.zone.ZoneRulesException;
 import java.util.Date;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -15,6 +14,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.quarkus.test.QuarkusUnitTest;
+import io.smallrye.config.ConfigValidationException;
 
 public class JacksonErroneousTimeZonePropertiesTest {
 
@@ -22,7 +22,7 @@ public class JacksonErroneousTimeZonePropertiesTest {
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .withApplicationRoot((jar) -> jar.addClasses(Pojo.class, SomeBean.class))
             .withConfigurationResource("application-erroneous-timezone-properties.properties")
-            .setExpectedException(ZoneRulesException.class);
+            .setExpectedException(ConfigValidationException.class);
 
     @Test
     public void test() {

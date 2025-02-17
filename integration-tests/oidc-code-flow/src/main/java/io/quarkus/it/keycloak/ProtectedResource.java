@@ -3,14 +3,14 @@ package io.quarkus.it.keycloak;
 import java.security.Principal;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-import javax.ws.rs.CookieParam;
-import javax.ws.rs.GET;
-import javax.ws.rs.InternalServerErrorException;
-import javax.ws.rs.Path;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.SecurityContext;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.CookieParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.InternalServerErrorException;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.SecurityContext;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
@@ -19,11 +19,13 @@ import io.quarkus.oidc.IdToken;
 import io.quarkus.oidc.IdTokenCredential;
 import io.quarkus.oidc.OIDCException;
 import io.quarkus.oidc.OidcConfigurationMetadata;
+import io.quarkus.oidc.OidcProviderClient;
 import io.quarkus.oidc.RefreshToken;
 import io.quarkus.oidc.UserInfo;
 import io.quarkus.oidc.common.runtime.OidcConstants;
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.security.runtime.SecurityIdentityAssociation;
 import io.vertx.ext.web.RoutingContext;
 
 @Path("/web-app")
@@ -32,6 +34,9 @@ public class ProtectedResource {
 
     @Inject
     SecurityIdentity identity;
+
+    @Inject
+    SecurityIdentityAssociation securityIdentityAssociation;
 
     @Inject
     Principal principal;
@@ -53,6 +58,9 @@ public class ProtectedResource {
     AccessTokenCredential accessTokenCredential;
 
     @Inject
+    OidcProviderClient oidcProviderClient;
+
+    @Inject
     RefreshToken refreshToken;
 
     @Inject
@@ -68,13 +76,15 @@ public class ProtectedResource {
     @Path("test-security")
     public String testSecurity() {
         return securityContext.getUserPrincipal().getName() + ":" + identity.getPrincipal().getName() + ":"
-                + principal.getName();
+                + principal.getName() + ":"
+                + securityIdentityAssociation.getDeferredIdentity().await().indefinitely().getPrincipal().getName();
     }
 
     @GET
     @Path("test-security-oidc")
     public String testSecurityJwt() {
         return idToken.getName() + ":" + identity.getPrincipal().getName() + ":" + principal.getName()
+                + ":" + securityIdentityAssociation.getDeferredIdentity().await().indefinitely().getPrincipal().getName()
                 + ":" + idToken.getGroups().iterator().next()
                 + ":" + idToken.getClaim("email")
                 + ":" + userInfo.getString("sub")
@@ -183,7 +193,13 @@ public class ProtectedResource {
             throw new OIDCException("Access token values are not equal");
         }
 
-        return accessToken.getRawToken() != null && !accessToken.getRawToken().isEmpty() ? "AT injected" : "no access";
+        return accessToken.getRawToken() != null && !accessToken.getRawToken().isEmpty()
+                ? "AT injected, active: " + isTokenActive()
+                : "no access";
+    }
+
+    private boolean isTokenActive() {
+        return oidcProviderClient.introspectAccessToken(accessTokenCredential.getToken()).await().indefinitely().isActive();
     }
 
     @GET
@@ -260,6 +276,12 @@ public class ProtectedResource {
     @GET
     @Path("refresh/tenant-listener")
     public String getRefreshTokenTenantListener() {
+        throw new InternalServerErrorException("This method must not be invoked");
+    }
+
+    @GET
+    @Path("refresh/tenant-listener/callback")
+    public String getRefreshTokenTenantListenerCallback() {
         return getRefreshToken();
     }
 

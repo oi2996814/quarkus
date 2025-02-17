@@ -3,7 +3,7 @@ package io.quarkus.resteasy.links.runtime.hal;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.enterprise.context.RequestScoped;
+import jakarta.enterprise.context.RequestScoped;
 
 import org.jboss.resteasy.links.LinksProvider;
 import org.jboss.resteasy.links.RESTServiceDiscovery;
@@ -29,7 +29,7 @@ public class ResteasyHalService extends HalService {
     private Map<String, HalLink> linksToMap(RESTServiceDiscovery serviceDiscovery) {
         Map<String, HalLink> links = new HashMap<>(serviceDiscovery.size());
         for (RESTServiceDiscovery.AtomLink atomLink : serviceDiscovery) {
-            links.put(atomLink.getRel(), new HalLink(atomLink.getHref()));
+            links.put(atomLink.getRel(), new HalLink(atomLink.getHref(), atomLink.getTitle(), atomLink.getType()));
         }
         return links;
     }

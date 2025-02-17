@@ -2,9 +2,11 @@ package io.quarkus.it.micrometer.prometheus;
 
 import java.util.List;
 
-import javax.transaction.Transactional;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+
+import org.jboss.resteasy.reactive.RestResponse;
 
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.smallrye.common.annotation.Blocking;
@@ -26,9 +28,13 @@ public class FruitResource {
 
     @GET
     @Path("all")
-    public void retrieveAll() {
+    public RestResponse<Object> retrieveAll() {
         PanacheQuery<Fruit> query = Fruit.find(
                 "select name from Fruit");
         List<Fruit> all = query.list();
+
+        return RestResponse.ResponseBuilder.noContent()
+                .header("foo-response", "value")
+                .build();
     }
 }

@@ -33,11 +33,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.quarkus.bootstrap.resolver.maven.BootstrapMavenContext;
 import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
+import uk.org.webcompere.systemstubs.environment.EnvironmentVariables;
+import uk.org.webcompere.systemstubs.jupiter.SystemStub;
+import uk.org.webcompere.systemstubs.jupiter.SystemStubsExtension;
 
+@ExtendWith(SystemStubsExtension.class)
 class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
+
+    @SystemStub
+    private EnvironmentVariables environment;
 
     private static final boolean RESOLVE_OFFLINE = true;
     // Test resources end up in target/test-classes after filtering
@@ -46,6 +54,8 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
     @BeforeEach
     public void setup() throws Exception {
         super.setUp();
+        // Make sure that we don't have the GITHUB_REPOSITORY environment variable masking what this mojo does
+        environment.set("GITHUB_REPOSITORY", null);
     }
 
     @AfterEach
@@ -82,6 +92,7 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
     @Test
     public void shouldCreateMetadata()
             throws Exception {
+
         ExtensionDescriptorMojo mojo = makeMojo("simple-pom-with-checks-disabled");
         File yamlFile = getGeneratedExtensionMetadataFile(mojo.project.getBasedir(),
                 "target/classes/META-INF/quarkus-extension.yaml");
@@ -97,11 +108,29 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
         assertYamlContains(fileContents, "name", "an arbitrary name");
         assertYamlContains(fileContents, "artifact", "io.quackiverse:test-artifact::jar:1.4.2-SNAPSHOT");
 
-        // From maven this property should be set, running in an IDE it won't be unless specially configured
-        if (System.getenv("GITHUB_REPOSITORY") != null) {
-            // Lazily test that the scm is there but is an object
-            assertYamlContains(fileContents, "scm-url", "https://github.com/some/repo");
+        assertYamlContains(fileContents, "scm-url", "https://github.com/from/pom");
+
+    }
+
+    @Test
+    public void shouldReadLocalParentsForScmInfo()
+            throws Exception {
+
+        ExtensionDescriptorMojo mojo = makeMojo("simple-pom-with-checks-disabled-and-local-parent/child");
+        File yamlFile = getGeneratedExtensionMetadataFile(mojo.project.getBasedir(),
+                "target/classes/META-INF/quarkus-extension.yaml");
+
+        // Tidy up any artifacts from previous runs
+        if (yamlFile.exists()) {
+            Files.delete(yamlFile.toPath());
         }
+        mojo.execute();
+        assertTrue(yamlFile.exists());
+
+        String fileContents = readFileAsString(yamlFile);
+        assertYamlContains(fileContents, "artifact", "io.quackiverse:test-artifact-child::jar:1.4.2-SNAPSHOT");
+
+        assertYamlContains(fileContents, "scm-url", "https://github.com/from/parent");
 
     }
 
@@ -113,7 +142,9 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
         mavenExecPom("fake-extension-runtime");
         mavenExecPom("fake-extension-deployment");
 
-        ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime");
+        // The test extension, by design, resolves dependencies of an older (and outside the main project) Quarkus version
+        // Usually it builds fine, even offline, but we cannot count on everything being already downloaded, especially
+        ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime", false);
         mojo.execute();
 
     }
@@ -127,7 +158,7 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
         mavenExecPom("fake-extension-deployment");
 
         Exception thrown = Assertions.assertThrows(MojoExecutionException.class, () -> {
-            ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime-with-missing-dependencies");
+            ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime-with-missing-dependencies", false);
             mojo.execute();
         });
         assertTrue("Message format does not match expectations: \n" + thrown.getMessage(),
@@ -149,7 +180,7 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
         mavenExecPom("fake-extension-deployment");
 
         Exception thrown = Assertions.assertThrows(MojoExecutionException.class, () -> {
-            ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime-with-missing-dependencies");
+            ExtensionDescriptorMojo mojo = makeMojo("fake-extension-runtime-with-missing-dependencies", false);
             mojo.execute();
         });
         String message = thrown.getMessage();
@@ -203,6 +234,10 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
     }
 
     private ExtensionDescriptorMojo makeMojo(String dirName) throws Exception {
+        return makeMojo(dirName, RESOLVE_OFFLINE);
+    }
+
+    private ExtensionDescriptorMojo makeMojo(String dirName, boolean resolveOffline) throws Exception {
         File basedir = getTestFile(TEST_RESOURCES + dirName);
         File pom = new File(basedir, "pom.xml");
 
@@ -216,12 +251,13 @@ class ExtensionDescriptorMojoTest extends AbstractMojoTestCase {
         final MavenArtifactResolver mvn = new MavenArtifactResolver(
                 new BootstrapMavenContext(BootstrapMavenContext.config()
                         .setCurrentProject(pom.getAbsolutePath())
-                        .setOffline(RESOLVE_OFFLINE)));
+                        .setOffline(resolveOffline)));
 
         ExtensionDescriptorMojo mojo = (ExtensionDescriptorMojo) lookupConfiguredMojo(session,
                 newMojoExecution("extension-descriptor"));
         mojo.repoSystem = mvn.getSystem();
         mojo.repoSession = mvn.getSession();
+        mojo.workspaceProvider = BootstrapWorkspaceProvider.newInstance(basedir.getAbsolutePath());
         return mojo;
     }
 

@@ -1,21 +1,23 @@
 package io.quarkus.cache.test.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.lang.reflect.Method;
 import java.math.BigInteger;
 import java.security.SecureRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Dependent;
-import javax.enterprise.context.RequestScoped;
-import javax.enterprise.context.control.ActivateRequestContext;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.context.control.ActivateRequestContext;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -54,6 +56,7 @@ public class CacheKeyGeneratorTest {
         BigInteger value4 = cachedService.cachedMethod2();
         assertSame(value3, value4);
 
+        // Invalidate "cauliflower" and "CompositeCacheKey("asparagus", OBJECT)" entries
         cachedService.invalidate1(CAULIFLOWER, OBJECT);
 
         String value5 = cachedService.cachedMethod1(OBJECT, /* Not used */ null);
@@ -73,6 +76,10 @@ public class CacheKeyGeneratorTest {
 
         Object value9 = cachedService.cachedMethod3(/* Not used */ null, /* Not used */ null);
         assertNotSame(value8, value9);
+
+        assertFalse(SingletonKeyGen.DESTROYED.get());
+        assertFalse(ApplicationScopedKeyGen.DESTROYED.get());
+        assertFalse(RequestScopedKeyGen.DESTROYED.get());
     }
 
     @ApplicationScoped
@@ -114,6 +121,8 @@ public class CacheKeyGeneratorTest {
     @Singleton
     public static class SingletonKeyGen implements CacheKeyGenerator {
 
+        static final AtomicBoolean DESTROYED = new AtomicBoolean();
+
         @ConfigProperty(name = "cache-key-element")
         String cacheKeyElement;
 
@@ -121,10 +130,17 @@ public class CacheKeyGeneratorTest {
         public Object generate(Method method, Object... methodParams) {
             return new CompositeCacheKey(cacheKeyElement, methodParams[0]);
         }
+
+        @PreDestroy
+        void preDestroy() {
+            DESTROYED.set(true);
+        }
     }
 
     @ApplicationScoped
     public static class ApplicationScopedKeyGen implements CacheKeyGenerator {
+
+        static final AtomicBoolean DESTROYED = new AtomicBoolean();
 
         @Inject
         CachedService cachedService;
@@ -133,14 +149,26 @@ public class CacheKeyGeneratorTest {
         public Object generate(Method method, Object... methodParams) {
             return new CompositeCacheKey(method.getName(), cachedService.getCauliflower());
         }
+
+        @PreDestroy
+        void preDestroy() {
+            DESTROYED.set(true);
+        }
     }
 
     @RequestScoped
     public static class RequestScopedKeyGen implements CacheKeyGenerator {
 
+        static final AtomicBoolean DESTROYED = new AtomicBoolean();
+
         @Override
         public Object generate(Method method, Object... methodParams) {
             return new CompositeCacheKey(ASPARAGUS, methodParams[1]);
+        }
+
+        @PreDestroy
+        void preDestroy() {
+            DESTROYED.set(true);
         }
     }
 

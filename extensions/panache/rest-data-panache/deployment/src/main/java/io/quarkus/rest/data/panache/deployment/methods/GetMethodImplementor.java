@@ -1,9 +1,11 @@
 package io.quarkus.rest.data.panache.deployment.methods;
 
 import static io.quarkus.gizmo.MethodDescriptor.ofMethod;
-import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.ofType;
+import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.param;
+import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.responseType;
+import static io.quarkus.rest.data.panache.deployment.utils.SignatureMethodCreator.uniType;
 
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response;
 
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.gizmo.BranchResult;
@@ -84,9 +86,8 @@ public final class GetMethodImplementor extends StandardMethodImplementor {
     protected void implementInternal(ClassCreator classCreator, ResourceMetadata resourceMetadata,
             ResourceProperties resourceProperties, FieldDescriptor resourceField) {
         MethodCreator methodCreator = SignatureMethodCreator.getMethodCreator(METHOD_NAME, classCreator,
-                isNotReactivePanache() ? ofType(Response.class) : ofType(Uni.class, resourceMetadata.getEntityType()),
-                resourceMetadata.getIdType());
-        methodCreator.setParameterNames(new String[] { "id" });
+                isNotReactivePanache() ? responseType() : uniType(resourceMetadata.getEntityType()),
+                param("id", resourceMetadata.getIdType()));
 
         // Add method annotations
         addPathAnnotation(methodCreator, appendToPath(resourceProperties.getPath(RESOURCE_METHOD_NAME), "{id}"));
@@ -97,7 +98,7 @@ public final class GetMethodImplementor extends StandardMethodImplementor {
         addSecurityAnnotations(methodCreator, resourceProperties);
 
         addPathParamAnnotation(methodCreator.getParameterAnnotations(0), "id");
-        addLinksAnnotation(methodCreator, resourceMetadata.getEntityType(), REL);
+        addLinksAnnotation(methodCreator, resourceProperties, resourceMetadata.getEntityType(), REL);
 
         ResultHandle resource = methodCreator.readInstanceField(resourceField, methodCreator.getThis());
         ResultHandle id = methodCreator.getMethodParam(0);

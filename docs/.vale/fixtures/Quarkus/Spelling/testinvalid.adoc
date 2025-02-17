@@ -14,7 +14,6 @@ dns
 dotnet
 endevor
 gluster
-gradle
 Graal VM
 graal vm
 gui
@@ -43,7 +42,6 @@ Nuget
 Oauth
 Omnisharp
 Openshift
-Opentracing
 php
 Postgresql
 postgres
@@ -60,5 +58,4 @@ velero
 webview
 webviews
 woopra
-yaml
 zowe

@@ -10,36 +10,30 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-import javax.annotation.PreDestroy;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.BeforeDestroyed;
-import javax.enterprise.event.Observes;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.Persistence;
+import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.Persistence;
 
 import org.jboss.logging.Logger;
 
-import io.quarkus.hibernate.orm.runtime.boot.RuntimePersistenceUnitDescriptor;
+import io.quarkus.arc.BeanDestroyer;
+import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDescriptor;
 
-@Singleton
 public class JPAConfig {
 
     private static final Logger LOGGER = Logger.getLogger(JPAConfig.class.getName());
 
     private final Map<String, LazyPersistenceUnit> persistenceUnits = new HashMap<>();
     private final Set<String> deactivatedPersistenceUnitNames = new HashSet<>();
+    private final boolean requestScopedSessionEnabled;
 
     @Inject
     public JPAConfig(HibernateOrmRuntimeConfig hibernateOrmRuntimeConfig) {
-        Map<String, HibernateOrmRuntimeConfigPersistenceUnit> puConfigMap = hibernateOrmRuntimeConfig
-                .getAllPersistenceUnitConfigsAsMap();
-        for (RuntimePersistenceUnitDescriptor descriptor : PersistenceUnitsHolder.getPersistenceUnitDescriptors()) {
+        for (QuarkusPersistenceUnitDescriptor descriptor : PersistenceUnitsHolder.getPersistenceUnitDescriptors()) {
             String puName = descriptor.getName();
-            var puConfig = puConfigMap.getOrDefault(descriptor.getConfigurationName(),
-                    new HibernateOrmRuntimeConfigPersistenceUnit());
-            if (puConfig.active.isPresent() && !puConfig.active.get()) {
+            var puConfig = hibernateOrmRuntimeConfig.persistenceUnits().get(descriptor.getConfigurationName());
+            if (puConfig.active().isPresent() && !puConfig.active().get()) {
                 LOGGER.infof("Hibernate ORM persistence unit '%s' was deactivated through configuration properties",
                         puName);
                 deactivatedPersistenceUnitNames.add(puName);
@@ -47,6 +41,7 @@ public class JPAConfig {
                 persistenceUnits.put(puName, new LazyPersistenceUnit(puName));
             }
         }
+        this.requestScopedSessionEnabled = hibernateOrmRuntimeConfig.requestScopedSessionEnabled();
     }
 
     void startAll() {
@@ -79,7 +74,8 @@ public class JPAConfig {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             } catch (ExecutionException e) {
-                throw new RuntimeException(e.getCause());
+                throw e.getCause() instanceof RuntimeException ? (RuntimeException) e.getCause()
+                        : new RuntimeException(e.getCause());
             }
         }
     }
@@ -127,24 +123,24 @@ public class JPAConfig {
     }
 
     /**
-     * Need to shut down all instances of Hibernate ORM before the actual destroy event,
-     * as it might need to use the datasources during shutdown.
-     *
-     * @param event ignored
+     * Returns boolean value for enabling request scoped sessions
      */
-    void destroy(@Observes @BeforeDestroyed(ApplicationScoped.class) Object event) {
-        for (LazyPersistenceUnit factory : persistenceUnits.values()) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                LOGGER.warn("Unable to close the EntityManagerFactory: " + factory, e);
-            }
-        }
+    public boolean getRequestScopedSessionEnabled() {
+        return this.requestScopedSessionEnabled;
     }
 
-    @PreDestroy
-    void destroy() {
-        persistenceUnits.clear();
+    public static class Destroyer implements BeanDestroyer<JPAConfig> {
+        @Override
+        public void destroy(JPAConfig instance, CreationalContext<JPAConfig> creationalContext, Map<String, Object> params) {
+            for (LazyPersistenceUnit factory : instance.persistenceUnits.values()) {
+                try {
+                    factory.close();
+                } catch (Exception e) {
+                    LOGGER.warn("Unable to close the EntityManagerFactory: " + factory, e);
+                }
+            }
+            instance.persistenceUnits.clear();
+        }
     }
 
     static final class LazyPersistenceUnit {

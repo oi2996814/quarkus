@@ -41,6 +41,7 @@ public class CORSFilterTest {
                 Optional.of(Collections.singletonList("/https://([a-z0-9\\-_]+)\\.app\\.mydomain\\.com/")));
         Assertions.assertEquals(regexList.size(), 1);
         Assertions.assertTrue(isOriginAllowedByRegex(regexList, "https://abc-123.app.mydomain.com"));
+        Assertions.assertFalse(isOriginAllowedByRegex(regexList, "https://abc-123app.mydomain.com"));
     }
 
     @Test
@@ -73,6 +74,17 @@ public class CORSFilterTest {
         Assertions.assertFalse(isSameOrigin(request, "http://localhost:8443"));
         Assertions.assertTrue(isSameOrigin(request, "https://localhost:8443"));
 
+    }
+
+    @Test
+    public void sameOriginPublicWebAddressTest() {
+        var request = Mockito.mock(HttpServerRequest.class);
+        Mockito.when(request.scheme()).thenReturn("https");
+        Mockito.when(request.host()).thenReturn("stage.code.quarkus.io");
+        Mockito.when(request.absoluteURI()).thenReturn("https://stage.code.quarkus.io/api/project");
+        Assertions.assertFalse(isSameOrigin(request, "http://localhost"));
+        Assertions.assertFalse(isSameOrigin(request, "https://code.quarkus.io"));
+        Assertions.assertTrue(isSameOrigin(request, "https://stage.code.quarkus.io"));
     }
 
     @Test

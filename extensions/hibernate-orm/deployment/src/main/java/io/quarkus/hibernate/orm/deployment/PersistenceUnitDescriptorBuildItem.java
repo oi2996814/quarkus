@@ -2,17 +2,17 @@ package io.quarkus.hibernate.orm.deployment;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-import org.hibernate.jpa.boot.internal.ParsedPersistenceXmlDescriptor;
-
 import io.quarkus.builder.item.MultiBuildItem;
-import io.quarkus.datasource.common.runtime.DataSourceUtil;
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
 import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDefinition;
+import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDescriptor;
 import io.quarkus.hibernate.orm.runtime.boot.xml.RecordableXmlMapping;
+import io.quarkus.hibernate.orm.runtime.customized.FormatMapperKind;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticDescriptor;
-import io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy;
+import io.quarkus.hibernate.orm.runtime.recording.RecordedConfig;
 
 /**
  * Not to be confused with PersistenceXmlDescriptorBuildItem, which holds
@@ -22,44 +22,31 @@ import io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy;
  */
 public final class PersistenceUnitDescriptorBuildItem extends MultiBuildItem {
 
-    private final ParsedPersistenceXmlDescriptor descriptor;
+    private final QuarkusPersistenceUnitDescriptor descriptor;
 
-    // The default PU in Hibernate Reactive is named "default-reactive" instead of "<default>",
-    // but everything related to configuration (e.g. getAllPersistenceUnitConfigsAsMap() still
-    // use the name "<default>", so we need to convert between those.
-    private final String configurationName;
-    private final Optional<String> dataSource;
-    private final MultiTenancyStrategy multiTenancyStrategy;
+    private final RecordedConfig config;
     private final String multiTenancySchemaDataSource;
     private final List<RecordableXmlMapping> xmlMappings;
-    private final Map<String, String> quarkusConfigUnsupportedProperties;
     private final boolean isReactive;
     private final boolean fromPersistenceXml;
+    private final boolean isHibernateValidatorPresent;
+    private final Optional<FormatMapperKind> jsonMapper;
+    private final Optional<FormatMapperKind> xmlMapper;
 
-    public PersistenceUnitDescriptorBuildItem(ParsedPersistenceXmlDescriptor descriptor, String configurationName,
+    public PersistenceUnitDescriptorBuildItem(QuarkusPersistenceUnitDescriptor descriptor,
+            RecordedConfig config,
+            String multiTenancySchemaDataSource,
             List<RecordableXmlMapping> xmlMappings,
-            Map<String, String> quarkusConfigUnsupportedProperties,
-            boolean isReactive, boolean fromPersistenceXml) {
-        this(descriptor, configurationName,
-                Optional.of(DataSourceUtil.DEFAULT_DATASOURCE_NAME), MultiTenancyStrategy.NONE, null,
-                xmlMappings, quarkusConfigUnsupportedProperties, isReactive, fromPersistenceXml);
-    }
-
-    public PersistenceUnitDescriptorBuildItem(ParsedPersistenceXmlDescriptor descriptor, String configurationName,
-            Optional<String> dataSource,
-            MultiTenancyStrategy multiTenancyStrategy, String multiTenancySchemaDataSource,
-            List<RecordableXmlMapping> xmlMappings,
-            Map<String, String> quarkusConfigUnsupportedProperties,
-            boolean isReactive, boolean fromPersistenceXml) {
+            boolean isReactive, boolean fromPersistenceXml, Capabilities capabilities) {
         this.descriptor = descriptor;
-        this.configurationName = configurationName;
-        this.dataSource = dataSource;
-        this.multiTenancyStrategy = multiTenancyStrategy;
+        this.config = config;
         this.multiTenancySchemaDataSource = multiTenancySchemaDataSource;
         this.xmlMappings = xmlMappings;
-        this.quarkusConfigUnsupportedProperties = quarkusConfigUnsupportedProperties;
         this.isReactive = isReactive;
         this.fromPersistenceXml = fromPersistenceXml;
+        this.isHibernateValidatorPresent = capabilities.isPresent(Capability.HIBERNATE_VALIDATOR);
+        this.jsonMapper = json(capabilities);
+        this.xmlMapper = xml(capabilities);
     }
 
     public Collection<String> getManagedClassNames() {
@@ -67,19 +54,19 @@ public final class PersistenceUnitDescriptorBuildItem extends MultiBuildItem {
     }
 
     public String getExplicitSqlImportScriptResourceName() {
-        return descriptor.getProperties().getProperty("javax.persistence.sql-load-script-source");
+        return descriptor.getProperties().getProperty("jakarta.persistence.sql-load-script-source");
     }
 
     public String getPersistenceUnitName() {
         return descriptor.getName();
     }
 
-    public Optional<String> getDataSource() {
-        return dataSource;
+    public String getConfigurationName() {
+        return descriptor.getConfigurationName();
     }
 
-    public MultiTenancyStrategy getMultiTenancyStrategy() {
-        return multiTenancyStrategy;
+    public RecordedConfig getConfig() {
+        return config;
     }
 
     public String getMultiTenancySchemaDataSource() {
@@ -90,10 +77,35 @@ public final class PersistenceUnitDescriptorBuildItem extends MultiBuildItem {
         return !xmlMappings.isEmpty();
     }
 
+    public boolean isFromPersistenceXml() {
+        return fromPersistenceXml;
+    }
+
+    public boolean isHibernateValidatorPresent() {
+        return isHibernateValidatorPresent;
+    }
+
     public QuarkusPersistenceUnitDefinition asOutputPersistenceUnitDefinition(
             List<HibernateOrmIntegrationStaticDescriptor> integrationStaticDescriptors) {
-        return new QuarkusPersistenceUnitDefinition(descriptor, configurationName, dataSource, multiTenancyStrategy,
-                xmlMappings,
-                quarkusConfigUnsupportedProperties, isReactive, fromPersistenceXml, integrationStaticDescriptors);
+        return new QuarkusPersistenceUnitDefinition(descriptor, config,
+                xmlMappings, isReactive, fromPersistenceXml, isHibernateValidatorPresent,
+                jsonMapper, xmlMapper, integrationStaticDescriptors);
+    }
+
+    private Optional<FormatMapperKind> json(Capabilities capabilities) {
+        if (capabilities.isPresent(Capability.JACKSON)) {
+            return Optional.of(FormatMapperKind.JACKSON);
+        }
+        if (capabilities.isPresent(Capability.JSONB)) {
+            return Optional.of(FormatMapperKind.JSONB);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<FormatMapperKind> xml(Capabilities capabilities) {
+        if (capabilities.isPresent(Capability.JAXB)) {
+            return Optional.of(FormatMapperKind.JAXB);
+        }
+        return Optional.empty();
     }
 }

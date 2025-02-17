@@ -1,12 +1,16 @@
 package io.quarkus.mongodb.panache.common.runtime;
 
 import java.lang.annotation.Annotation;
+import java.util.Optional;
+import java.util.function.Predicate;
 
-import javax.inject.Named;
+import jakarta.inject.Named;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InjectableBean;
+import io.quarkus.arc.InjectableInstance;
 import io.quarkus.arc.InstanceHandle;
+import io.quarkus.mongodb.panache.common.MongoDatabaseResolver;
 import io.quarkus.mongodb.panache.common.MongoEntity;
 import io.quarkus.mongodb.runtime.MongoClientBeanUtil;
 import io.quarkus.mongodb.runtime.MongoClientConfig;
@@ -58,15 +62,15 @@ public final class BeanUtils {
     public static String getDatabaseName(MongoEntity mongoEntity, String clientBeanName) {
         MongoClients mongoClients = Arc.container().instance(MongoClients.class).get();
         MongoClientConfig matchingMongoClientConfig = mongoClients.getMatchingMongoClientConfig(clientBeanName);
-        if (matchingMongoClientConfig.database.isPresent()) {
-            return matchingMongoClientConfig.database.get();
+        if (matchingMongoClientConfig.database().isPresent()) {
+            return matchingMongoClientConfig.database().get();
         }
 
         if (!clientBeanName.equals(MongoClientBeanUtil.DEFAULT_MONGOCLIENT_NAME)) {
             MongoClientConfig defaultMongoClientConfig = mongoClients
                     .getMatchingMongoClientConfig(MongoClientBeanUtil.DEFAULT_MONGOCLIENT_NAME);
-            if (defaultMongoClientConfig.database.isPresent()) {
-                return defaultMongoClientConfig.database.get();
+            if (defaultMongoClientConfig.database().isPresent()) {
+                return defaultMongoClientConfig.database().get();
             }
         }
 
@@ -81,5 +85,13 @@ public final class BeanUtils {
         throw new IllegalArgumentException(String.format(
                 "The database attribute was not set for the @MongoEntity annotation neither was the database property configured for the named Mongo Client (via 'quarkus.mongodb.%s.database')",
                 mongoEntity.clientName()));
+    }
+
+    public static Optional<String> getDatabaseNameFromResolver() {
+        return Optional.of(Arc.container().select(MongoDatabaseResolver.class))
+                .filter(Predicate.not(InjectableInstance::isUnsatisfied))
+                .map(InjectableInstance::get)
+                .map(MongoDatabaseResolver::resolve)
+                .filter(Predicate.not(String::isBlank));
     }
 }

@@ -4,7 +4,7 @@ import java.security.Principal;
 import java.util.Map;
 import java.util.Optional;
 
-import javax.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPEvent;
 
@@ -27,7 +27,7 @@ final public class DefaultLambdaIdentityProvider implements IdentityProvider<Def
     public Uni<SecurityIdentity> authenticate(DefaultLambdaAuthenticationRequest request,
             AuthenticationRequestContext context) {
         APIGatewayV2HTTPEvent event = request.getEvent();
-        SecurityIdentity identity = authenticate(event, LambdaHttpRecorder.config.mapCognitoToRoles);
+        SecurityIdentity identity = authenticate(event, LambdaHttpRecorder.config.mapCognitoToRoles());
         if (identity == null) {
             return Uni.createFrom().optional(Optional.empty());
         }

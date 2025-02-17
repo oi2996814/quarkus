@@ -1,13 +1,14 @@
 package io.quarkus.it.resteasy.mutiny;
 
 import java.io.IOException;
+import java.util.concurrent.Flow;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.resteasy.reactive.RestStreamElementType;
@@ -63,6 +64,14 @@ public class MutinyResource {
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     public Multi<Pet> sse() {
+        return service.getMorePets();
+    }
+
+    @GET
+    @Path("/pets/flow")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    @RestStreamElementType(MediaType.APPLICATION_JSON)
+    public Flow.Publisher<Pet> sseFlow() {
         return service.getMorePets();
     }
 

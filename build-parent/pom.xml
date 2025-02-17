@@ -3,9 +3,10 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>quarkus-parent</artifactId>
         <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-project</artifactId>
         <version>999-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -18,130 +19,108 @@
         <!-- Maven plugin versions -->
 
         <!-- These properties are needed in order for them to be resolvable by the generated projects -->
-        <!-- Quarkus uses jboss-parent and it comes with 3.8.1-jboss-1, we don't want that in the templates -->
-        <compiler-plugin.version>3.10.1</compiler-plugin.version>
-        <kotlin.version>1.7.22</kotlin.version>
-        <dokka.version>1.7.20</dokka.version>
-        <scala.version>2.13.8</scala.version>
-        <scala-maven-plugin.version>4.8.0</scala-maven-plugin.version>
+        <compiler-plugin.version>${version.compiler.plugin}</compiler-plugin.version>
+        <kotlin.version>2.0.21</kotlin.version>
+        <dokka.version>2.0.0</dokka.version>
+        <scala.version>2.13.12</scala.version>
+        <scala-maven-plugin.version>4.9.2</scala-maven-plugin.version>
         <!-- not pretty but this is used in the codestarts and we don't want to break compatibility -->
         <scala-plugin.version>${scala-maven-plugin.version}</scala-plugin.version>
-
-        <!-- version.* properties are defined in jboss-parent and are overridden/updated here: -->
-        <version.enforcer.plugin>3.0.0-M3</version.enforcer.plugin>
-        <version.surefire.plugin>3.0.0-M7</version.surefire.plugin>
-        <version.exec.plugin>3.0.0</version.exec.plugin>
-        <failsafe-plugin.version>${version.surefire.plugin}</failsafe-plugin.version>
+        <jboss-bridger-plugin.version>1.6.Final</jboss-bridger-plugin.version>
 
         <!-- Jandex versions -->
-        <jandex.version>3.0.5</jandex.version>
+        <jandex.version>3.2.7</jandex.version>
         <jandex-gradle-plugin.version>1.0.0</jandex-gradle-plugin.version>
 
-        <asciidoctorj.version>2.5.7</asciidoctorj.version>
-        <htmlunit.version>2.40.0</htmlunit.version>
-        <javaparser-core.version>3.24.2</javaparser-core.version>
+        <asciidoctorj.version>2.5.13</asciidoctorj.version>
+        <htmlunit.version>4.9.0</htmlunit.version>
+        <javaparser-core.version>3.26.3</javaparser-core.version>
         <jdeparser.version>2.0.3.Final</jdeparser.version>
-        <subethasmtp.version>5.2.8</subethasmtp.version>
+        <subethasmtp.version>6.0.1</subethasmtp.version>
 
         <!-- Dev tools -->
-        <freemarker.version>2.3.31</freemarker.version>
-        <commonmark.version>0.21.0</commonmark.version>
+        <freemarker.version>2.3.34</freemarker.version>
+        <commonmark.version>0.24.0</commonmark.version>
 
         <!-- Arquillian BOM -->
-        <arquillian.version>1.7.0.Alpha10</arquillian.version>
+        <arquillian.version>1.7.0.Final</arquillian.version>
 
         <!-- Enable APT by default for Eclipse -->
         <m2e.apt.activation>jdt_apt</m2e.apt.activation>
 
+        <!-- These 2 properties are used in catalog-overrides.json -->
+        <minimum-java-version>${maven.compiler.release}</minimum-java-version>
+        <recommended-java-version>21</recommended-java-version>
+
         <!--
         Supported Maven versions, interpreted as a version range (Also defined in quarkus-enforcer-rules)
          -->
-        <supported-maven-versions>[3.6.2,)</supported-maven-versions>
+        <!-- TODO: once we can upgrade the minimum Maven version to use for Quarkus projects, let's use ${maven.min.version} again -->
+        <supported-maven-versions>[3.8.6,)</supported-maven-versions>
 
         <!-- These 2 properties are used by CreateProjectMojo to add the Maven Wrapper -->
-        <proposed-maven-version>3.8.6</proposed-maven-version>
-        <maven-wrapper.version>3.1.1</maven-wrapper.version>
-        <gradle-wrapper.version>7.5.1</gradle-wrapper.version>
+        <proposed-maven-version>3.9.9</proposed-maven-version>
+        <maven-wrapper.version>3.3.2</maven-wrapper.version>
+        <gradle-wrapper.version>8.12</gradle-wrapper.version>
         <quarkus-gradle-plugin.version>${project.version}</quarkus-gradle-plugin.version>
         <quarkus-maven-plugin.version>${project.version}</quarkus-maven-plugin.version>
+        <maven-plugin-plugin.version>3.8.1</maven-plugin-plugin.version>
 
         <!-- MicroProfile TCK versions used to be defined here but have moved to the concrete tck modules -->
-
-        <!-- Antlr 4 is used by the PanacheQL parser but also needs to match the requirements of Hibernate ORM 6.x-->
-        <antlr.version>4.10.1</antlr.version>
 
         <!-- SELinux access label, used when mounting local volumes into containers in tests -->
         <volume.access.modifier>:Z</volume.access.modifier>
 
         <!-- Defaults for integration tests -->
-        <elasticsearch-server.version>7.16.3</elasticsearch-server.version>
+        <elasticsearch-server.version>8.15.0</elasticsearch-server.version>
         <elasticsearch.image>docker.io/elastic/elasticsearch:${elasticsearch-server.version}</elasticsearch.image>
         <logstash.image>docker.io/elastic/logstash:${elasticsearch-server.version}</logstash.image>
         <kibana.image>docker.io/elastic/kibana:${elasticsearch-server.version}</kibana.image>
         <elasticsearch.protocol>http</elasticsearch.protocol>
-        <opensearch-server.version>1.2.3</opensearch-server.version>
+        <opensearch-server.version>2.16.0</opensearch-server.version>
         <opensearch.image>docker.io/opensearchproject/opensearch:${opensearch-server.version}</opensearch.image>
         <opensearch.protocol>http</opensearch.protocol>
+        <junit-pioneer.version>2.2.0</junit-pioneer.version>
 
         <!-- Database images for JDBC/Reactive/Hibernate tests and devservices -->
-        <postgres.image>docker.io/postgres:14</postgres.image>
-        <mariadb.image>docker.io/mariadb:10.6</mariadb.image>
-        <db2.image>docker.io/ibmcom/db2:11.5.7.0a</db2.image>
-        <mssql.image>mcr.microsoft.com/mssql/server:2019-latest</mssql.image>
-        <mysql.image>docker.io/mysql:8.0</mysql.image>
-        <oracle.image>docker.io/gvenzl/oracle-xe:21-slim-faststart</oracle.image>
-        <mongo.image>docker.io/mongo:4.4</mongo.image>
+        <postgres.image>docker.io/postgres:17</postgres.image>
+        <mariadb.image>docker.io/mariadb:10.11</mariadb.image>
+        <db2.image>icr.io/db2_community/db2:12.1.0.0</db2.image>
+        <mssql.image>mcr.microsoft.com/mssql/server:2022-latest</mssql.image>
+        <mysql.image>docker.io/mysql:8.4</mysql.image>
+        <oracle.image>docker.io/gvenzl/oracle-free:23-slim-faststart</oracle.image>
+        <mongo.image>docker.io/mongo:7.0</mongo.image>
 
         <!-- Align various dependencies that are not really part of the bom-->
         <junit4.version>4.13.2</junit4.version>
 
         <!-- The image to use for tests that run Keycloak -->
-        <!-- IMPORTANT: If this is changed you must also update bom/application/pom.xml and KeycloakBuildTimeConfig/DevServicesConfig in quarkus-oidc/deployment to match the version -->
-        <keycloak.version>20.0.1</keycloak.version>
+        <keycloak.server.version>26.0.7</keycloak.server.version>
         <keycloak.wildfly.version>19.0.3</keycloak.wildfly.version>
-        <keycloak.docker.image>quay.io/keycloak/keycloak:${keycloak.version}</keycloak.docker.image>
+        <keycloak.docker.image>quay.io/keycloak/keycloak:${keycloak.server.version}</keycloak.docker.image>
         <keycloak.docker.legacy.image>quay.io/keycloak/keycloak:${keycloak.wildfly.version}-legacy</keycloak.docker.legacy.image>
 
-        <unboundid-ldap.version>6.0.7</unboundid-ldap.version>
+        <unboundid-ldap.version>7.0.2</unboundid-ldap.version>
 
-        <assertj.version>3.23.1</assertj.version>
+        <assertj.version>3.27.3</assertj.version>
 
-        <wiremock-jre8.version>2.35.0</wiremock-jre8.version>
-        <wiremock-maven-plugin.version>7.2.0</wiremock-maven-plugin.version>
+        <wiremock.version>3.11.0</wiremock.version>
+        <wiremock-maven-plugin.version>7.3.0</wiremock-maven-plugin.version>
 
         <!-- Artemis test dependencies -->
-        <artemis.version>2.27.1</artemis.version>
+        <artemis.version>2.39.0</artemis.version>
 
         <!-- Code Coverage Properties-->
         <jacoco.agent.argLine></jacoco.agent.argLine>
-        <!-- Note: this version is also set in quarkus-bom but BOMs don't contribute to pluginManagement or properties -->
-        <jacoco.version>0.8.8</jacoco.version>
 
         <asciidoctor-maven-plugin.version>2.0.0</asciidoctor-maven-plugin.version>
-        <docker-maven-plugin.version>0.40.3</docker-maven-plugin.version>
-        <formatter-maven-plugin.version>2.21.0</formatter-maven-plugin.version>
-        <impsort-maven-plugin.version>1.8.0</impsort-maven-plugin.version>
-        <maven-invoker-plugin.version>3.2.2</maven-invoker-plugin.version>
-        <maven-resources-plugin.version>3.1.0</maven-resources-plugin.version>
-        <maven-dependency-plugin.version>3.1.2</maven-dependency-plugin.version>
-        <truststore-maven-plugin.version>3.0.0</truststore-maven-plugin.version>
-
-        <!-- Webjars used by the Dev UI -->
-        <webjar.bootstrap.version>4.6.2</webjar.bootstrap.version>
-        <webjar.bootstrap-multiselect.version>0.9.15</webjar.bootstrap-multiselect.version>
-        <webjar.bootstrap-icons.version>1.9.1</webjar.bootstrap-icons.version>
-        <webjar.font-awesome.version>6.2.0</webjar.font-awesome.version>
-        <webjar.jquery.version>3.6.1</webjar.jquery.version>
-        <webjar.codemirror.version>5.62.2</webjar.codemirror.version>
-        <!-- we don't add mermaid as a dependency as it brings a ton of things we don't use -->
-        <webjar.mermaid.version>9.1.1</webjar.mermaid.version>
-        <webjar.d3js.version>6.6.0</webjar.d3js.version>
-        <webjar.chartjs.version>3.7.1</webjar.chartjs.version>
+        <docker-maven-plugin.version>0.45.1</docker-maven-plugin.version>
+        <maven-invoker-plugin.version>3.9.0</maven-invoker-plugin.version>
 
         <!-- revapi API check -->
         <revapi-maven-plugin.version>0.14.7</revapi-maven-plugin.version>
         <revapi-java-plugin.version>0.26.1</revapi-java-plugin.version>
-        <build-helper-plugin.version>1.9.1</build-helper-plugin.version>
+        <build-helper-plugin.version>3.6.0</build-helper-plugin.version>
         <revapi-reporter-text.version>0.14.5</revapi-reporter-text.version>
         <revapi-reporter-json.version>0.4.5</revapi-reporter-json.version>
         <!-- Latest release to be used by api-compatibility-check to check backwards compatibility of the Quarkus API. -->
@@ -157,7 +136,7 @@
         <revapi.buildFailureMessage>Run "jbang revapi-update" to update api-changes.xml file and also add the justification for those changes in that file.</revapi.buildFailureMessage>
 
         <!-- Forbidden API checks -->
-        <forbiddenapis-maven-plugin.version>3.1</forbiddenapis-maven-plugin.version>
+        <forbiddenapis-maven-plugin.version>3.4</forbiddenapis-maven-plugin.version>
 
         <!-- platform properties - this is a floating tag -->
         <platform.quarkus.native.builder-image>mandrel</platform.quarkus.native.builder-image>
@@ -165,13 +144,23 @@
         <script.extension>sh</script.extension>
         <docker-prune.location>${maven.multiModuleProjectDirectory}/.github/docker-prune.${script.extension}</docker-prune.location>
 
-        <enforce-test-deps-scope.skip>${enforcer.skip}</enforce-test-deps-scope.skip>
-
         <surefire.argLine.additional></surefire.argLine.additional>
+        <failsafe.argLine.additional>${surefire.argLine.additional}</failsafe.argLine.additional>
         <os-maven-plugin.version>1.7.0</os-maven-plugin.version>
 
         <!-- google cloud functions invoker-->
-        <gcf-invoker.version>1.1.1</gcf-invoker.version>
+        <gcf-invoker.version>1.3.0</gcf-invoker.version>
+        <!-- Jakarta JMS API -->
+        <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
+
+        <!-- Quarkus Analytics -->
+        <properties-maven-plugin.version>1.1.0</properties-maven-plugin.version>
+        <quarkus.analytics.disabled>true</quarkus.analytics.disabled>
+
+        <!-- If PTS is enabled at the global level  -->
+        <develocity.pts.enabled>false</develocity.pts.enabled>
+        <!-- If PTS is active for specific modules -->
+        <develocity.pts.active>false</develocity.pts.active>
     </properties>
 
     <dependencyManagement>
@@ -225,6 +214,20 @@
             </dependency>
             <dependency>
                 <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-reactive-datasource-deployment</artifactId>
+                <version>${project.version}</version>
+                <scope>test</scope>
+                <type>test-jar</type>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-rest-deployment</artifactId>
+                <version>${project.version}</version>
+                <scope>test</scope>
+                <type>test-jar</type>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-war-launcher-runner</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -239,9 +242,9 @@
                 <version>${unboundid-ldap.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.github.tomakehurst</groupId>
-                <artifactId>wiremock-jre8-standalone</artifactId>
-                <version>${wiremock-jre8.version}</version>
+                <groupId>org.wiremock</groupId>
+                <artifactId>wiremock-standalone</artifactId>
+                <version>${wiremock.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.quarkus</groupId>
@@ -265,9 +268,20 @@
                 <scope>test</scope>
             </dependency>
             <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-arc-test-supplement</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.assertj</groupId>
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit-pioneer</groupId>
+                <artifactId>junit-pioneer</artifactId>
+                <version>${junit-pioneer.version}</version>
                 <scope>test</scope>
             </dependency>
 
@@ -284,7 +298,7 @@
             </dependency>
 
             <dependency>
-                <groupId>net.sourceforge.htmlunit</groupId>
+                <groupId>org.htmlunit</groupId>
                 <artifactId>htmlunit</artifactId>
                 <version>${htmlunit.version}</version>
                 <exclusions>
@@ -298,52 +312,10 @@
                     </exclusion>
                 </exclusions>
             </dependency>
-
-            <!-- Webjars for UI related -->
             <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>bootstrap</artifactId>
-                <version>${webjar.bootstrap.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>bootstrap-multiselect</artifactId>
-                <version>${webjar.bootstrap-multiselect.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars.npm</groupId>
-                <artifactId>bootstrap-icons</artifactId>
-                <version>${webjar.bootstrap-icons.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>font-awesome</artifactId>
-                <version>${webjar.font-awesome.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>jquery</artifactId>
-                <version>${webjar.jquery.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>codemirror</artifactId>
-                <version>${webjar.codemirror.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>d3js</artifactId>
-                <version>${webjar.d3js.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars</groupId>
-                <artifactId>chartjs</artifactId>
-                <version>${webjar.chartjs.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.webjars.npm</groupId>
-                <artifactId>mermaid</artifactId>
-                <version>${webjar.mermaid.version}</version>
+                <groupId>jakarta.jms</groupId>
+                <artifactId>jakarta.jms-api</artifactId>
+                <version>${jakarta.jms-api.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.github.davidmoten</groupId>
@@ -357,7 +329,6 @@
                 <groupId>org.apache.activemq</groupId>
                 <artifactId>artemis-server</artifactId>
                 <version>${artemis.version}</version>
-                <!-- Force the test scope as we want to make sure this is not used outside of tests -->
                 <scope>test</scope>
                 <exclusions>
                     <exclusion>
@@ -380,31 +351,28 @@
                         <groupId>commons-logging</groupId>
                         <artifactId>commons-logging</artifactId>
                     </exclusion>
-                    <!-- Excluding the API jar as the impl jar also contains the API -->
-                    <exclusion>
-                        <groupId>jakarta.json</groupId>
-                        <artifactId>jakarta.json-api</artifactId>
-                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.activemq</groupId>
                 <artifactId>artemis-amqp-protocol</artifactId>
                 <version>${artemis.version}</version>
-                <!-- Force the test scope as we want to make sure this is not used outside of tests -->
                 <scope>test</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>org.apache.activemq</groupId>
                         <artifactId>artemis-server</artifactId>
                     </exclusion>
-                    <!-- Excluding the API jar as the impl jar also contains the API -->
-                    <exclusion>
-                        <groupId>jakarta.json</groupId>
-                        <artifactId>jakarta.json-api</artifactId>
-                    </exclusion>
                 </exclusions>
             </dependency>
+
+            <dependency>
+                <groupId>io.smallrye.certs</groupId>
+                <artifactId>smallrye-certificate-generator-junit5</artifactId>
+                <version>${smallrye-certificate-generator.version}</version>
+                <scope>test</scope>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -428,9 +396,36 @@
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>properties-maven-plugin</artifactId>
+                    <version>${properties-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>set-system-properties</goal>
+                            </goals>
+                            <configuration>
+                                <properties>
+                                    <property>
+                                        <name>quarkus.analytics.disabled</name>
+                                        <value>${quarkus.analytics.disabled}</value>
+                                    </property>
+                                </properties>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>${version.surefire.plugin}</version>
                     <configuration>
+                        <properties>
+                            <predictiveSelection>
+                                <enabled>${develocity.pts.active}</enabled>
+                            </predictiveSelection>
+                        </properties>
                         <!-- combine.self suppresses warnings about java.io.tmpdir being defined twice -->
                         <systemPropertyVariables combine.self="override">
                             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
@@ -443,14 +438,19 @@
                         </systemPropertyVariables>
                         <!-- limit the amount of memory surefire can use, 1500m should be plenty-->
                         <!-- set tmpdir as early as possible because surefire sets it too late for JDK16 -->
-                        <argLine>${jacoco.agent.argLine} -Xmx1500m -XX:MaxMetaspaceSize=1500m -Djava.io.tmpdir="${project.build.directory}" ${surefire.argLine.additional}</argLine>
+                        <!-- the add-opens is here to allow to clear the propertiesCache in com.sun.naming.internal.ResourceManager -->
+                        <argLine>${jacoco.agent.argLine} -Xmx1500m -XX:MaxMetaspaceSize=1500m -Djava.io.tmpdir="${project.build.directory}" ${surefire.argLine.additional} --add-opens java.naming/com.sun.naming.internal=ALL-UNNAMED</argLine>
                         <excludedEnvironmentVariables>MAVEN_OPTS</excludedEnvironmentVariables>
                     </configuration>
                 </plugin>
                 <plugin>
                     <artifactId>maven-failsafe-plugin</artifactId>
-                    <version>${failsafe-plugin.version}</version>
                     <configuration>
+                        <properties>
+                            <predictiveSelection>
+                                <enabled>${develocity.pts.active}</enabled>
+                            </predictiveSelection>
+                        </properties>
                         <systemPropertyVariables>
                             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                             <maven.home>${maven.home}</maven.home>
@@ -461,14 +461,9 @@
                             <project.groupId>${project.groupId}</project.groupId>
                         </systemPropertyVariables>
                         <!-- set tmpdir as early as possible because failsafe sets it too late for JDK16 -->
-                        <argLine>-Djava.io.tmpdir="${project.build.directory}"</argLine>
+                        <argLine>-Djava.io.tmpdir="${project.build.directory}" ${failsafe.argLine.additional}</argLine>
                         <excludedEnvironmentVariables>MAVEN_OPTS</excludedEnvironmentVariables>
                     </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-dependency-plugin</artifactId>
-                    <version>${maven-dependency-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>io.quarkus</groupId>
@@ -502,76 +497,24 @@
                             <artifactId>quarkus-enforcer-rules</artifactId>
                             <version>${project.version}</version>
                         </dependency>
-                        <!-- This dependency can be removed when MENFORCER-422 is available -->
-                        <dependency>
-                            <groupId>com.github.gastaldi</groupId>
-                            <artifactId>enforcer-rules</artifactId>
-                            <version>0.0.1</version>
-                        </dependency>
                     </dependencies>
                     <executions>
                         <execution>
                             <id>enforce</id>
+                            <phase>${maven-enforcer-plugin.phase}</phase>
                             <configuration>
                                 <rules>
                                     <dependencyConvergence/>
                                     <externalRules>
-                                        <location>classpath:enforcer-rules/quarkus-require-java-version.xml</location>
-                                    </externalRules>
-                                    <externalRules>
-                                        <location>classpath:enforcer-rules/quarkus-require-maven-version.xml</location>
-                                    </externalRules>
-                                    <externalRules>
                                         <location>classpath:enforcer-rules/quarkus-banned-dependencies.xml</location>
                                     </externalRules>
+                                    <externalRules>
+                                        <location>classpath:enforcer-rules/quarkus-banned-dependencies-okhttp.xml</location>
+                                    </externalRules>
+                                    <externalRules>
+                                        <location>classpath:enforcer-rules/quarkus-banned-dependencies-test.xml</location>
+                                    </externalRules>
                                 </rules>
-                            </configuration>
-                            <goals>
-                                <goal>enforce</goal>
-                            </goals>
-                        </execution>
-                        <execution>
-                            <id>enforce-test-deps-scope</id>
-                            <configuration>
-                                <rules>
-                                    <bannedDependencies>
-                                        <excludes>
-                                            <exclude>io.quarkus:quarkus-test-*</exclude>
-                                            <exclude>io.rest-assured:*</exclude>
-                                            <exclude>org.assertj:*</exclude>
-                                            <exclude>junit:junit</exclude>
-                                        </excludes>
-                                        <includes>
-                                            <include>io.quarkus:quarkus-test-*:*:*:test</include>
-                                            <include>io.rest-assured:*:*:*:test</include>
-                                            <include>org.assertj:*:*:*:test</include>
-                                            <include>junit:junit:*:*:test</include>
-                                        </includes>
-                                        <message>Found test dependencies with wrong scope:</message>
-                                    </bannedDependencies>
-                                </rules>
-                                <skip>${enforce-test-deps-scope.skip}</skip>
-                            </configuration>
-                            <goals>
-                                <goal>enforce</goal>
-                            </goals>
-                        </execution>
-                        <execution>
-                            <id>enforce-test-deps-junit-scope</id>
-                            <configuration>
-                                <rules>
-                                    <bannedDependencies>
-                                        <searchTransitive>false</searchTransitive>
-                                        <excludes>
-                                            <exclude>org.junit.jupiter:*</exclude>
-                                        </excludes>
-                                        <includes>
-                                            <include>org.junit.jupiter:*:*:*:test</include>
-                                        </includes>
-                                        <message>Found JUnit dependencies with wrong scope:</message>
-                                    </bannedDependencies>
-                                </rules>
-                                <skip>${enforce-test-deps-scope.skip}</skip>
                             </configuration>
                             <goals>
                                 <goal>enforce</goal>
@@ -598,40 +541,7 @@
                     <version>${jandex.version}</version>
                 </plugin>
                 <plugin>
-                    <groupId>net.revelc.code.formatter</groupId>
-                    <artifactId>formatter-maven-plugin</artifactId>
-                    <version>${formatter-maven-plugin.version}</version>
-                    <dependencies>
-                        <dependency>
-                            <artifactId>quarkus-ide-config</artifactId>
-                            <groupId>io.quarkus</groupId>
-                            <version>${project.version}</version>
-                        </dependency>
-                    </dependencies>
-                    <configuration>
-                        <!-- store outside of target to speed up formatting when mvn clean is used -->
-                        <cachedir>.cache/formatter-maven-plugin-${formatter-maven-plugin.version}</cachedir>
-                        <configFile>eclipse-format.xml</configFile>
-                        <lineEnding>LF</lineEnding>
-                        <skip>${format.skip}</skip>
-                    </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>net.revelc.code</groupId>
-                    <artifactId>impsort-maven-plugin</artifactId>
-                    <version>${impsort-maven-plugin.version}</version>
-                    <configuration>
-                        <!-- store outside of target to speed up formatting when mvn clean is used -->
-                        <cachedir>.cache/impsort-maven-plugin-${impsort-maven-plugin.version}</cachedir>
-                        <groups>java.,javax.,jakarta.,org.,com.</groups>
-                        <staticGroups>*</staticGroups>
-                        <skip>${format.skip}</skip>
-                        <removeUnused>true</removeUnused>
-                    </configuration>
-                </plugin>
-                <plugin>
                     <artifactId>maven-resources-plugin</artifactId>
-                    <version>${maven-resources-plugin.version}</version>
                     <configuration>
                         <nonFilteredFileExtensions>
                             <nonFilteredFileExtension>eot</nonFilteredFileExtension>
@@ -640,6 +550,7 @@
                             <nonFilteredFileExtension>woff2</nonFilteredFileExtension>
                             <nonFilteredFileExtension>svg</nonFilteredFileExtension>
                             <nonFilteredFileExtension>ico</nonFilteredFileExtension>
+                            <nonFilteredFileExtension>js</nonFilteredFileExtension>
                         </nonFilteredFileExtensions>
                     </configuration>
                 </plugin>
@@ -654,9 +565,9 @@
                     <version>${wiremock-maven-plugin.version}</version>
                     <dependencies>
                         <dependency>
-                            <groupId>com.github.tomakehurst</groupId>
-                            <artifactId>wiremock-jre8-standalone</artifactId>
-                            <version>${wiremock-jre8.version}</version>
+                            <groupId>org.wiremock</groupId>
+                            <artifactId>wiremock-standalone</artifactId>
+                            <version>${wiremock.version}</version>
                         </dependency>
                     </dependencies>
                 </plugin>
@@ -684,9 +595,9 @@
                     <version>${maven-invoker-plugin.version}</version>
                     <dependencies>
                         <dependency>
-                            <groupId>org.codehaus.groovy</groupId>
+                            <groupId>org.apache.groovy</groupId>
                             <artifactId>groovy</artifactId>
-                            <version>3.0.12</version>
+                            <version>4.0.25</version>
                         </dependency>
                     </dependencies>
                 </plugin>
@@ -712,12 +623,46 @@
                                 <ignoreSignaturesOfMissingClasses>true</ignoreSignaturesOfMissingClasses>
                                 <suppressAnnotations><annotation>**.SuppressForbidden</annotation></suppressAnnotations>
                             </configuration>
-                            <phase>compile</phase>
+                            <phase>${forbiddenapis-maven-plugin.phase}</phase>
                             <goals>
                                 <goal>check</goal>
                             </goals>
                         </execution>
                     </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <configuration>
+                        <skipErrorNoDescriptorsFound>true</skipErrorNoDescriptorsFound>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>help-goal</id>
+                            <goals>
+                                <goal>helpmojo</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.jboss.bridger</groupId>
+                    <artifactId>bridger</artifactId>
+                    <version>${jboss-bridger-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>weave</id>
+                            <phase>process-classes</phase>
+                            <goals>
+                                <goal>transform</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>io.smallrye.certs</groupId>
+                    <artifactId>smallrye-certificate-generator-maven-plugin</artifactId>
+                    <version>${smallrye-certificate-generator.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -821,7 +766,7 @@
                     <plugin>
                         <groupId>com.diffplug.spotless</groupId>
                         <artifactId>spotless-maven-plugin</artifactId>
-                        <version>2.25.0</version>
+                        <version>2.35.0</version>
                         <executions>
                             <execution>
                                 <id>format-kotlin</id>
@@ -834,85 +779,19 @@
 
                         <configuration>
                             <kotlin>
+                                <ktfmt>
+                                    <style>KOTLINLANG</style>
+                                    <!-- optional, other options are DEFAULT, DROPBOX, GOOGLE and KOTLINLANG -->
+                                </ktfmt>
+
                                 <!--
                                     <ktfmt>
                                         <style>DEFAULT</style> &lt;!&ndash; optional, other options are DEFAULT, DROPBOX, GOOGLE and KOTLINLANG &ndash;&gt;
                                     </ktfmt>
                                 -->
-                                <ktlint/>
 
                             </kotlin>
                         </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <profile>
-            <id>release</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.sonatype.plugins</groupId>
-                        <artifactId>nexus-staging-maven-plugin</artifactId>
-                        <version>${nexus-staging-maven-plugin.version}</version>
-                        <extensions>true</extensions>
-                        <configuration>
-                            <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                            <serverId>ossrh</serverId>
-                            <autoReleaseAfterClose>false</autoReleaseAfterClose>
-                            <keepStagingRepositoryOnCloseRuleFailure>true</keepStagingRepositoryOnCloseRuleFailure>
-                        </configuration>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-source-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>attach-sources</id>
-                                <goals>
-                                    <goal>jar-no-fork</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-javadoc-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>attach-javadocs</id>
-                                <goals>
-                                    <goal>jar</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <!--
-                        ## IMPORTANT ##
-                        In your ~/.m2/settings.xml you need to add and edit the following profile:
-                        <profile>
-                            <id>release</id>
-                            <properties>
-                                <gpg.useagent>false</gpg.useagent>
-                                <gpg.executable>/usr/local/Cellar/gnupg@1.4/1.4.23_1/bin/gpg1</gpg.executable> <- use gpg1 on Mac OS X
-                                <gpg.homedir>~/.gnupg</gpg.homedir>  <- Update to your own directory
-                                <gpg.passphrase>******</gpg.passphrase> <- Add your passphrase
-                            </properties>
-                        </profile>
-                         -->
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                            </execution>
-                        </executions>
                     </plugin>
                 </plugins>
             </build>
@@ -943,12 +822,12 @@
                             </execution>
                         </executions>
                         <configuration>
-                            <jdkVersion>11</jdkVersion>
+                            <jdkVersion>17</jdkVersion>
                             <outputFormat>html</outputFormat>
                             <externalDocumentationLinks>
                                 <link>
                                     <!-- Root URL of the generated documentation to link with. The trailing slash is required! -->
-                                    <url>https://docs.oracle.com/en/java/javase/11/docs/api/</url>
+                                    <url>https://docs.oracle.com/en/java/javase/17/docs/api/</url>
                                 </link>
                             </externalDocumentationLinks>
                         </configuration>
@@ -1235,7 +1114,6 @@
                 </plugins>
             </build>
         </profile>
-
         <profile>
             <id>Windows</id>
             <activation>
@@ -1266,38 +1144,9 @@
 
                 <!-- See
                 https://github.com/microsoft/mssql-docker/issues/668 and https://stackoverflow.com/questions/65398641/docker-connect-sql-server-container-non-zero-code-1/66919852#66919852.
-                The MS SQL image segfaults on ARM. Azure Edge is not fully compatible, but it is better than not running the tests at all.
-                The :latest tag segfaults with the same segfault as MSSQL Server but 1.0.6 seems to behave well -->
-                <mssql.image>mcr.microsoft.com/azure-sql-edge:1.0.6</mssql.image>
+                The MS SQL image segfaults on ARM. Azure Edge is not fully compatible, but it is better than not running the tests at all. -->
+                <mssql.image>mcr.microsoft.com/azure-sql-edge:latest</mssql.image>
             </properties>
-        </profile>
-
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openrewrite.maven</groupId>
-                        <artifactId>rewrite-maven-plugin</artifactId>
-                        <version>4.21.0-SNAPSHOT</version>
-                        <configuration>
-                            <configLocation>${maven.multiModuleProjectDirectory}/jakarta/rewrite.yml</configLocation>
-                            <activeStyles>
-                                <style>io.quarkus.style.maven</style>
-                            </activeStyles>
-                            <activeRecipes>
-                                <recipe>io.quarkus.build-parent</recipe>
-                                <recipe>io.quarkus.jakarta-json-cleanup</recipe>
-                            </activeRecipes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
         </profile>
     </profiles>
 </project>

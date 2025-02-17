@@ -6,7 +6,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.CoreMatchers.equalTo;
 
-import javax.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MediaType;
 
 import org.junit.jupiter.api.Test;
 
@@ -270,13 +270,13 @@ public class MultipartResourceTest {
         .when().get("/client/byte-array-as-binary-file-with-pojo")
         .then()
                 .statusCode(200)
-                .body(equalTo("fileOk:true,nameOk:true,pojoOk:true"));
+                .body(equalTo("fileOk:true,nameOk:true,pojoOk:true,uuidNull:false"));
         given()
         .header("Content-Type", "text/plain")
 .when().get("/client/params/byte-array-as-binary-file-with-pojo")
 .then()
         .statusCode(200)
-        .body(equalTo("fileOk:true,nameOk:true,pojoOk:true"));
+        .body(equalTo("fileOk:true,nameOk:true,pojoOk:true,uuidNull:true"));
         // @formatter:on
     }
 
@@ -289,14 +289,14 @@ public class MultipartResourceTest {
         .when().get("/client/byte-array-as-binary-file-with-pojo")
         .then()
                 .statusCode(200)
-                .body(equalTo("fileOk:true,nameOk:true,pojoOk:null"));
+                .body(equalTo("fileOk:true,nameOk:true,pojoOk:null,uuidNull:false"));
         given()
         .queryParam("withPojo", "false")
         .header("Content-Type", "text/plain")
 .when().get("/client/params/byte-array-as-binary-file-with-pojo")
 .then()
         .statusCode(200)
-        .body(equalTo("fileOk:true,nameOk:true,pojoOk:null"));
+        .body(equalTo("fileOk:true,nameOk:true,pojoOk:null,uuidNull:true"));
         // @formatter:on
     }
 
@@ -331,6 +331,30 @@ public class MultipartResourceTest {
                 .contentType(ContentType.TEXT)
                 .statusCode(200)
                 .body(equalTo("HELLO WORLD"));
+    }
+
+    @Test
+    public void shouldSendSingleChunk() {
+        RestAssured.given()
+                .queryParam("size", 1)
+                .when()
+                .get("/client/chunked")
+                .then()
+                .contentType(ContentType.TEXT)
+                .statusCode(200)
+                .body(equalTo("transfer-encodingOk:false"));
+    }
+
+    @Test
+    public void shouldSendMultipleChunks() {
+        RestAssured.given()
+                .queryParam("size", 1000)
+                .when()
+                .get("/client/chunked")
+                .then()
+                .contentType(ContentType.TEXT)
+                .statusCode(200)
+                .body(equalTo("transfer-encodingOk:true"));
     }
 
     private void assertMultipartResponseContains(String response, String name, String contentType, Object value) {

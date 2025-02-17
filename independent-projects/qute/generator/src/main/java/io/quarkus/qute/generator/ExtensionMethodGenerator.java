@@ -14,7 +14,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +59,7 @@ import io.quarkus.qute.ValueResolver;
  * @see ValueResolver
  * @see NamespaceResolver
  */
-public class ExtensionMethodGenerator {
+public class ExtensionMethodGenerator extends AbstractGenerator {
 
     public static final DotName TEMPLATE_EXTENSION = DotName.createSimple(TemplateExtension.class.getName());
     public static final DotName TEMPLATE_ATTRIBUTE = DotName.createSimple(TemplateExtension.TemplateAttribute.class.getName());
@@ -74,14 +73,8 @@ public class ExtensionMethodGenerator {
     public static final String NAMESPACE = "namespace";
     public static final String PATTERN = "pattern";
 
-    private final Set<String> generatedTypes;
-    private final ClassOutput classOutput;
-    private final IndexView index;
-
     public ExtensionMethodGenerator(IndexView index, ClassOutput classOutput) {
-        this.index = index;
-        this.classOutput = classOutput;
-        this.generatedTypes = new HashSet<>();
+        super(index, classOutput);
     }
 
     public Set<String> getGeneratedTypes() {
@@ -103,7 +96,16 @@ public class ExtensionMethodGenerator {
         }
     }
 
-    public void generate(MethodInfo method, String matchName, List<String> matchNames, String matchRegex, Integer priority) {
+    /**
+     *
+     * @param method
+     * @param matchName
+     * @param matchNames
+     * @param matchRegex
+     * @param priority
+     * @return the fully qualified name of the generated class
+     */
+    public String generate(MethodInfo method, String matchName, List<String> matchNames, String matchRegex, Integer priority) {
 
         AnnotationInstance extensionAnnotation = method.annotation(TEMPLATE_EXTENSION);
         List<Type> parameters = method.parameterTypes();
@@ -182,7 +184,7 @@ public class ExtensionMethodGenerator {
         if (matchRegex != null && !matchRegex.isEmpty()) {
             patternField = valueResolver.getFieldCreator(PATTERN, Pattern.class)
                     .setModifiers(ACC_PRIVATE | ACC_FINAL).getFieldDescriptor();
-            MethodCreator constructor = valueResolver.getMethodCreator("<init>", "V");
+            MethodCreator constructor = valueResolver.getMethodCreator(MethodDescriptor.INIT, "V");
             // Invoke super()
             constructor.invokeSpecialMethod(Descriptors.OBJECT_CONSTRUCTOR, constructor.getThis());
             // Compile the regex pattern
@@ -199,6 +201,7 @@ public class ExtensionMethodGenerator {
         implementResolve(valueResolver, declaringClass, method, matchName, matchNames, patternField, params);
 
         valueResolver.close();
+        return generatedName.replace('/', '.');
     }
 
     public NamespaceResolverCreator createNamespaceResolver(ClassInfo declaringClass, String namespace, int priority) {
@@ -225,8 +228,7 @@ public class ExtensionMethodGenerator {
         ResultHandle evalContext = resolve.getMethodParam(0);
         ResultHandle base = resolve.invokeInterfaceMethod(Descriptors.GET_BASE, evalContext);
         boolean isNameParamRequired = patternField != null || !matchNames.isEmpty() || matchName.equals(TemplateExtension.ANY);
-        boolean returnsCompletionStage = method.returnType().kind() != Kind.PRIMITIVE && ValueResolverGenerator
-                .hasCompletionStageInTypeClosure(index.getClassByName(method.returnType().name()), index);
+        boolean returnsCompletionStage = hasCompletionStage(method.returnType());
 
         ResultHandle ret;
         if (!params.needsEvaluation()) {
@@ -251,7 +253,7 @@ public class ExtensionMethodGenerator {
             if (returnsCompletionStage) {
                 ret = result;
             } else {
-                ret = resolve.invokeStaticMethod(Descriptors.COMPLETED_STAGE, result);
+                ret = resolve.invokeStaticMethod(Descriptors.COMPLETED_STAGE_OF, result);
             }
         } else {
             ret = resolve
@@ -328,7 +330,7 @@ public class ExtensionMethodGenerator {
                         // Last param is varargs
                         Type varargsParam = params.get(lastIdx).type;
                         ResultHandle componentType = tryCatch
-                                .loadClass(varargsParam.asArrayType().component().name().toString());
+                                .loadClass(varargsParam.asArrayType().constituent().name().toString());
                         ResultHandle varargsResults = tryCatch.invokeVirtualMethod(
                                 Descriptors.EVALUATED_PARAMS_GET_VARARGS_RESULTS,
                                 evaluatedParamsHandle, tryCatch.load(evaluated.size()), componentType);
@@ -449,6 +451,10 @@ public class ExtensionMethodGenerator {
             implementGetPriority(namespaceResolver, priority);
         }
 
+        public String getClassName() {
+            return namespaceResolver.getClassName().replace('/', '.');
+        }
+
         public ResolveCreator implementResolve() {
             return new ResolveCreator();
         }
@@ -474,7 +480,7 @@ public class ExtensionMethodGenerator {
                 this.name = resolve.invokeInterfaceMethod(Descriptors.GET_NAME, evalContext);
                 this.paramsHandle = resolve.invokeInterfaceMethod(Descriptors.GET_PARAMS, evalContext);
                 this.paramsCount = resolve.invokeInterfaceMethod(Descriptors.COLLECTION_SIZE, paramsHandle);
-                this.constructor = namespaceResolver.getMethodCreator("<init>", "V");
+                this.constructor = namespaceResolver.getMethodCreator(MethodDescriptor.INIT, "V");
                 // Invoke super()
                 this.constructor.invokeSpecialMethod(Descriptors.OBJECT_CONSTRUCTOR, constructor.getThis());
             }
@@ -506,7 +512,7 @@ public class ExtensionMethodGenerator {
                                     matchScope.load(param.name));
                         }
                     }
-                    matchScope.returnValue(matchScope.invokeStaticMethod(Descriptors.COMPLETED_STAGE,
+                    matchScope.returnValue(matchScope.invokeStaticMethod(Descriptors.COMPLETED_STAGE_OF,
                             matchScope.invokeStaticMethod(MethodDescriptor.of(method), args)));
                 } else {
                     ResultHandle ret = matchScope.newInstance(MethodDescriptor.ofConstructor(CompletableFuture.class));
@@ -579,7 +585,7 @@ public class ExtensionMethodGenerator {
                                 // Last param is varargs
                                 Type varargsParam = params.get(lastIdx).type;
                                 ResultHandle componentType = tryCatch
-                                        .loadClass(varargsParam.asArrayType().component().name().toString());
+                                        .loadClass(varargsParam.asArrayType().constituent().name().toString());
                                 ResultHandle varargsResults = tryCatch.invokeVirtualMethod(
                                         Descriptors.EVALUATED_PARAMS_GET_VARARGS_RESULTS,
                                         whenEvaluatedParams, tryCatch.load(evaluated.size()), componentType);

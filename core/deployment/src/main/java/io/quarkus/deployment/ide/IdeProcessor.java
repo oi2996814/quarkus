@@ -82,7 +82,7 @@ public class IdeProcessor {
             return null;
         }
         Ide result = null;
-        if (ideConfig.target == IdeConfig.Target.auto) {
+        if (ideConfig.target() == IdeConfig.Target.auto) {
 
             // the idea here is to auto-detect the special files that IDEs create
             // and also the running IDE process if need be
@@ -102,21 +102,21 @@ public class IdeProcessor {
                             }
                         }
                     }
-                    if (matches.size() == 1) {
-                        result = matches.get(0);
-                    } else if (matches.size() == 0 && runningIdes.size() > 0) {
+                    if ((matches.size() == 0 && runningIdes.size() > 0)) {
                         result = runningIdes.iterator().next();
+                    } else if (matches.size() >= 1) {
+                        result = matches.get(0);
                     }
                 }
             }
         } else {
-            if (ideConfig.target == IdeConfig.Target.idea) {
+            if (ideConfig.target() == IdeConfig.Target.idea) {
                 result = Ide.IDEA;
-            } else if (ideConfig.target == IdeConfig.Target.eclipse) {
+            } else if (ideConfig.target() == IdeConfig.Target.eclipse) {
                 result = Ide.ECLIPSE;
-            } else if (ideConfig.target == IdeConfig.Target.vscode) {
+            } else if (ideConfig.target() == IdeConfig.Target.vscode) {
                 result = Ide.VSCODE;
-            } else if (ideConfig.target == IdeConfig.Target.netbeans) {
+            } else if (ideConfig.target() == IdeConfig.Target.netbeans) {
                 result = Ide.NETBEANS;
             }
         }
@@ -189,7 +189,6 @@ public class IdeProcessor {
         return new IdeRunningProcessBuildItem(result);
     }
 
-    // TODO: remove when we move to Java 11 and just call the methods of 'java.lang.ProcessHandle'
     private static class ProcessUtil {
 
         /**
@@ -201,7 +200,7 @@ public class IdeProcessor {
                 ProcessHandle.Info info = p.info();
                 Optional<String> command = info.command();
                 if (command.isPresent()) {
-                    result.add(new ProcessInfo(command.get(), info.arguments().orElse(null)));
+                    result.add(new ProcessInfo(command.get(), info.commandLine().orElse(""), info.arguments().orElse(null)));
                 }
             });
             return result;
@@ -211,10 +210,12 @@ public class IdeProcessor {
     private static class ProcessInfo {
         // the executable pathname of the process.
         private final String command;
+        private final String commandLine;
         private final String[] arguments;
 
-        public ProcessInfo(String command, String[] arguments) {
+        public ProcessInfo(String command, String commandLine, String[] arguments) {
             this.command = command;
+            this.commandLine = commandLine;
             this.arguments = arguments;
         }
 
@@ -222,12 +223,16 @@ public class IdeProcessor {
             return command;
         }
 
+        public String getCommandLine() {
+            return commandLine;
+        }
+
         public String[] getArguments() {
             return arguments;
         }
 
         private boolean containInCommand(String value) {
-            return this.command.contains(value);
+            return this.command.contains(value) || this.commandLine.contains(value);
         }
 
         private boolean containInArguments(String value) {

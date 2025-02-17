@@ -25,7 +25,6 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-import io.quarkus.bootstrap.classloading.ClassPathElement;
 import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.deployment.IsDevelopment;
 import io.quarkus.deployment.IsNormal;
@@ -75,8 +74,8 @@ public class TestTracingProcessor {
     @Produce(ServiceStartBuildItem.class)
     void startTesting(TestConfig config, LiveReloadBuildItem liveReloadBuildItem,
             LaunchModeBuildItem launchModeBuildItem, List<TestListenerBuildItem> testListenerBuildItems) {
-        if (TestSupport.instance().isEmpty() || config.continuousTesting == TestConfig.Mode.DISABLED
-                || config.flatClassPath) {
+        if (TestSupport.instance().isEmpty() || config.continuousTesting() == TestConfig.Mode.DISABLED
+                || config.flatClassPath()) {
             return;
         }
         DevModeType devModeType = launchModeBuildItem.getDevModeType().orElse(null);
@@ -92,18 +91,18 @@ public class TestTracingProcessor {
             testSupport.addListener(i.listener);
         }
         testSupport.setConfig(config);
-        testSupport.setTags(config.includeTags.orElse(Collections.emptyList()),
-                config.excludeTags.orElse(Collections.emptyList()));
-        testSupport.setPatterns(config.includePattern.orElse(null),
-                config.excludePattern.orElse(null));
-        testSupport.setEngines(config.includeEngines.orElse(Collections.emptyList()),
-                config.excludeEngines.orElse(Collections.emptyList()));
-        testSupport.setConfiguredDisplayTestOutput(config.displayTestOutput);
-        testSupport.setTestType(config.type);
+        testSupport.setTags(config.includeTags().orElse(Collections.emptyList()),
+                config.excludeTags().orElse(Collections.emptyList()));
+        testSupport.setPatterns(config.includePattern().orElse(null),
+                config.excludePattern().orElse(null));
+        testSupport.setEngines(config.includeEngines().orElse(Collections.emptyList()),
+                config.excludeEngines().orElse(Collections.emptyList()));
+        testSupport.setConfiguredDisplayTestOutput(config.displayTestOutput());
+        testSupport.setTestType(config.type());
         if (!liveReloadBuildItem.isLiveReload()) {
-            if (config.continuousTesting == TestConfig.Mode.ENABLED) {
+            if (config.continuousTesting() == TestConfig.Mode.ENABLED) {
                 testSupport.start();
-            } else if (config.continuousTesting == TestConfig.Mode.PAUSED) {
+            } else if (config.continuousTesting() == TestConfig.Mode.PAUSED) {
                 testSupport.stop();
             }
         }
@@ -155,13 +154,8 @@ public class TestTracingProcessor {
         return null;
     }
 
-    public boolean isAppClass(String theClassName) {
-        QuarkusClassLoader cl = (QuarkusClassLoader) Thread.currentThread()
-                .getContextClassLoader();
-        //if the class file is present in this (and not the parent) CL then it is an application class
-        List<ClassPathElement> res = cl
-                .getElementsWithResource(theClassName.replace(".", "/") + ".class", true);
-        return !res.isEmpty();
+    public boolean isAppClass(String className) {
+        return QuarkusClassLoader.isApplicationClass(className);
     }
 
     public static class TracingClassVisitor extends ClassVisitor {
@@ -198,7 +192,7 @@ public class TestTracingProcessor {
     }
 
     @GroupCommandDefinition(name = "test", description = "Test Commands", groupCommands = { TagsCommand.class,
-            PatternCommand.class })
+            PatternCommand.class }, generateHelp = true)
     public static class TestCommand implements Command {
 
         @Override
@@ -208,7 +202,7 @@ public class TestTracingProcessor {
     }
 
     @GroupCommandDefinition(name = "tags", description = "Tag Commands", groupCommands = { IncludeTagsCommand.class,
-            ExcludeTagsCommand.class })
+            ExcludeTagsCommand.class }, generateHelp = true)
     public static class TagsCommand implements Command {
 
         @Override
@@ -217,7 +211,7 @@ public class TestTracingProcessor {
         }
     }
 
-    @CommandDefinition(name = "include", description = "Sets the current included tags")
+    @CommandDefinition(name = "include", description = "Sets the current included tags, this supports JUnit tag expressions.")
     public static class IncludeTagsCommand extends TestSelectionCommand {
 
         @Arguments(completer = TagCompleter.class)
@@ -243,7 +237,7 @@ public class TestTracingProcessor {
         }
     }
 
-    @CommandDefinition(name = "exclude", description = "Sets the current excluded tags")
+    @CommandDefinition(name = "exclude", description = "Sets the current excluded tags, this supports JUnit tag expressions.")
     public static class ExcludeTagsCommand extends TestSelectionCommand {
 
         @Arguments(completer = TagCompleter.class)
@@ -271,7 +265,7 @@ public class TestTracingProcessor {
 
     @GroupCommandDefinition(name = "pattern", description = "Include/Exclude pattern Commands", groupCommands = {
             IncludePatternCommand.class,
-            ExcludePatternCommand.class })
+            ExcludePatternCommand.class }, generateHelp = true)
     public static class PatternCommand implements Command {
 
         @Override
@@ -298,11 +292,11 @@ public class TestTracingProcessor {
 
         @Override
         protected void configure(TestSupport testSupport) {
-            testSupport.setPatterns(pattern, testSupport.exclude.pattern());
+            testSupport.setPatterns(pattern, testSupport.exclude != null ? testSupport.exclude.pattern() : null);
         }
     }
 
-    @CommandDefinition(name = "exclude", description = "Sets the current excluded tags")
+    @CommandDefinition(name = "exclude", description = "Sets the current exclude pattern")
     public static class ExcludePatternCommand extends TestSelectionCommand {
 
         @Argument(completer = TagCompleter.class)
@@ -320,7 +314,7 @@ public class TestTracingProcessor {
 
         @Override
         protected void configure(TestSupport testSupport) {
-            testSupport.setPatterns(testSupport.include.pattern(), pattern);
+            testSupport.setPatterns(testSupport.include != null ? testSupport.include.pattern() : null, pattern);
         }
     }
 

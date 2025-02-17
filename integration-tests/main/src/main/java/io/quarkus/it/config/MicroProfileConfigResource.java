@@ -1,12 +1,13 @@
 package io.quarkus.it.config;
 
-import javax.inject.Inject;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.wildfly.common.net.CidrAddress;
+
+import io.smallrye.common.net.CidrAddress;
 
 /**
  * Test some MicroProfile config primitives.

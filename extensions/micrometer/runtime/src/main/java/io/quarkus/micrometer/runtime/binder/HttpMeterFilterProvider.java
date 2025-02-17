@@ -1,7 +1,7 @@
 package io.quarkus.micrometer.runtime.binder;
 
-import javax.inject.Singleton;
-import javax.ws.rs.Produces;
+import jakarta.inject.Singleton;
+import jakarta.ws.rs.Produces;
 
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.internal.OnlyOnceLoggingDenyMeterFilter;
@@ -22,7 +22,7 @@ public class HttpMeterFilterProvider {
     public MeterFilter metricsHttpClientUriTagFilter(HttpClientConfig httpClientConfig) {
         if (binderConfiguration.isClientEnabled()) {
             return maximumAllowableUriTagsFilter(binderConfiguration.getHttpClientRequestsName(),
-                    httpClientConfig.maxUriTags);
+                    httpClientConfig.maxUriTags());
         }
         return null;
     }
@@ -32,7 +32,7 @@ public class HttpMeterFilterProvider {
     public MeterFilter metricsHttpServerUriTagFilter(HttpServerConfig httpServerConfig) {
         if (binderConfiguration.isServerEnabled()) {
             return maximumAllowableUriTagsFilter(binderConfiguration.getHttpServerRequestsName(),
-                    httpServerConfig.maxUriTags);
+                    httpServerConfig.maxUriTags());
         }
         return null;
     }
@@ -42,7 +42,7 @@ public class HttpMeterFilterProvider {
     public MeterFilter metricsHttpPushUriTagFilter(HttpServerConfig httpServerConfig) {
         if (binderConfiguration.isServerEnabled()) {
             return maximumAllowableUriTagsFilter(binderConfiguration.getHttpServerPushName(),
-                    httpServerConfig.maxUriTags);
+                    httpServerConfig.maxUriTags());
         }
         return null;
     }
@@ -52,7 +52,7 @@ public class HttpMeterFilterProvider {
     public MeterFilter metricsHttpWebSocketsUriTagFilter(HttpServerConfig httpServerConfig) {
         if (binderConfiguration.isServerEnabled()) {
             return maximumAllowableUriTagsFilter(binderConfiguration.getHttpServerWebSocketConnectionsName(),
-                    httpServerConfig.maxUriTags);
+                    httpServerConfig.maxUriTags());
         }
         return null;
     }

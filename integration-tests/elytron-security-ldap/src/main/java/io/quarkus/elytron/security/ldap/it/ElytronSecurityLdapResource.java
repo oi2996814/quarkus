@@ -16,10 +16,12 @@
  */
 package io.quarkus.elytron.security.ldap.it;
 
-import javax.annotation.security.RolesAllowed;
-import javax.enterprise.context.ApplicationScoped;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.SecurityContext;
 
 @Path("/api")
 @ApplicationScoped
@@ -43,6 +45,13 @@ public class ElytronSecurityLdapResource {
     @RolesAllowed("adminRole")
     public String forbidden() {
         return "authorized";
+    }
+
+    @GET
+    @Path("/requiresRootRole")
+    @RolesAllowed("root")
+    public String getPrincipalName(@Context SecurityContext securityContext) {
+        return securityContext.getUserPrincipal().getName();
     }
 
 }

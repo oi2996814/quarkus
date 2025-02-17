@@ -20,32 +20,44 @@
             <artifactId>quarkus-arc</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.jboss.narayana.rts</groupId>
+            <groupId>org.jboss.narayana.lra</groupId>
             <artifactId>narayana-lra</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.jboss.narayana.rts</groupId>
+            <groupId>org.jboss.narayana.lra</groupId>
             <artifactId>lra-service-base</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jboss.spec.javax.ws.rs</groupId>
+                    <artifactId>jboss-jaxrs-api_3.0_spec</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.jboss.narayana.rts</groupId>
+            <groupId>org.jboss.narayana.lra</groupId>
             <artifactId>lra-proxy-api</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jboss.resteasy</groupId>
+                    <artifactId>resteasy-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.jboss.narayana.rts</groupId>
+            <groupId>org.jboss.narayana.lra</groupId>
             <artifactId>lra-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.jboss.spec.javax.ws.rs</groupId>
-            <artifactId>jboss-jaxrs-api_2.1_spec</artifactId>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.eclipse.microprofile.lra</groupId>
             <artifactId>microprofile-lra-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.sun.activation</groupId>
-            <artifactId>jakarta.activation</artifactId>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>angus-activation</artifactId>
         </dependency>
     </dependencies>
 
@@ -57,54 +69,33 @@
                 <configuration>
                     <removedResources>
                         <artifact>
-                            <key>org.jboss.narayana.rts:narayana-lra</key>
-                            <resources>META-INF/services/javax.ws.rs.client.ClientBuilder</resources>
+                            <key>org.jboss.narayana.lra:narayana-lra</key>
+                            <resources>META-INF/services/jakarta.ws.rs.client.ClientBuilder</resources>
                         </artifact>
                         <artifact>
-                            <key>org.jboss.narayana.rts:lra-client</key>
-                            <resources>META-INF/services/javax.ws.rs.client.ClientBuilder</resources>
+                            <key>org.jboss.narayana.lra:lra-client</key>
+                            <resources>META-INF/services/jakarta.ws.rs.client.ClientBuilder</resources>
                         </artifact>
                     </removedResources>
                 </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>io.quarkus</groupId>
-                            <artifactId>quarkus-extension-processor</artifactId>
-                            <version>${project.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>jakarta-rewrite</id>
-            <activation>
-                <property>
-                    <name>jakarta-rewrite</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.openrewrite.maven</groupId>
-                        <artifactId>rewrite-maven-plugin</artifactId>
-                        <configuration>
-                            <activeRecipes>
-                                <recipe>io.quarkus.narayana-lra-switch</recipe>
-                                <recipe>io.quarkus.jakarta-jaxrs-switch</recipe>
-                                <recipe>io.quarkus.jakarta-angus-activation-switch</recipe>
-                            </activeRecipes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

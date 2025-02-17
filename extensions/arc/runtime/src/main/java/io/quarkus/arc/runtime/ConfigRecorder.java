@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import javax.enterprise.inject.spi.DeploymentException;
+import jakarta.enterprise.inject.spi.DeploymentException;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -18,7 +18,7 @@ import io.quarkus.runtime.annotations.RecordableConstructor;
 import io.quarkus.runtime.annotations.Recorder;
 import io.quarkus.runtime.configuration.ConfigurationException;
 import io.smallrye.config.ConfigMappings;
-import io.smallrye.config.ConfigMappings.ConfigClassWithPrefix;
+import io.smallrye.config.ConfigMappings.ConfigClass;
 import io.smallrye.config.ConfigValidationException;
 import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.inject.ConfigProducerUtil;
@@ -60,7 +60,7 @@ public class ConfigRecorder {
                 ConfigProducerUtil.getValue(property.getName(), effectivePropertyType, property.getDefaultValue(), config);
             } catch (Exception e) {
                 msg.append("Failed to load config value of type ").append(effectivePropertyType).append(" for: ")
-                        .append(property.getName());
+                        .append(property.getName()).append(System.lineSeparator());
                 problems.add(property.getName());
                 suppressed.add(e);
             }
@@ -75,7 +75,7 @@ public class ConfigRecorder {
         }
     }
 
-    public void registerConfigProperties(final Set<ConfigClassWithPrefix> configClasses) {
+    public void registerConfigProperties(final Set<ConfigClass> configClasses) {
         try {
             SmallRyeConfig config = (SmallRyeConfig) ConfigProvider.getConfig();
             ConfigMappings.registerConfigProperties(config, configClasses);

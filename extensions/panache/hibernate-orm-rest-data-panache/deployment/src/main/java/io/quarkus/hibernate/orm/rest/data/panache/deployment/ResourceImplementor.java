@@ -5,10 +5,10 @@ import static io.quarkus.gizmo.MethodDescriptor.ofMethod;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.Priority;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.Alternative;
-import javax.transaction.Transactional;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.transaction.Transactional;
 
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.FieldInfo;
@@ -24,7 +24,6 @@ import io.quarkus.gizmo.ResultHandle;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import io.quarkus.rest.data.panache.deployment.Constants;
-import io.quarkus.rest.data.panache.deployment.ResourceMethodListenerImplementor;
 import io.quarkus.runtime.util.HashUtil;
 
 /**
@@ -46,8 +45,9 @@ class ResourceImplementor {
      * Implements {@link io.quarkus.rest.data.panache.RestDataResource} interfaces defined in a user application.
      * Instances of this class are registered as beans and are later used in the generated JAX-RS controllers.
      */
-    String implement(ClassOutput classOutput, DataAccessImplementor dataAccessImplementor, String resourceType,
+    String implement(ClassOutput classOutput, DataAccessImplementor dataAccessImplementor, ClassInfo resourceInterface,
             String entityType, List<ClassInfo> resourceMethodListeners) {
+        String resourceType = resourceInterface.name().toString();
         String className = resourceType + "Impl_" + HashUtil.sha1(resourceType);
         LOGGER.tracef("Starting generation of '%s'", className);
         ClassCreator classCreator = ClassCreator.builder()
@@ -62,8 +62,9 @@ class ResourceImplementor {
         classCreator.addAnnotation(Alternative.class);
         classCreator.addAnnotation(Priority.class).add("value", Integer.MAX_VALUE);
 
-        ResourceMethodListenerImplementor listenerImplementor = new ResourceMethodListenerImplementor(classCreator,
-                resourceMethodListeners, false);
+        HibernateORMResourceMethodListenerImplementor listenerImplementor = new HibernateORMResourceMethodListenerImplementor(
+                classCreator,
+                resourceMethodListeners);
 
         implementList(classCreator, dataAccessImplementor);
         implementListWithQuery(classCreator, dataAccessImplementor);
@@ -118,9 +119,11 @@ class ResourceImplementor {
      */
     private void implementListPageCount(ClassCreator classCreator, DataAccessImplementor dataAccessImplementor) {
         MethodCreator methodCreator = classCreator.getMethodCreator(Constants.PAGE_COUNT_METHOD_PREFIX + "list", int.class,
-                Page.class);
+                Page.class, String.class, Map.class);
         ResultHandle page = methodCreator.getMethodParam(0);
-        methodCreator.returnValue(dataAccessImplementor.pageCount(methodCreator, page));
+        ResultHandle query = methodCreator.getMethodParam(1);
+        ResultHandle queryParams = methodCreator.getMethodParam(2);
+        methodCreator.returnValue(dataAccessImplementor.pageCount(methodCreator, page, query, queryParams));
         methodCreator.close();
     }
 
@@ -141,7 +144,7 @@ class ResourceImplementor {
     }
 
     private void implementAdd(ClassCreator classCreator, DataAccessImplementor dataAccessImplementor,
-            ResourceMethodListenerImplementor resourceMethodListenerImplementor) {
+            HibernateORMResourceMethodListenerImplementor resourceMethodListenerImplementor) {
         MethodCreator methodCreator = classCreator.getMethodCreator("add", Object.class, Object.class);
         methodCreator.addAnnotation(Transactional.class);
         ResultHandle entity = methodCreator.getMethodParam(0);
@@ -153,7 +156,7 @@ class ResourceImplementor {
     }
 
     private void implementUpdate(ClassCreator classCreator, DataAccessImplementor dataAccessImplementor, String entityType,
-            ResourceMethodListenerImplementor resourceMethodListenerImplementor) {
+            HibernateORMResourceMethodListenerImplementor resourceMethodListenerImplementor) {
         MethodCreator methodCreator = classCreator.getMethodCreator("update", Object.class, Object.class, Object.class);
         methodCreator.addAnnotation(Transactional.class);
         ResultHandle id = methodCreator.getMethodParam(0);
@@ -168,7 +171,7 @@ class ResourceImplementor {
     }
 
     private void implementDelete(ClassCreator classCreator, DataAccessImplementor dataAccessImplementor,
-            ResourceMethodListenerImplementor resourceMethodListenerImplementor) {
+            HibernateORMResourceMethodListenerImplementor resourceMethodListenerImplementor) {
         MethodCreator methodCreator = classCreator.getMethodCreator("delete", boolean.class, Object.class);
         methodCreator.addAnnotation(Transactional.class);
         ResultHandle id = methodCreator.getMethodParam(0);
